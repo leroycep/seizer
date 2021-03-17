@@ -1,3 +1,5 @@
 zig-cache/
 .zigmod/
 deps.zig
+.gyro
+gyro.lock
