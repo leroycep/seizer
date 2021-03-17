@@ -21,11 +21,13 @@ functions.
 
 ## Usage
 
-On any platform you want to build for, you need to add `seizer` as a dependency.
-You can do this by copying the repository into your project folder. However,
-this guide will assume that you are using [zigmod][] to manage dependencies.
+On any platform you want to build for, you need to add `seizer` as a
+dependency.  You can do this by copying the repository into your project folder
+or adding it using one of zig's package managers:
 
-To add `seizer` as a dependency, add the following to your `zig.mod`:
+### zigmod
+
+To add `seizer` as a dependency using [zigmod][], add the following to your `zig.mod`:
 
 ```yaml
 dependencies:
@@ -36,6 +38,24 @@ dependencies:
 Now run `zigmod fetch`.
 
 [zigmod]: https://github.com/nektro/zigmod
+
+### gyro
+
+To add `seizer` as a dependency using [gyro][]:
+
+```
+gyro add --github leroycep/seizer
+```
+
+[gyro]: https://github.com/mattnite/gyro
+
+after setting up your project's `build.zig` (see gyro docs), run
+
+```
+gyro build
+```
+
+to fetch dependencies and build your project.
 
 ### Desktop
 
