@@ -35,6 +35,8 @@ dependencies:
 
 Now run `zigmod fetch`.
 
+[zigmod]: https://github.com/nektro/zigmod
+
 ### Desktop
 
 `seizer` uses SDL2 to create a window and acquire an OpenGL context. In your
