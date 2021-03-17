@@ -23,7 +23,7 @@ functions.
 
 On any platform you want to build for, you need to add `seizer` as a
 dependency.  You can do this by copying the repository into your project folder
-or adding it using one of zig's package managers:
+or adding it using one of zig's unofficial package managers:
 
 ### zigmod
 
