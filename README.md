@@ -74,6 +74,7 @@ pub fn build(b: *Builder) void {
     const native = b.addExecutable("your-app-name-here", "path/to/main.zig");
     native.setTarget(target);
     native.setBuildMode(mode);
+    native.install();
 
     // Link SDL2
     native.linkLibC();
@@ -88,7 +89,8 @@ Than we can build and run the game like so:
 
 ```sh
 $ zig build install
-$ ./zig-cache/bin/your-app-name-here
+$ cd assets # If you have an assets folder and don't want to prepend "assets/" to every asset you load
+$ ../zig-cache/bin/your-app-name-here
 ```
 
 Note: Building `seizer` for desktop platforms other than Linux hasn't been
@@ -133,7 +135,7 @@ pub fn build(b: *Builder) void {
     });
     
     // Add seizer and all other dependencies in `zig.mod` to the web target
-    deps.addAllTo(native);
+    deps.addAllTo(web);
     
     // 2. Output the WASM binary to `zig-cache/www` when it is built
     web.setOutputDir(b.fmt("{s}/www", .{b.install_prefix}));
@@ -151,7 +153,7 @@ pub fn build(b: *Builder) void {
         .install_subdir = "www",
     });
 
-    const build_web = b.step("example-" ++ example.name ++ "-web", "Build the " ++ example.name ++ " example for the web");
+    const build_web = b.step("your-app-name-here-web", "Build your app for the web");
     build_web.dependOn(&web.step);
     build_web.dependOn(&install_seizerjs.step);
     build_web.dependOn(&install_index.step);
