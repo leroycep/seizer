@@ -1,0 +1,22 @@
+pkgs:
+  seizer:
+    version: 0.0.0
+    description: Cross platform Zig library for obtaining a rendering context and loading assets
+    source_url: "https://github.com/leroycep/seizer"
+    root: src/seizer.zig
+    files:
+      README.md
+      LICENSE
+      build.zig
+      src/*.zig
+      src/web/*
+      src/sdl/*.zig
+      examples/*
+deps:
+  math:
+    root: math.zig
+    src:
+      github:
+        user: leroycep
+        repo: zigmath
+        ref: master
