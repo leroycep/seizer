@@ -5,6 +5,7 @@ const Event = @import("../event.zig").Event;
 const Keycode = @import("../event.zig").Keycode;
 const Scancode = @import("../event.zig").Scancode;
 const MouseButton = @import("../event.zig").MouseButton;
+const ControllerButtonEvent = @import("../event.zig").ControllerButtonEvent;
 const builtin = @import("builtin");
 // pub usingnamespace @import("./gl.zig");
 pub const gl = @import("./gl_es_3v0.zig");
@@ -64,7 +65,7 @@ pub fn getScreenSize() Vec2i {
 
 pub fn run(comptime app: App) void {
     // Init SDL
-    if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO) != 0) {
+    if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER) != 0) {
         logSDLErr(error.InitFailed);
     }
     defer c.SDL_Quit();
@@ -281,6 +282,52 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
         // Audio events
         c.SDL_AUDIODEVICEADDED => return null,
         c.SDL_AUDIODEVICEREMOVED => return null,
+
+        // Controller events
+        c.SDL_CONTROLLERAXISMOTION => {
+            return Event{
+                .ControllerAxis = .{
+                    .timestamp = sdlEvent.caxis.timestamp,
+                    .joystickID = sdlEvent.caxis.which,
+                    .axis = sdlEvent.caxis.axis,
+                    .value = sdlEvent.caxis.value,
+                },
+            };
+        },
+
+        c.SDL_CONTROLLERBUTTONUP, c.SDL_CONTROLLERBUTTONDOWN, c.SDL_JOYBUTTONUP, c.SDL_JOYBUTTONDOWN => {
+            const button_event = ControllerButtonEvent{
+                .timestamp = sdlEvent.cbutton.timestamp,
+                .joystickID = sdlEvent.cbutton.which,
+                .button = sdlEvent.cbutton.button,
+                .pressed = if (sdlEvent.cbutton.state == c.SDL_PRESSED) true else false,
+            };
+            if (sdlEvent.@"type" == c.SDL_CONTROLLERBUTTONUP) {
+                return Event{
+                    .ControllerButtonUp = button_event,
+                };
+            } else {
+                return Event{
+                    .ControllerButtonDown = button_event,
+                };
+            }
+        },
+
+        c.SDL_CONTROLLERDEVICEADDED => {
+            _ = c.SDL_GameControllerOpen(sdlEvent.cdevice.which);
+            std.log.info("controller device added {}\n", .{sdlEvent.cdevice});
+            return null;
+        },
+
+        c.SDL_CONTROLLERDEVICEREMOVED => {
+            std.log.info("controller device removed {}\n", .{sdlEvent.cdevice});
+            return null;
+        },
+
+        c.SDL_CONTROLLERDEVICEREMAPPED => {
+            std.log.info("controller device remapped {}\n", .{sdlEvent.cdevice});
+            return null;
+        },
 
         else => std.debug.warn("unknown event {}\n", .{sdlEvent.@"type"}),
     }

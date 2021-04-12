@@ -15,6 +15,10 @@ pub const EventTag = enum {
     MouseButtonUp,
     MouseWheel,
 
+    ControllerAxis,
+    ControllerButtonDown,
+    ControllerButtonUp,
+
     Custom,
 };
 
@@ -32,6 +36,10 @@ pub const Event = union(enum) {
     MouseButtonDown: MouseButtonEvent,
     MouseButtonUp: MouseButtonEvent,
     MouseWheel: Vec2i,
+
+    ControllerAxis: ControllerAxisEvent,
+    ControllerButtonDown: ControllerButtonEvent,
+    ControllerButtonUp: ControllerButtonEvent,
 
     Custom: u32,
 };
@@ -85,6 +93,22 @@ pub const MouseMoveEvent = struct {
 };
 
 pub const MouseButtonEvent = struct { pos: Vec2i, button: MouseButton };
+
+// Controller
+
+pub const ControllerAxisEvent = struct {
+    timestamp: u32,
+    joystickID: i32,
+    axis: u8,
+    value: i16,
+};
+
+pub const ControllerButtonEvent = struct {
+    timestamp: u32,
+    joystickID: i32,
+    button: u8,
+    pressed: bool,
+};
 
 pub const Scancode = enum(u16) {
     UNKNOWN,
