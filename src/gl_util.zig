@@ -38,7 +38,7 @@ pub fn compileShader(allocator: *std.mem.Allocator, vertex_source: [:0]const u8,
 
         gl.getProgramInfoLog(program, @intCast(c_int, info_log.len), null, info_log.ptr);
 
-        std.log.info("failed to compile shader:\n{}", .{info_log});
+        std.log.info("failed to compile shader:\n{s}", .{info_log});
 
         return error.InvalidShader;
     }
@@ -71,7 +71,7 @@ pub fn compilerShaderPart(allocator: *std.mem.Allocator, shader_type: gl.GLenum,
 
         gl.getShaderInfoLog(shader, @intCast(c_int, info_log.len), null, info_log.ptr);
 
-        std.log.info("failed to compile shader:\n{}", .{info_log});
+        std.log.info("failed to compile shader:\n{s}", .{info_log});
 
         return error.InvalidShader;
     }
