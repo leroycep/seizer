@@ -21,6 +21,7 @@ pub const App = struct {
     } = .{},
     maxDeltaSeconds: f64 = 0.25,
     tickDeltaSeconds: f64 = 16.0 / 1000.0,
+    sdlControllerDBPath: ?[:0]const u8 = null,
 };
 
 fn onInitDoNothing() anyerror!void {}

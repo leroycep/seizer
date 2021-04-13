@@ -92,6 +92,11 @@ pub fn run(comptime app: App) void {
     };
     defer c.SDL_DestroyWindow(sdl_window);
 
+    // TODO: Give user more control over this?
+    if (app.sdlControllerDBPath) |dbpath| {
+        _ = c.SDL_GameControllerAddMappingsFromFile(dbpath);
+    }
+
     const gl_context = c.SDL_GL_CreateContext(sdl_window);
     defer c.SDL_GL_DeleteContext(gl_context);
     c.SDL_ShowWindow(sdl_window);
