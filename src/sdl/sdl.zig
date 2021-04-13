@@ -331,7 +331,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
             return null;
         },
 
-        else => std.debug.warn("unknown event {}\n", .{sdlEvent.@"type"}),
+        else => {},
     }
     return null;
 }
