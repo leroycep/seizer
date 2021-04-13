@@ -5,6 +5,8 @@ const Event = @import("../event.zig").Event;
 const Keycode = @import("../event.zig").Keycode;
 const Scancode = @import("../event.zig").Scancode;
 const MouseButton = @import("../event.zig").MouseButton;
+const ControllerAxis = @import("../event.zig").ControllerAxis;
+const ControllerButton = @import("../event.zig").ControllerButton;
 const ControllerButtonEvent = @import("../event.zig").ControllerButtonEvent;
 const builtin = @import("builtin");
 // pub usingnamespace @import("./gl.zig");
@@ -289,7 +291,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
                 .ControllerAxis = .{
                     .timestamp = sdlEvent.caxis.timestamp,
                     .joystickID = sdlEvent.caxis.which,
-                    .axis = sdlEvent.caxis.axis,
+                    .axis = @intToEnum(ControllerAxis, sdlEvent.caxis.axis),
                     .value = sdlEvent.caxis.value,
                 },
             };
@@ -299,7 +301,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
             const button_event = ControllerButtonEvent{
                 .timestamp = sdlEvent.cbutton.timestamp,
                 .joystickID = sdlEvent.cbutton.which,
-                .button = sdlEvent.cbutton.button,
+                .button = @intToEnum(ControllerButton, sdlEvent.cbutton.button),
                 .pressed = if (sdlEvent.cbutton.state == c.SDL_PRESSED) true else false,
             };
             if (sdlEvent.@"type" == c.SDL_CONTROLLERBUTTONUP) {

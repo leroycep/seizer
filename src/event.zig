@@ -99,7 +99,7 @@ pub const MouseButtonEvent = struct { pos: Vec2i, button: MouseButton };
 pub const ControllerAxisEvent = struct {
     timestamp: u32,
     joystickID: i32,
-    axis: u8,
+    axis: ControllerAxis,
     value: i16,
 };
 
@@ -117,7 +117,7 @@ pub const ControllerAxis = enum(u8) {
 pub const ControllerButtonEvent = struct {
     timestamp: u32,
     joystickID: i32,
-    button: u8,
+    button: ControllerButton,
     pressed: bool,
 };
 
