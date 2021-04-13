@@ -103,11 +103,48 @@ pub const ControllerAxisEvent = struct {
     value: i16,
 };
 
+pub const ControllerAxis = enum(u8) {
+    INVALID = -1,
+    LEFTX,
+    LEFTY,
+    RIGHTX,
+    RIGHTY,
+    TRIGGERLEFT,
+    TRIGGERRIGHT,
+    MAX,
+};
+
 pub const ControllerButtonEvent = struct {
     timestamp: u32,
     joystickID: i32,
     button: u8,
     pressed: bool,
+};
+
+pub const ControllerButton = enum(u8) {
+    INVALID = -1,
+    A,
+    B,
+    X,
+    Y,
+    BACK,
+    GUIDE,
+    START,
+    LEFTSTICK,
+    RIGHTSTICK,
+    LEFTSHOULDER,
+    RIGHTSHOULDER,
+    DPAD_UP,
+    DPAD_DOWN,
+    DPAD_LEFT,
+    DPAD_RIGHT,
+    MISC1,
+    PADDLE1,
+    PADDLE2,
+    PADDLE3,
+    PADDLE4,
+    TOUCHPAD,
+    MAX,
 };
 
 pub const Scancode = enum(u16) {
