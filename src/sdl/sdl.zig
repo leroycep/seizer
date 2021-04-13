@@ -295,7 +295,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
             };
         },
 
-        c.SDL_CONTROLLERBUTTONUP, c.SDL_CONTROLLERBUTTONDOWN, c.SDL_JOYBUTTONUP, c.SDL_JOYBUTTONDOWN => {
+        c.SDL_CONTROLLERBUTTONUP, c.SDL_CONTROLLERBUTTONDOWN => {
             const button_event = ControllerButtonEvent{
                 .timestamp = sdlEvent.cbutton.timestamp,
                 .joystickID = sdlEvent.cbutton.which,
