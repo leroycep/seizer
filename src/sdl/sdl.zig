@@ -78,7 +78,7 @@ pub fn run(comptime app: App) void {
     sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_DOUBLEBUFFER, 1));
 
     const screenWidth = app.window.width orelse 640;
-    const screenHeight = app.window.width orelse 480;
+    const screenHeight = app.window.height orelse 480;
 
     sdl_window = c.SDL_CreateWindow(
         app.window.title,
