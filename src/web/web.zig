@@ -150,30 +150,9 @@ pub fn quit() void {}
 
 const builtin = @import("builtin");
 
-export const SCANCODE_UNKNOWN = @enumToInt(seizer.event.Scancode.UNKNOWN);
-export const SCANCODE_ESCAPE = @enumToInt(seizer.event.Scancode.ESCAPE);
-export const SCANCODE_W = @enumToInt(seizer.event.Scancode.W);
-export const SCANCODE_A = @enumToInt(seizer.event.Scancode.A);
-export const SCANCODE_S = @enumToInt(seizer.event.Scancode.S);
-export const SCANCODE_D = @enumToInt(seizer.event.Scancode.D);
-export const SCANCODE_Z = @enumToInt(seizer.event.Scancode.Z);
-export const SCANCODE_R = @enumToInt(seizer.event.Scancode.R);
-export const SCANCODE_LEFT = @enumToInt(seizer.event.Scancode.LEFT);
-export const SCANCODE_RIGHT = @enumToInt(seizer.event.Scancode.RIGHT);
-export const SCANCODE_UP = @enumToInt(seizer.event.Scancode.UP);
-export const SCANCODE_DOWN = @enumToInt(seizer.event.Scancode.DOWN);
-export const SCANCODE_SPACE = @enumToInt(seizer.event.Scancode.SPACE);
-export const SCANCODE_BACKSPACE = @enumToInt(seizer.event.Scancode.BACKSPACE);
-export const SCANCODE_NUMPAD0 = @enumToInt(seizer.event.Scancode.KP_0);
-export const SCANCODE_NUMPAD1 = @enumToInt(seizer.event.Scancode.KP_1);
-export const SCANCODE_NUMPAD2 = @enumToInt(seizer.event.Scancode.KP_2);
-export const SCANCODE_NUMPAD3 = @enumToInt(seizer.event.Scancode.KP_3);
-export const SCANCODE_NUMPAD4 = @enumToInt(seizer.event.Scancode.KP_4);
-export const SCANCODE_NUMPAD5 = @enumToInt(seizer.event.Scancode.KP_5);
-export const SCANCODE_NUMPAD6 = @enumToInt(seizer.event.Scancode.KP_6);
-export const SCANCODE_NUMPAD7 = @enumToInt(seizer.event.Scancode.KP_7);
-export const SCANCODE_NUMPAD8 = @enumToInt(seizer.event.Scancode.KP_8);
-export const SCANCODE_NUMPAD9 = @enumToInt(seizer.event.Scancode.KP_9);
+comptime {
+    _ = @import("./constant_exports.zig");
+}
 
 export const KEYCODE_UNKNOWN = @enumToInt(seizer.event.Keycode.UNKNOWN);
 export const KEYCODE_BACKSPACE = @enumToInt(seizer.event.Keycode.BACKSPACE);

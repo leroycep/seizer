@@ -102,6 +102,7 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             KeyS: ex.SCANCODE_S,
             KeyD: ex.SCANCODE_D,
             KeyZ: ex.SCANCODE_Z,
+            KeyX: ex.SCANCODE_X,
             KeyR: ex.SCANCODE_R,
             ArrowLeft: ex.SCANCODE_LEFT,
             ArrowRight: ex.SCANCODE_RIGHT,
@@ -120,14 +121,7 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             Numpad8: ex.SCANCODE_NUMPAD8,
             Numpad9: ex.SCANCODE_NUMPAD9,
         };
-        document.addEventListener("keydown", (ev) => {
-            if (document.activeElement != canvas_element) return;
-
-            if (ev.defaultPrevented) {
-                return;
-            }
-            ev.preventDefault();
-
+        const keyEventToKeyScancode = (ev) => {
             let zigKeyConst = keyMap[ev.key];
             if (!zigKeyConst) {
                 zigKeyConst = keyMap.Unknown;
@@ -138,12 +132,27 @@ export default function getPlatformEnv(canvas_element, getInstance) {
                 zigScancodeConst = codeMap.Unknown;
             }
 
-            const zigKey = new Uint16Array(getMemory().buffer, zigKeyConst, 1)[0];
+            const zigKey = new Uint16Array(
+                getMemory().buffer,
+                zigKeyConst,
+                1
+            )[0];
             const zigScancode = new Uint16Array(
                 getMemory().buffer,
                 zigScancodeConst,
                 1
             )[0];
+            return [zigKey, zigScancode];
+        };
+        document.addEventListener("keydown", (ev) => {
+            if (document.activeElement != canvas_element) return;
+
+            if (ev.defaultPrevented) {
+                return;
+            }
+            ev.preventDefault();
+
+            const [zigKey, zigScancode] = keyEventToKeyScancode(ev);
             instance.exports.onKeyDown(zigKey, zigScancode);
 
             if (!ev.isComposing) {
@@ -202,15 +211,8 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             if (ev.defaultPrevented) {
                 return;
             }
-            const zigConst = codeMap[ev.code];
-            if (zigConst !== undefined) {
-                const zigCode = new Uint16Array(
-                    getMemory().buffer,
-                    zigConst,
-                    1
-                )[0];
-                instance.exports.onKeyUp(zigCode);
-            }
+            const [zigKey, zigScancode] = keyEventToKeyScancode(ev);
+            instance.exports.onKeyUp(zigKey, zigScancode);
         });
     };
 
