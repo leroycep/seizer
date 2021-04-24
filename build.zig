@@ -14,6 +14,11 @@ const EXAMPLES = [_]std.build.Pkg{
         .path = "examples/clear.zig",
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
+    .{
+        .name = "play_wav",
+        .path = "examples/play_wav.zig",
+        .dependencies = &[_]std.build.Pkg{SEIZER},
+    },
 };
 
 pub fn build(b: *Builder) void {

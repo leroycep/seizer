@@ -11,6 +11,7 @@ const ControllerButtonEvent = @import("../event.zig").ControllerButtonEvent;
 const builtin = @import("builtin");
 // pub usingnamespace @import("./gl.zig");
 pub const gl = @import("./gl_es_3v0.zig");
+pub const audio = @import("audio.zig");
 const Timer = std.time.Timer;
 
 const Vec2i = @import("math").Vec2i;
@@ -110,6 +111,8 @@ pub fn run(comptime app: App) void {
     //     gl.debugMessageCallback(MessageCallback, null);
     // }
 
+    audio.engine.init() catch |err| std.debug.panic("Failed to initialize soundengine: {}", .{err});
+
     sdllog.info("application initialized", .{});
 
     nosuspend app.init() catch |err| std.debug.panic("Failed to initialze app: {}", .{err});
@@ -169,21 +172,25 @@ pub fn logSDLErr(err: Error) noreturn {
     std.debug.panic("{}: {s}\n", .{ err, @as([*:0]const u8, c.SDL_GetError()) });
 }
 
-pub fn now() u64 {
+pub fn now() i64 {
     return std.time.milliTimestamp();
 }
 
 pub const FetchError = error{
     FileNotFound,
+    FileTooBig,
     OutOfMemory,
     Unknown,
 };
 
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8) FetchError![]const u8 {
+pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_file_size: usize) FetchError![]u8 {
     const cwd = std.fs.cwd();
-    const contents = cwd.readFileAlloc(allocator, file_name, 50000) catch |err| switch (err) {
+    const contents = cwd.readFileAlloc(allocator, file_name, max_file_size) catch |err| switch (err) {
         error.FileNotFound, error.OutOfMemory => |e| return e,
-        else => |e| return error.Unknown,
+        else => |e| {
+            std.log.scoped(.fetch).warn("Failed to fetch file: {}", .{e});
+            return error.Unknown;
+        },
     };
     return contents;
 }
