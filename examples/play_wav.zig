@@ -16,10 +16,13 @@ pub fn main() void {
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var sound: seizer.audio.SoundHandle = undefined;
+var sound_node: seizer.audio.NodeHandle = undefined;
 
 fn init() !void {
     sound = try seizer.audio.engine.load(&gpa.allocator, "WilhelmScream.wav", 2 * 1024 * 1024);
-    seizer.audio.engine.play(sound);
+    sound_node = seizer.audio.engine.createSoundNode(sound);
+    seizer.audio.engine.connectToOutput(sound_node);
+    seizer.audio.engine.play(sound_node);
 }
 
 fn deinit() void {

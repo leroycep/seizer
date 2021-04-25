@@ -9,6 +9,10 @@ pub const SoundHandle = struct {
     id: u32,
 };
 
+pub const NodeHandle = struct {
+    id: u32,
+};
+
 const MAX_NUM_SOUNDS = 10;
 const MAX_SOUNDS_PLAYING = 10;
 const Generation = u4;
@@ -19,6 +23,10 @@ pub const SoundEngine = struct {
     sounds: [MAX_NUM_SOUNDS]Sound,
     next_sound_slot: u32,
     sounds_playing: [MAX_SOUNDS_PLAYING]?PlayingSound,
+
+    nodes: [MAX_SOUNDS_PLAYING]AudioNode,
+    next_node_slot: u32,
+    output_nodes: [MAX_SOUNDS_PLAYING]?u32,
 
     pub fn init(this: *@This()) !void {
         const wanted = c.SDL_AudioSpec{
@@ -51,6 +59,9 @@ pub const SoundEngine = struct {
             .sounds = [_]Sound{.{ .alive = false, .generation = 0, .audio = undefined, .allocator = undefined }} ** MAX_NUM_SOUNDS,
             .sounds_playing = [_]?PlayingSound{null} ** MAX_SOUNDS_PLAYING,
             .next_sound_slot = 0,
+            .nodes = [_]AudioNode{AudioNode{ .None = {} }} ** MAX_SOUNDS_PLAYING,
+            .next_node_slot = 0,
+            .output_nodes = [_]?u32{null} ** MAX_SOUNDS_PLAYING,
         };
     }
 
@@ -160,7 +171,7 @@ pub const SoundEngine = struct {
             sample.* = sampler.sampleF32Stereo(idx);
         }
 
-        const generation = (this.sounds[slot].generation + 1) & std.math.maxInt(Generation);
+        const generation = (this.sounds[slot].generation +% 1);
 
         this.sounds[slot] = .{
             .alive = true,
@@ -190,47 +201,93 @@ pub const SoundEngine = struct {
         return slot;
     }
 
-    pub fn play(this: *@This(), handle: SoundHandle) void {
-        const slot = this.validate_handle(handle) catch unreachable;
-        const sound = this.sounds[slot];
-        for (this.sounds_playing) |*playing_sound_opt| {
-            if (playing_sound_opt.* == null) {
-                playing_sound_opt.* = .{
-                    .slot = slot,
-                    .pos = 0,
-                };
-                return;
-            }
+    pub fn createSoundNode(this: *@This(), handle: SoundHandle) NodeHandle {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const sound_slot = this.validate_handle(handle) catch unreachable;
+
+        const node_slot = this.next_node_slot;
+        this.next_node_slot += 1;
+        this.nodes[node_slot] = AudioNode{
+            .Sound = .{
+                .sound = sound_slot,
+                .pos = 0,
+                .play = .paused,
+            },
+        };
+
+        return NodeHandle{ .id = node_slot };
+    }
+
+    pub fn connectToOutput(this: *@This(), nodeHandle: NodeHandle) void {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        for (this.output_nodes) |output_node_opt, idx| {
+            if (output_node_opt != null) continue;
+            this.output_nodes[idx] = nodeHandle.id;
+            return;
         }
-        std.log.warn("Too many sounds playing, dropping sounds", .{});
+
+        @panic("No more slots to connect to node to output");
+    }
+
+    pub fn play(this: *@This(), nodeHandle: NodeHandle) void {
+        switch (this.nodes[nodeHandle.id]) {
+            .None => {},
+            .Sound => |*sound| {
+                sound.pos = 0;
+                sound.play = .once;
+            },
+        }
     }
 
     fn saturating_add(a: f32, b: f32) f32 {
         return std.math.clamp(a + b, -1, 1);
     }
 
+    // SDL fill audio callback
     fn fill_audio(userdata: ?*c_void, stream_ptr: ?[*]u8, stream_len: c_int) callconv(.C) void {
         const this = @ptrCast(*@This(), @alignCast(@alignOf(@This()), userdata.?));
         const stream = @ptrCast([*][2]f32, @alignCast(@alignOf([2]f32), stream_ptr.?))[0..@intCast(usize, @divExact(stream_len, @sizeOf([2]f32)))];
         const silence = @intToFloat(f32, this.spec.silence);
         std.mem.set([2]f32, stream, [2]f32{ silence, silence });
 
-        for (this.sounds_playing) |_, idx| {
-            if (this.sounds_playing[idx] == null) continue;
-            const sound_playing = &this.sounds_playing[idx].?;
-            const sound = this.sounds[sound_playing.slot];
+        // TODO: switch to using samples buffers, instead of individual samples
+        for (stream) |*sample, sampleIdx| {
+            for (this.output_nodes) |output_node_opt, idx| {
+                const output_node = output_node_opt orelse continue;
 
-            if (!sound.alive) continue;
+                const val = switch (this.nodes[output_node]) {
+                    .None => [2]f32{ 0, 0 },
+                    .Sound => |sound_node| get_sound_sample: {
+                        const sound = this.sounds[sound_node.sound];
 
-            for (stream) |*sample, i| {
-                if (sound_playing.pos >= sound.audio.len) {
-                    //std.log.debug("sample[{}] = {d}, {d}", .{ sound_playing.pos, stream[i - 1][0], stream[i - 1][1] });
-                    this.sounds_playing[idx] = null;
-                    break;
+                        if (sound_node.play == .paused or sound_node.pos >= sound.audio.len) {
+                            break :get_sound_sample [2]f32{ 0, 0 };
+                        }
+
+                        break :get_sound_sample sound.audio[sound_node.pos];
+                    },
+                };
+
+                sample[0] = saturating_add(sample[0], val[0]);
+                sample[1] = saturating_add(sample[1], val[1]);
+            }
+
+            for (this.nodes) |*node, idx| {
+                switch (node.*) {
+                    .None => {},
+                    .Sound => |*sound_node| {
+                        if (sound_node.play == .paused) continue;
+                        sound_node.pos += 1;
+                        const sound = this.sounds[sound_node.sound];
+                        if (sound_node.play == .once and sound_node.pos >= sound.audio.len) {
+                            sound_node.play = .paused;
+                        }
+                    },
                 }
-                sample[0] = saturating_add(sample[0], sound.audio[sound_playing.pos][0]);
-                sample[1] = saturating_add(sample[1], sound.audio[sound_playing.pos][1]);
-                sound_playing.pos += 1;
             }
         }
     }
@@ -245,4 +302,20 @@ pub const SoundEngine = struct {
         sound.allocator.free(sound.audio);
         this.sounds[slot].alive = false;
     }
+
+    const AudioNode = union(enum) {
+        None: void,
+        Sound: SoundNode,
+    };
+
+    const SoundNode = struct {
+        sound: u32,
+        pos: u32,
+        play: Play,
+
+        const Play = enum {
+            paused,
+            once,
+        };
+    };
 };
