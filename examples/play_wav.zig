@@ -29,7 +29,8 @@ fn init() !void {
     audioEngine.connectToOutput(filter_node);
 
     const delay = @floatToInt(u32, 0.5 * @intToFloat(f32, audioEngine.spec.freq));
-    const delay_node = try audioEngine.createDelayNode(sound_node, delay);
+    const delay_node = try audioEngine.createDelayOutputNode(delay);
+    _ = try audioEngine.createDelayInputNode(sound_node, delay_node);
     audioEngine.connectToOutput(delay_node);
 
     audioEngine.play(sound_node);

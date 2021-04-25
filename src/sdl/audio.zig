@@ -68,9 +68,9 @@ pub const Engine = struct {
         c.SDL_CloseAudioDevice(this.device_id);
         for (this.nodes) |*node| {
             switch (node.*) {
-                .None, .Sound, .Biquad => {},
+                .None, .Sound, .Biquad, .DelayInput => {},
                 .Mixer => |mixer_node| this.allocator.free(mixer_node.inputs),
-                .Delay => |delay_node| this.allocator.free(delay_node.buffer),
+                .DelayOutput => |delay_out_node| this.allocator.free(delay_out_node.buffer),
             }
         }
     }
@@ -258,18 +258,33 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
-    pub fn createDelayNode(this: *@This(), inputNode: NodeHandle, delaySamples: u32) !NodeHandle {
+    pub fn createDelayOutputNode(this: *@This(), delaySamples: u32) !NodeHandle {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
         const delay_buffer = try this.allocator.alloc([2]f32, delaySamples);
         errdefer this.allocator.free(delay_buffer);
 
+        std.mem.set([2]f32, delay_buffer, .{ 0, 0 });
+
         const node_slot = this.next_node_slot;
-        this.nodes[node_slot] = AudioNode{ .Delay = .{
-            .inputNode = inputNode.id,
+        this.nodes[node_slot] = AudioNode{ .DelayOutput = .{
             .pos = 0,
             .buffer = delay_buffer,
+        } };
+
+        this.next_node_slot += 1;
+        return NodeHandle{ .id = node_slot };
+    }
+
+    pub fn createDelayInputNode(this: *@This(), inputNode: NodeHandle, delayOutputNode: NodeHandle) !NodeHandle {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const node_slot = this.next_node_slot;
+        this.nodes[node_slot] = AudioNode{ .DelayInput = .{
+            .inputNode = inputNode.id,
+            .delayOutputNode = delayOutputNode.id,
         } };
 
         this.next_node_slot += 1;
@@ -323,7 +338,7 @@ pub const Engine = struct {
 
             for (this.nodes) |*node, idx| {
                 switch (node.*) {
-                    .None => {},
+                    .None, .DelayOutput => {},
                     .Sound => |*sound_node| {
                         if (sound_node.play == .paused) continue;
                         sound_node.pos += 1;
@@ -345,10 +360,11 @@ pub const Engine = struct {
                             mixer_node.sample[1] = saturating_add(mixer_node.sample[1], input[1]);
                         }
                     },
-                    .Delay => |*delay_node| {
-                        const input = this.nodes[delay_node.inputNode].getSample(this.sounds[0..]);
-                        delay_node.pos = (delay_node.pos + 1) % @intCast(u32, delay_node.buffer.len);
-                        delay_node.buffer[delay_node.pos] = input;
+                    .DelayInput => |*delay_in_node| {
+                        const delay_out_node = &(this.nodes[delay_in_node.delayOutputNode].DelayOutput);
+                        const input = this.nodes[delay_in_node.inputNode].getSample(this.sounds[0..]);
+                        delay_out_node.pos = (delay_out_node.pos + 1) % @intCast(u32, delay_out_node.buffer.len);
+                        delay_out_node.buffer[delay_out_node.pos] = input;
                     },
                 }
             }
@@ -371,11 +387,12 @@ pub const Engine = struct {
         Sound: SoundNode,
         Biquad: BiquadNode,
         Mixer: MixerNode,
-        Delay: DelayNode,
+        DelayOutput: DelayOutputNode,
+        DelayInput: DelayInputNode,
 
         pub fn getSample(this: @This(), sounds: []Sound) [2]f32 {
             switch (this) {
-                .None => return [2]f32{ 0, 0 },
+                .None, .DelayInput => return [2]f32{ 0, 0 },
                 .Sound => |sound_node| {
                     const sound = sounds[sound_node.sound];
 
@@ -387,7 +404,7 @@ pub const Engine = struct {
                 },
                 .Biquad => |biquad_node| return [2]f32{ biquad_node.left.out, biquad_node.right.out },
                 .Mixer => |mixer_node| return mixer_node.sample,
-                .Delay => |delay_node| {
+                .DelayOutput => |delay_node| {
                     const idx = (delay_node.pos + 1) % delay_node.buffer.len;
                     return delay_node.buffer[idx];
                 },
@@ -417,10 +434,14 @@ pub const Engine = struct {
         sample: [2]f32,
     };
 
-    const DelayNode = struct {
-        inputNode: u32,
+    const DelayOutputNode = struct {
         pos: u32,
         buffer: [][2]f32,
+    };
+
+    const DelayInputNode = struct {
+        inputNode: u32,
+        delayOutputNode: u32,
     };
 };
 
