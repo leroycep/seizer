@@ -27,6 +27,11 @@ fn init() !void {
     const filter_node = audioEngine.createBiquadNode(sound_node, audio.Biquad.lopass(1000.0 / @intToFloat(f32, audioEngine.spec.freq), 1));
     const mixer_node = try audioEngine.createMixerNode(&[_]audio.NodeInput{.{ .handle = sound_node }});
     audioEngine.connectToOutput(filter_node);
+
+    const delay = @floatToInt(u32, 0.5 * @intToFloat(f32, audioEngine.spec.freq));
+    const delay_node = try audioEngine.createDelayNode(sound_node, delay);
+    audioEngine.connectToOutput(delay_node);
+
     audioEngine.play(sound_node);
 }
 
@@ -37,7 +42,7 @@ fn deinit() void {
 }
 
 fn update(time: f64, delta: f64) !void {
-    if (time > 1.5) {
+    if (time > 2) {
         seizer.quit();
     }
 }

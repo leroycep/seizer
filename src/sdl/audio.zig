@@ -70,6 +70,7 @@ pub const Engine = struct {
             switch (node.*) {
                 .None, .Sound, .Biquad => {},
                 .Mixer => |mixer_node| this.allocator.free(mixer_node.inputs),
+                .Delay => |delay_node| this.allocator.free(delay_node.buffer),
             }
         }
     }
@@ -257,6 +258,24 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
+    pub fn createDelayNode(this: *@This(), inputNode: NodeHandle, delaySamples: u32) !NodeHandle {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const delay_buffer = try this.allocator.alloc([2]f32, delaySamples);
+        errdefer this.allocator.free(delay_buffer);
+
+        const node_slot = this.next_node_slot;
+        this.nodes[node_slot] = AudioNode{ .Delay = .{
+            .inputNode = inputNode.id,
+            .pos = 0,
+            .buffer = delay_buffer,
+        } };
+
+        this.next_node_slot += 1;
+        return NodeHandle{ .id = node_slot };
+    }
+
     pub fn connectToOutput(this: *@This(), nodeHandle: NodeHandle) void {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
@@ -272,11 +291,11 @@ pub const Engine = struct {
 
     pub fn play(this: *@This(), nodeHandle: NodeHandle) void {
         switch (this.nodes[nodeHandle.id]) {
-            .None, .Biquad, .Mixer => {},
             .Sound => |*sound| {
                 sound.pos = 0;
                 sound.play = .once;
             },
+            else => {},
         }
     }
 
@@ -326,6 +345,11 @@ pub const Engine = struct {
                             mixer_node.sample[1] = saturating_add(mixer_node.sample[1], input[1]);
                         }
                     },
+                    .Delay => |*delay_node| {
+                        const input = this.nodes[delay_node.inputNode].getSample(this.sounds[0..]);
+                        delay_node.pos = (delay_node.pos + 1) % @intCast(u32, delay_node.buffer.len);
+                        delay_node.buffer[delay_node.pos] = input;
+                    },
                 }
             }
         }
@@ -347,6 +371,7 @@ pub const Engine = struct {
         Sound: SoundNode,
         Biquad: BiquadNode,
         Mixer: MixerNode,
+        Delay: DelayNode,
 
         pub fn getSample(this: @This(), sounds: []Sound) [2]f32 {
             switch (this) {
@@ -362,6 +387,10 @@ pub const Engine = struct {
                 },
                 .Biquad => |biquad_node| return [2]f32{ biquad_node.left.out, biquad_node.right.out },
                 .Mixer => |mixer_node| return mixer_node.sample,
+                .Delay => |delay_node| {
+                    const idx = (delay_node.pos + 1) % delay_node.buffer.len;
+                    return delay_node.buffer[idx];
+                },
             }
         }
     };
@@ -386,6 +415,12 @@ pub const Engine = struct {
     const MixerNode = struct {
         inputs: []const NodeInput,
         sample: [2]f32,
+    };
+
+    const DelayNode = struct {
+        inputNode: u32,
+        pos: u32,
+        buffer: [][2]f32,
     };
 };
 
