@@ -96,7 +96,6 @@ pub const SoundEngine = struct {
                     this.sampleF32(idx * stride),
                     this.sampleF32(idx * stride + component_size),
                 };
-                //std.log.debug("sample[{}] = {d}, {d}", .{ idx, val[0], val[1] });
                 return val;
             }
         }
@@ -220,6 +219,21 @@ pub const SoundEngine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
+    pub fn createBiquadNode(this: *@This(), inputNode: NodeHandle, biquad: Biquad) NodeHandle {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const node_slot = this.next_node_slot;
+        this.next_node_slot += 1;
+        this.nodes[node_slot] = AudioNode{ .Biquad = .{
+            .inputNode = inputNode.id,
+            .left = biquad,
+            .right = biquad,
+        } };
+
+        return NodeHandle{ .id = node_slot };
+    }
+
     pub fn connectToOutput(this: *@This(), nodeHandle: NodeHandle) void {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
@@ -235,7 +249,7 @@ pub const SoundEngine = struct {
 
     pub fn play(this: *@This(), nodeHandle: NodeHandle) void {
         switch (this.nodes[nodeHandle.id]) {
-            .None => {},
+            .None, .Biquad => {},
             .Sound => |*sound| {
                 sound.pos = 0;
                 sound.play = .once;
@@ -256,21 +270,10 @@ pub const SoundEngine = struct {
 
         // TODO: switch to using samples buffers, instead of individual samples
         for (stream) |*sample, sampleIdx| {
-            for (this.output_nodes) |output_node_opt, idx| {
+            for (this.output_nodes) |output_node_opt| {
                 const output_node = output_node_opt orelse continue;
 
-                const val = switch (this.nodes[output_node]) {
-                    .None => [2]f32{ 0, 0 },
-                    .Sound => |sound_node| get_sound_sample: {
-                        const sound = this.sounds[sound_node.sound];
-
-                        if (sound_node.play == .paused or sound_node.pos >= sound.audio.len) {
-                            break :get_sound_sample [2]f32{ 0, 0 };
-                        }
-
-                        break :get_sound_sample sound.audio[sound_node.pos];
-                    },
-                };
+                const val = this.nodes[output_node].getSample(this.sounds[0..]);
 
                 sample[0] = saturating_add(sample[0], val[0]);
                 sample[1] = saturating_add(sample[1], val[1]);
@@ -286,6 +289,11 @@ pub const SoundEngine = struct {
                         if (sound_node.play == .once and sound_node.pos >= sound.audio.len) {
                             sound_node.play = .paused;
                         }
+                    },
+                    .Biquad => |*biquad_node| {
+                        const input = this.nodes[biquad_node.inputNode].getSample(this.sounds[0..]);
+                        _ = biquad_node.left.process(input[0]);
+                        _ = biquad_node.right.process(input[1]);
                     },
                 }
             }
@@ -306,6 +314,23 @@ pub const SoundEngine = struct {
     const AudioNode = union(enum) {
         None: void,
         Sound: SoundNode,
+        Biquad: BiquadNode,
+
+        pub fn getSample(this: @This(), sounds: []Sound) [2]f32 {
+            switch (this) {
+                .None => return [2]f32{ 0, 0 },
+                .Sound => |sound_node| {
+                    const sound = sounds[sound_node.sound];
+
+                    if (sound_node.play == .paused or sound_node.pos >= sound.audio.len) {
+                        return [2]f32{ 0, 0 };
+                    }
+
+                    return sound.audio[sound_node.pos];
+                },
+                .Biquad => |biquad_node| return [2]f32{ biquad_node.left.out, biquad_node.right.out },
+            }
+        }
     };
 
     const SoundNode = struct {
@@ -318,4 +343,75 @@ pub const SoundEngine = struct {
             once,
         };
     };
+
+    const BiquadNode = struct {
+        inputNode: u32,
+        left: Biquad,
+        right: Biquad,
+    };
+};
+
+pub const Biquad = struct {
+    a0: f32,
+    a1: f32,
+    a2: f32,
+    b1: f32,
+    b2: f32,
+    z1: f32,
+    z2: f32,
+    out: f32,
+
+    pub fn lopass(freq: f32, q: f32) @This() {
+        const k = std.math.tan(std.math.pi * freq);
+        const norm = 1.0 / (1.0 + k / q + k * k);
+
+        const a0 = k * k * norm;
+
+        return @This(){
+            .a0 = a0,
+            .a1 = 2 * a0,
+            .a2 = a0,
+            .b1 = 2 * (k * k - 1) * norm,
+            .b2 = (1 - k / q + k * k) * norm,
+            .z1 = 0,
+            .z2 = 0,
+            .out = 0,
+        };
+    }
+
+    pub fn bandpass(freq: f32, q: f32) @This() {
+        const k = std.math.tan(std.math.pi * freq);
+        const norm = 1.0 / (1.0 + k / q + k * k);
+        const a0 = k / q * norm;
+        return @This(){
+            .a0 = a0,
+            .a1 = 0,
+            .a2 = -a0,
+            .b1 = 2.0 * (k * k - 1.0) * norm,
+            .b2 = (1.0 - k / q + k * k) * norm,
+            .z1 = 0,
+            .z2 = 0,
+            .out = 0,
+        };
+    }
+
+    pub fn allpass() @This() {
+        return @This(){
+            .a0 = 1,
+            .a1 = 0,
+            .a2 = 0,
+            .b1 = 0,
+            .b2 = 0,
+            .z1 = 0,
+            .z2 = 0,
+            .out = 0,
+        };
+    }
+
+    pub fn process(this: *@This(), in: f32) f32 {
+        this.out = in * this.a0 + this.z1;
+        this.z1 = in * this.a1 + this.z2 - this.b1 * this.out;
+        this.z2 = in * this.a2 - this.b2 * this.out;
+        return this.out;
+    }
 };
