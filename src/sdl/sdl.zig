@@ -111,8 +111,6 @@ pub fn run(comptime app: App) void {
     //     gl.debugMessageCallback(MessageCallback, null);
     // }
 
-    audio.engine.init() catch |err| std.debug.panic("Failed to initialize soundengine: {}", .{err});
-
     sdllog.info("application initialized", .{});
 
     nosuspend app.init() catch |err| std.debug.panic("Failed to initialze app: {}", .{err});

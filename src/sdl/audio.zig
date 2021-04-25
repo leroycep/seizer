@@ -2,9 +2,6 @@ const std = @import("std");
 const seizer = @import("../seizer.zig");
 const c = @import("c.zig");
 
-/// This is initialized in sdl.zig before the event loop is called
-pub var engine: SoundEngine = undefined;
-
 pub const SoundHandle = struct {
     id: u32,
 };
@@ -14,21 +11,23 @@ pub const NodeHandle = struct {
 };
 
 const MAX_NUM_SOUNDS = 10;
-const MAX_SOUNDS_PLAYING = 10;
+const MAX_SOUNDS_PLAYING = 200;
 const Generation = u4;
 
-pub const SoundEngine = struct {
+pub const Engine = struct {
+    allocator: *std.mem.Allocator,
+
     device_id: c.SDL_AudioDeviceID,
     spec: c.SDL_AudioSpec,
+
+    // TODO: put the following fields into a heap allocated struct so we can share pointer to it without fear of someone moving the Engine struct
     sounds: [MAX_NUM_SOUNDS]Sound,
     next_sound_slot: u32,
-    sounds_playing: [MAX_SOUNDS_PLAYING]?PlayingSound,
-
     nodes: [MAX_SOUNDS_PLAYING]AudioNode,
     next_node_slot: u32,
     output_nodes: [MAX_SOUNDS_PLAYING]?u32,
 
-    pub fn init(this: *@This()) !void {
+    pub fn init(this: *@This(), allocator: *std.mem.Allocator) !void {
         const wanted = c.SDL_AudioSpec{
             .freq = 44_100,
             .format = c.AUDIO_F32,
@@ -54,15 +53,25 @@ pub const SoundEngine = struct {
         c.SDL_PauseAudioDevice(device_id, 0);
 
         this.* = @This(){
+            .allocator = allocator,
             .device_id = device_id,
             .spec = obtained,
             .sounds = [_]Sound{.{ .alive = false, .generation = 0, .audio = undefined, .allocator = undefined }} ** MAX_NUM_SOUNDS,
-            .sounds_playing = [_]?PlayingSound{null} ** MAX_SOUNDS_PLAYING,
             .next_sound_slot = 0,
             .nodes = [_]AudioNode{AudioNode{ .None = {} }} ** MAX_SOUNDS_PLAYING,
             .next_node_slot = 0,
             .output_nodes = [_]?u32{null} ** MAX_SOUNDS_PLAYING,
         };
+    }
+
+    pub fn deinit(this: *@This()) void {
+        c.SDL_CloseAudioDevice(this.device_id);
+        for (this.nodes) |*node| {
+            switch (node.*) {
+                .None, .Sound, .Biquad => {},
+                .Mixer => |mixer_node| this.allocator.free(mixer_node.inputs),
+            }
+        }
     }
 
     const Sampler = struct {
@@ -234,6 +243,20 @@ pub const SoundEngine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
+    pub fn createMixerNode(this: *@This(), inputs: []const NodeInput) !NodeHandle {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const node_slot = this.next_node_slot;
+        this.nodes[node_slot] = AudioNode{ .Mixer = .{
+            .inputs = try this.allocator.dupe(NodeInput, inputs),
+            .sample = [2]f32{ 0, 0 },
+        } };
+
+        this.next_node_slot += 1;
+        return NodeHandle{ .id = node_slot };
+    }
+
     pub fn connectToOutput(this: *@This(), nodeHandle: NodeHandle) void {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
@@ -249,7 +272,7 @@ pub const SoundEngine = struct {
 
     pub fn play(this: *@This(), nodeHandle: NodeHandle) void {
         switch (this.nodes[nodeHandle.id]) {
-            .None, .Biquad => {},
+            .None, .Biquad, .Mixer => {},
             .Sound => |*sound| {
                 sound.pos = 0;
                 sound.play = .once;
@@ -295,12 +318,20 @@ pub const SoundEngine = struct {
                         _ = biquad_node.left.process(input[0]);
                         _ = biquad_node.right.process(input[1]);
                     },
+                    .Mixer => |*mixer_node| {
+                        mixer_node.sample = [2]f32{ 0, 0 };
+                        for (mixer_node.inputs) |node_input| {
+                            const input = this.nodes[node_input.handle.id].getSample(this.sounds[0..]);
+                            mixer_node.sample[0] = saturating_add(mixer_node.sample[0], input[0]);
+                            mixer_node.sample[1] = saturating_add(mixer_node.sample[1], input[1]);
+                        }
+                    },
                 }
             }
         }
     }
 
-    pub fn deinit(this: *@This(), handle: SoundHandle) void {
+    pub fn freeSound(this: *@This(), handle: SoundHandle) void {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
@@ -315,6 +346,7 @@ pub const SoundEngine = struct {
         None: void,
         Sound: SoundNode,
         Biquad: BiquadNode,
+        Mixer: MixerNode,
 
         pub fn getSample(this: @This(), sounds: []Sound) [2]f32 {
             switch (this) {
@@ -329,6 +361,7 @@ pub const SoundEngine = struct {
                     return sound.audio[sound_node.pos];
                 },
                 .Biquad => |biquad_node| return [2]f32{ biquad_node.left.out, biquad_node.right.out },
+                .Mixer => |mixer_node| return mixer_node.sample,
             }
         }
     };
@@ -349,6 +382,16 @@ pub const SoundEngine = struct {
         left: Biquad,
         right: Biquad,
     };
+
+    const MixerNode = struct {
+        inputs: []const NodeInput,
+        sample: [2]f32,
+    };
+};
+
+pub const NodeInput = struct {
+    handle: NodeHandle,
+    volume: f32 = 1,
 };
 
 pub const Biquad = struct {

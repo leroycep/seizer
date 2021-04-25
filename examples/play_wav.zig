@@ -1,6 +1,7 @@
 const std = @import("std");
 const seizer = @import("seizer");
 const gl = seizer.gl;
+const audio = seizer.audio;
 
 // `main()` must return void, or else start.zig will try to print to stderr
 // when an error occurs. Since the web target doesn't support stderr, it will
@@ -15,18 +16,23 @@ pub fn main() void {
 }
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var audioEngine: audio.Engine = undefined;
 var sound: seizer.audio.SoundHandle = undefined;
 
 fn init() !void {
-    sound = try seizer.audio.engine.load(&gpa.allocator, "WilhelmScream.wav", 2 * 1024 * 1024);
-    const sound_node = seizer.audio.engine.createSoundNode(sound);
-    const filter_node = seizer.audio.engine.createBiquadNode(sound_node, seizer.audio.Biquad.lopass(1000.0 / @intToFloat(f32, seizer.audio.engine.spec.freq), 1));
-    seizer.audio.engine.connectToOutput(filter_node);
-    seizer.audio.engine.play(sound_node);
+    try audioEngine.init(&gpa.allocator);
+
+    sound = try audioEngine.load(&gpa.allocator, "WilhelmScream.wav", 2 * 1024 * 1024);
+    const sound_node = audioEngine.createSoundNode(sound);
+    const filter_node = audioEngine.createBiquadNode(sound_node, audio.Biquad.lopass(1000.0 / @intToFloat(f32, audioEngine.spec.freq), 1));
+    const mixer_node = try audioEngine.createMixerNode(&[_]audio.NodeInput{.{ .handle = sound_node }});
+    audioEngine.connectToOutput(filter_node);
+    audioEngine.play(sound_node);
 }
 
 fn deinit() void {
-    seizer.audio.engine.deinit(sound);
+    audioEngine.freeSound(sound);
+    audioEngine.deinit();
     _ = gpa.deinit();
 }
 
