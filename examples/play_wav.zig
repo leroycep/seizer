@@ -23,11 +23,12 @@ fn init() !void {
 }
 
 fn deinit() void {
+    seizer.audio.engine.deinit(sound);
     _ = gpa.deinit();
 }
 
 fn update(time: f64, delta: f64) !void {
-    if (time > 1) {
+    if (time > 1.5) {
         seizer.quit();
     }
 }

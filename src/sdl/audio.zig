@@ -10,7 +10,7 @@ pub const SoundHandle = struct {
 };
 
 const MAX_NUM_SOUNDS = 10;
-const MAX_SOUNDS_PLAYING = 4;
+const MAX_SOUNDS_PLAYING = 10;
 const Generation = u4;
 
 pub const SoundEngine = struct {
@@ -23,7 +23,7 @@ pub const SoundEngine = struct {
     pub fn init(this: *@This()) !void {
         const wanted = c.SDL_AudioSpec{
             .freq = 44_100,
-            .format = c.AUDIO_S16,
+            .format = c.AUDIO_F32,
             .channels = 2,
             .samples = 1024,
             .callback = fill_audio,
@@ -41,22 +41,71 @@ pub const SoundEngine = struct {
             return error.OpenAudioDevice;
         }
 
+        std.debug.assert(obtained.format == c.AUDIO_F32);
+
         c.SDL_PauseAudioDevice(device_id, 0);
 
         this.* = @This(){
             .device_id = device_id,
             .spec = obtained,
-            .sounds = [_]Sound{.{ .alive = false, .generation = 0, .spec = undefined, .audio = undefined }} ** MAX_NUM_SOUNDS,
+            .sounds = [_]Sound{.{ .alive = false, .generation = 0, .audio = undefined, .allocator = undefined }} ** MAX_NUM_SOUNDS,
             .sounds_playing = [_]?PlayingSound{null} ** MAX_SOUNDS_PLAYING,
             .next_sound_slot = 0,
         };
     }
 
+    const Sampler = struct {
+        spec: c.SDL_AudioSpec,
+        buffer: []u8,
+
+        fn sampleF32(this: @This(), idx: usize) f32 {
+            switch (this.spec.format) {
+                c.AUDIO_S16 => {
+                    const RANGE = @intToFloat(f32, std.math.maxInt(i16));
+                    const val = @intToFloat(f32, std.mem.readIntLittle(i16, this.buffer[idx..][0..2]));
+                    return val / RANGE;
+                },
+                c.AUDIO_F32 => return @bitCast(f32, this.buffer[idx..][0..4].*),
+                else => @panic("Unsupported audio format"),
+            }
+        }
+
+        pub fn sampleF32Stereo(this: @This(), idx: usize) [2]f32 {
+            const component_size: usize = switch (this.spec.format) {
+                c.AUDIO_S16 => @sizeOf(i16),
+                c.AUDIO_F32 => @sizeOf(f32),
+                else => @panic("Unsupported audio format"),
+            };
+            if (this.spec.channels == 1) {
+                const mono = this.sampleF32(idx * component_size);
+                return [2]f32{ mono, mono };
+            } else {
+                const stride = this.spec.channels * component_size;
+                const val = [2]f32{
+                    this.sampleF32(idx * stride),
+                    this.sampleF32(idx * stride + component_size),
+                };
+                //std.log.debug("sample[{}] = {d}, {d}", .{ idx, val[0], val[1] });
+                return val;
+            }
+        }
+
+        pub fn numSamples(this: @This()) usize {
+            const component_size: usize = switch (this.spec.format) {
+                c.AUDIO_S16 => @sizeOf(i16),
+                c.AUDIO_F32 => @sizeOf(f32),
+                else => @panic("Unsupported audio format"),
+            };
+            const stride = this.spec.channels * component_size;
+            return this.buffer.len / stride;
+        }
+    };
+
     const Sound = struct {
         alive: bool,
         generation: Generation,
-        spec: c.SDL_AudioSpec,
-        audio: []i16,
+        audio: [][2]f32,
+        allocator: *std.mem.Allocator,
     };
 
     const PlayingSound = struct {
@@ -93,15 +142,31 @@ pub const SoundEngine = struct {
 
         // TODO: Remove this limitation
         std.debug.assert(file_audio_spec.freq == this.spec.freq);
-        std.debug.assert(file_audio_spec.format == c.AUDIO_S16);
+        std.debug.assert(file_audio_spec.channels > 0);
+
+        const sampler = Sampler{
+            .spec = file_audio_spec,
+            .buffer = audio_buf.?[0..audio_len],
+        };
+
+        const num_samples = sampler.numSamples();
+
+        const audio = try allocator.alloc([2]f32, num_samples);
+        errdefer allocator.free(audio);
+
+        std.mem.set([2]f32, audio, [2]f32{ 0, 0 });
+
+        for (audio) |*sample, idx| {
+            sample.* = sampler.sampleF32Stereo(idx);
+        }
 
         const generation = (this.sounds[slot].generation + 1) & std.math.maxInt(Generation);
 
         this.sounds[slot] = .{
             .alive = true,
             .generation = generation,
-            .spec = file_audio_spec,
-            .audio = @ptrCast([*]i16, @alignCast(@alignOf(i16), audio_buf.?))[0..@divExact(audio_len, @sizeOf(i16))],
+            .audio = audio,
+            .allocator = allocator,
         };
 
         this.next_sound_slot = (slot + 1) % @intCast(u32, this.sounds.len);
@@ -140,34 +205,44 @@ pub const SoundEngine = struct {
         std.log.warn("Too many sounds playing, dropping sounds", .{});
     }
 
+    fn saturating_add(a: f32, b: f32) f32 {
+        return std.math.clamp(a + b, -1, 1);
+    }
+
     fn fill_audio(userdata: ?*c_void, stream_ptr: ?[*]u8, stream_len: c_int) callconv(.C) void {
         const this = @ptrCast(*@This(), @alignCast(@alignOf(@This()), userdata.?));
-        const stream = @ptrCast([*]i16, @alignCast(@alignOf(i16), stream_ptr.?))[0..@intCast(usize, @divExact(stream_len, @sizeOf(i16)))];
-        std.mem.set(i16, stream, this.spec.silence);
+        const stream = @ptrCast([*][2]f32, @alignCast(@alignOf([2]f32), stream_ptr.?))[0..@intCast(usize, @divExact(stream_len, @sizeOf([2]f32)))];
+        const silence = @intToFloat(f32, this.spec.silence);
+        std.mem.set([2]f32, stream, [2]f32{ silence, silence });
 
         for (this.sounds_playing) |_, idx| {
             if (this.sounds_playing[idx] == null) continue;
             const sound_playing = &this.sounds_playing[idx].?;
             const sound = this.sounds[sound_playing.slot];
 
-            const sound_audio = sound.audio[sound_playing.pos..];
+            if (!sound.alive) continue;
+
             for (stream) |*sample, i| {
                 if (sound_playing.pos >= sound.audio.len) {
+                    //std.log.debug("sample[{}] = {d}, {d}", .{ sound_playing.pos, stream[i - 1][0], stream[i - 1][1] });
                     this.sounds_playing[idx] = null;
                     break;
                 }
-                var res: i16 = undefined;
-                if (@addWithOverflow(i16, sample.*, sound.audio[sound_playing.pos], &res)) {
-                    if (sound.audio[sound_playing.pos] < 0) {
-                        sample.* = std.math.maxInt(i16);
-                    } else {
-                        sample.* = std.math.minInt(i16);
-                    }
-                } else {
-                    sample.* = res;
-                }
+                sample[0] = saturating_add(sample[0], sound.audio[sound_playing.pos][0]);
+                sample[1] = saturating_add(sample[1], sound.audio[sound_playing.pos][1]);
                 sound_playing.pos += 1;
             }
         }
+    }
+
+    pub fn deinit(this: *@This(), handle: SoundHandle) void {
+        c.SDL_LockAudioDevice(this.device_id);
+        defer c.SDL_UnlockAudioDevice(this.device_id);
+
+        const slot = this.validate_handle(handle) catch unreachable;
+        const sound = this.sounds[slot];
+
+        sound.allocator.free(sound.audio);
+        this.sounds[slot].alive = false;
     }
 };
