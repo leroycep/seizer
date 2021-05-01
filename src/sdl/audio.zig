@@ -33,6 +33,7 @@ pub const MixerInput = struct {
 
 const MAX_NUM_SOUNDS = 10;
 const MAX_SOUNDS_PLAYING = 200;
+const MAX_OUTPUT = 10;
 const Generation = u4;
 
 pub const Engine = struct {
@@ -46,7 +47,7 @@ pub const Engine = struct {
     next_sound_slot: u32,
     nodes: [MAX_SOUNDS_PLAYING]AudioNode,
     next_node_slot: u32,
-    output_nodes: [MAX_SOUNDS_PLAYING]?u32,
+    output_nodes: [MAX_OUTPUT]?u32,
 
     pub fn init(this: *@This(), allocator: *std.mem.Allocator) !void {
         const wanted = c.SDL_AudioSpec{
@@ -81,7 +82,7 @@ pub const Engine = struct {
             .next_sound_slot = 0,
             .nodes = [_]AudioNode{AudioNode{ .None = {} }} ** MAX_SOUNDS_PLAYING,
             .next_node_slot = 0,
-            .output_nodes = [_]?u32{null} ** MAX_SOUNDS_PLAYING,
+            .output_nodes = [_]?u32{null} ** MAX_OUTPUT,
         };
     }
 
@@ -239,7 +240,7 @@ pub const Engine = struct {
         this.next_node_slot += 1;
         this.nodes[node_slot] = AudioNode{
             .Sound = .{
-                .sound = undefined,
+                .sound = null,
                 .pos = 0,
                 .play = .paused,
             },
@@ -365,7 +366,7 @@ pub const Engine = struct {
                     .Sound => |*sound_node| {
                         if (sound_node.play == .paused) continue;
                         sound_node.pos += 1;
-                        const sound = this.sounds[sound_node.sound];
+                        const sound = this.sounds[sound_node.sound orelse continue];
                         if (sound_node.play == .once and sound_node.pos >= sound.audio.len) {
                             sound_node.play = .paused;
                         }
@@ -417,7 +418,7 @@ pub const Engine = struct {
             switch (this) {
                 .None, .DelayInput => return [2]f32{ 0, 0 },
                 .Sound => |sound_node| {
-                    const sound = sounds[sound_node.sound];
+                    const sound = sounds[sound_node.sound orelse return [2]f32{ 0, 0 }];
 
                     if (sound_node.play == .paused or sound_node.pos >= sound.audio.len) {
                         return [2]f32{ 0, 0 };
@@ -436,7 +437,7 @@ pub const Engine = struct {
     };
 
     const SoundNode = struct {
-        sound: u32,
+        sound: ?u32,
         pos: u32,
         play: Play,
 
