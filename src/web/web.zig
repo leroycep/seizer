@@ -1,4 +1,5 @@
 pub const gl = @import("./webgl.zig");
+pub const audio = @import("audio.zig");
 const std = @import("std");
 const Vec2i = @import("math").Vec2i;
 const seizer = @import("../seizer.zig");
@@ -192,7 +193,7 @@ pub const FetchError = error{
 };
 
 extern fn seizer_fetch(filename_ptr: [*]const u8, filename_len: usize, cb: *c_void, data_out: *FetchError![]u8, allocator: *std.mem.Allocator) void;
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8) FetchError![]const u8 {
+pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, maxFileSize: usize) FetchError![]const u8 {
     var data: FetchError![]u8 = undefined;
     suspend seizer_fetch(file_name.ptr, file_name.len, @frame(), &data, allocator);
     return data;

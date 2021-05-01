@@ -23,17 +23,19 @@ fn init() !void {
     try audioEngine.init(&gpa.allocator);
 
     sound = try audioEngine.load(&gpa.allocator, "WilhelmScream.wav", 2 * 1024 * 1024);
-    const sound_node = audioEngine.createSoundNode(sound);
-    const filter_node = audioEngine.createBiquadNode(sound_node, audio.Biquad.lopass(1000.0 / @intToFloat(f32, audioEngine.spec.freq), 1));
-    const mixer_node = try audioEngine.createMixerNode(&[_]audio.NodeInput{.{ .handle = sound_node }});
+
+    const sound_node = audioEngine.createSoundNode();
+    const filter_node = audioEngine.createBiquadNode(sound_node, .{ .kind = .lowpass, .freq = 1000.0, .q = 1 });
+    const mixer_node = try audioEngine.createMixerNode(&[_]audio.MixerInput{
+        .{ .handle = sound_node, .gain = 1 },
+    });
     audioEngine.connectToOutput(filter_node);
 
-    const delay = @floatToInt(u32, 0.5 * @intToFloat(f32, audioEngine.spec.freq));
-    const delay_node = try audioEngine.createDelayOutputNode(delay);
+    const delay_node = try audioEngine.createDelayOutputNode(0.5);
     _ = try audioEngine.createDelayInputNode(sound_node, delay_node);
     audioEngine.connectToOutput(delay_node);
 
-    audioEngine.play(sound_node);
+    audioEngine.play(sound_node, sound);
 }
 
 fn deinit() void {

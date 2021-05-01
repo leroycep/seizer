@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+
+        <title>Clear</title>
+        <style>
+            body {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                background: #444;
+                color: #98ffb1;
+            }
+        </style>
+        <script type="module" defer="true">
+            import getEnv from "./seizer.js";
+            import getAudioEngineEnv from "./audio_engine.js";
+
+            const canvas_element = document.getElementById("game-canvas");
+            var globalInstance;
+
+            let imports = {
+                env: getEnv(canvas_element, () => globalInstance),
+                audio_engine: getAudioEngineEnv(() => globalInstance),
+            };
+
+            fetch("example-play_wav-web.wasm")
+                .then((response) => response.arrayBuffer())
+                .then((bytes) => WebAssembly.instantiate(bytes, imports))
+                .then((results) => results.instance)
+                .then((instance) => {
+                    globalInstance = instance;
+                    instance.exports._start();
+                });
+        </script>
+    </head>
+
+    <body>
+        <h1>Play WAV</h1>
+        <canvas id="game-canvas" width="640" height="480" tabindex="1">
+        </canvas>
+    </body>
+</html>

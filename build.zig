@@ -34,6 +34,7 @@ pub fn build(b: *Builder) void {
 
     // Install `seizer.js` to "<prefix>/www". By default this means "zig-cache/www"
     const install_seizerjs = b.addInstallFile("src/web/seizer.js", "www/seizer.js");
+    const install_audio_enginejs = b.addInstallFile("src/web/audio_engine.js", "www/audio_engine.js");
 
     var build_examples_native = b.step("examples-native", "Build all examples for the target platform");
     var build_examples_web = b.step("examples-web", "Build all examples for the web");
@@ -74,6 +75,7 @@ pub fn build(b: *Builder) void {
         build_web.dependOn(&web.step);
         build_web.dependOn(&install_assets_web.step);
         build_web.dependOn(&install_seizerjs.step);
+        build_web.dependOn(&install_audio_enginejs.step);
         build_web.dependOn(&install_index.step);
 
         build_examples_web.dependOn(build_web);

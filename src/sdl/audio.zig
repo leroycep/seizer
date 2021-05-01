@@ -10,6 +10,27 @@ pub const NodeHandle = struct {
     id: u32,
 };
 
+pub const BiquadOptions = struct {
+    kind: enum(u4) {
+        lowpass = 0,
+        highpass,
+        bandpass,
+        lowshelf,
+        highshelf,
+        peaking,
+        notch,
+        allpass,
+    },
+    freq: f32,
+    q: f32,
+    gain: f32 = 1.0,
+};
+
+pub const MixerInput = struct {
+    handle: NodeHandle,
+    gain: f32,
+};
+
 const MAX_NUM_SOUNDS = 10;
 const MAX_SOUNDS_PLAYING = 200;
 const Generation = u4;
@@ -210,17 +231,15 @@ pub const Engine = struct {
         return slot;
     }
 
-    pub fn createSoundNode(this: *@This(), handle: SoundHandle) NodeHandle {
+    pub fn createSoundNode(this: *@This()) NodeHandle {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
-
-        const sound_slot = this.validate_handle(handle) catch unreachable;
 
         const node_slot = this.next_node_slot;
         this.next_node_slot += 1;
         this.nodes[node_slot] = AudioNode{
             .Sound = .{
-                .sound = sound_slot,
+                .sound = undefined,
                 .pos = 0,
                 .play = .paused,
             },
@@ -229,7 +248,7 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
-    pub fn createBiquadNode(this: *@This(), inputNode: NodeHandle, biquad: Biquad) NodeHandle {
+    pub fn createBiquadNode(this: *@This(), inputNode: NodeHandle, options: BiquadOptions) NodeHandle {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
@@ -237,20 +256,20 @@ pub const Engine = struct {
         this.next_node_slot += 1;
         this.nodes[node_slot] = AudioNode{ .Biquad = .{
             .inputNode = inputNode.id,
-            .left = biquad,
-            .right = biquad,
+            .left = Biquad.fromOptions(options),
+            .right = Biquad.fromOptions(options),
         } };
 
         return NodeHandle{ .id = node_slot };
     }
 
-    pub fn createMixerNode(this: *@This(), inputs: []const NodeInput) !NodeHandle {
+    pub fn createMixerNode(this: *@This(), inputs: []const MixerInput) !NodeHandle {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
         const node_slot = this.next_node_slot;
         this.nodes[node_slot] = AudioNode{ .Mixer = .{
-            .inputs = try this.allocator.dupe(NodeInput, inputs),
+            .inputs = try this.allocator.dupe(MixerInput, inputs),
             .sample = [2]f32{ 0, 0 },
         } };
 
@@ -258,11 +277,13 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_slot };
     }
 
-    pub fn createDelayOutputNode(this: *@This(), delaySamples: u32) !NodeHandle {
+    pub fn createDelayOutputNode(this: *@This(), delaySeconds: f32) !NodeHandle {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
-        const delay_buffer = try this.allocator.alloc([2]f32, delaySamples);
+        const delay_samples = delaySeconds * @intToFloat(f32, this.spec.freq);
+
+        const delay_buffer = try this.allocator.alloc([2]f32, @floatToInt(usize, delay_samples));
         errdefer this.allocator.free(delay_buffer);
 
         std.mem.set([2]f32, delay_buffer, .{ 0, 0 });
@@ -304,9 +325,11 @@ pub const Engine = struct {
         @panic("No more slots to connect to node to output");
     }
 
-    pub fn play(this: *@This(), nodeHandle: NodeHandle) void {
+    pub fn play(this: *@This(), nodeHandle: NodeHandle, soundHandle: SoundHandle) void {
+        const sound_slot = this.validate_handle(soundHandle) catch unreachable;
         switch (this.nodes[nodeHandle.id]) {
             .Sound => |*sound| {
+                sound.sound = sound_slot;
                 sound.pos = 0;
                 sound.play = .once;
             },
@@ -430,7 +453,7 @@ pub const Engine = struct {
     };
 
     const MixerNode = struct {
-        inputs: []const NodeInput,
+        inputs: []const MixerInput,
         sample: [2]f32,
     };
 
@@ -445,12 +468,7 @@ pub const Engine = struct {
     };
 };
 
-pub const NodeInput = struct {
-    handle: NodeHandle,
-    volume: f32 = 1,
-};
-
-pub const Biquad = struct {
+const Biquad = struct {
     a0: f32,
     a1: f32,
     a2: f32,
@@ -459,6 +477,15 @@ pub const Biquad = struct {
     z1: f32,
     z2: f32,
     out: f32,
+
+    pub fn fromOptions(o: BiquadOptions) @This() {
+        return switch (o.kind) {
+            .lowpass => lopass(o.freq, o.q),
+            .bandpass => bandpass(o.freq, o.q),
+            .allpass => allpass(),
+            else => @panic("Unimplmented biquad kind"),
+        };
+    }
 
     pub fn lopass(freq: f32, q: f32) @This() {
         const k = std.math.tan(std.math.pi * freq);
