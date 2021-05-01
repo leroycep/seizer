@@ -253,12 +253,21 @@ pub const Engine = struct {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
+        const freq = options.freq / @intToFloat(f32, this.spec.freq);
+
+        const biquad = switch (options.kind) {
+            .lowpass => Biquad.lopass(freq, options.q),
+            .bandpass => Biquad.bandpass(freq, options.q),
+            .allpass => Biquad.allpass(),
+            else => @panic("Unimplmented biquad kind"),
+        };
+
         const node_slot = this.next_node_slot;
         this.next_node_slot += 1;
         this.nodes[node_slot] = AudioNode{ .Biquad = .{
             .inputNode = inputNode.id,
-            .left = Biquad.fromOptions(options),
-            .right = Biquad.fromOptions(options),
+            .left = biquad,
+            .right = biquad,
         } };
 
         return NodeHandle{ .id = node_slot };
@@ -478,15 +487,6 @@ const Biquad = struct {
     z1: f32,
     z2: f32,
     out: f32,
-
-    pub fn fromOptions(o: BiquadOptions) @This() {
-        return switch (o.kind) {
-            .lowpass => lopass(o.freq, o.q),
-            .bandpass => bandpass(o.freq, o.q),
-            .allpass => allpass(),
-            else => @panic("Unimplmented biquad kind"),
-        };
-    }
 
     pub fn lopass(freq: f32, q: f32) @This() {
         const k = std.math.tan(std.math.pi * freq);
