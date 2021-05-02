@@ -214,6 +214,15 @@ export fn wasm_fail_fetch(cb_void: *c_void, data_out: *FetchError![]u8, errno: s
     resume cb;
 }
 
+// Run async functions
+pub fn execute(allocator: *std.mem.Allocator, comptime func: anytype, args: anytype) !void {
+    const FuncFrame = @Frame(func);
+    // TODO: deinit frame when it is complete
+    const frame_buf = try allocator.create(FuncFrame);
+    var ret: void = {};
+    _ = @asyncCall(frame_buf, &ret, func, args);
+}
+
 // WASM Error name
 export fn wasm_error_name_ptr(errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) [*]const u8 {
     return @errorName(@intToError(errno)).ptr;
