@@ -346,6 +346,10 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             return gl.drawingBufferHeight;
         },
 
+        now_f64() {
+            return Date.now();
+        },
+
         // GL stuff
         activeTexture(target) {
             gl.activeTexture(target);

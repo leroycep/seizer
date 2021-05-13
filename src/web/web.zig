@@ -7,8 +7,8 @@ const App = seizer.App;
 
 pub extern fn now_f64() f64;
 
-pub fn now() u64 {
-    return @floatToInt(u64, now_f64());
+pub fn now() i64 {
+    return @floatToInt(i64, now_f64());
 }
 
 pub extern fn getScreenW() i32;
@@ -200,13 +200,13 @@ pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, maxFileSize: 
 }
 
 export fn wasm_finalize_fetch(cb_void: *c_void, data_out: *FetchError![]u8, buffer: [*]u8, len: usize) void {
-    const cb = @ptrCast(anyframe, @alignCast(8, cb_void));
+    const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
     data_out.* = buffer[0..len];
     resume cb;
 }
 
 export fn wasm_fail_fetch(cb_void: *c_void, data_out: *FetchError![]u8, errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) void {
-    const cb = @ptrCast(anyframe, @alignCast(8, cb_void));
+    const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
     data_out.* = switch (@intToError(errno)) {
         error.FileNotFound, error.OutOfMemory, error.Unknown => |e| e,
         else => unreachable,
