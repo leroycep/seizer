@@ -95,41 +95,11 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             Unknown: ex.KEYCODE_UNKNOWN,
             Backspace: ex.KEYCODE_BACKSPACE,
         };
-        const codeMap = {
-            Unknown: ex.SCANCODE_UNKNOWN,
-            KeyW: ex.SCANCODE_W,
-            KeyA: ex.SCANCODE_A,
-            KeyS: ex.SCANCODE_S,
-            KeyD: ex.SCANCODE_D,
-            KeyZ: ex.SCANCODE_Z,
-            KeyX: ex.SCANCODE_X,
-            KeyR: ex.SCANCODE_R,
-            ArrowLeft: ex.SCANCODE_LEFT,
-            ArrowRight: ex.SCANCODE_RIGHT,
-            ArrowUp: ex.SCANCODE_UP,
-            ArrowDown: ex.SCANCODE_DOWN,
-            Escape: ex.SCANCODE_ESCAPE,
-            Space: ex.SCANCODE_SPACE,
-            Numpad0: ex.SCANCODE_NUMPAD0,
-            Numpad1: ex.SCANCODE_NUMPAD1,
-            Numpad2: ex.SCANCODE_NUMPAD2,
-            Numpad3: ex.SCANCODE_NUMPAD3,
-            Numpad4: ex.SCANCODE_NUMPAD4,
-            Numpad5: ex.SCANCODE_NUMPAD5,
-            Numpad6: ex.SCANCODE_NUMPAD6,
-            Numpad7: ex.SCANCODE_NUMPAD7,
-            Numpad8: ex.SCANCODE_NUMPAD8,
-            Numpad9: ex.SCANCODE_NUMPAD9,
-        };
+        const codeMap = load_scancodes(instance);
         const keyEventToKeyScancode = (ev) => {
             let zigKeyConst = keyMap[ev.key];
             if (!zigKeyConst) {
                 zigKeyConst = keyMap.Unknown;
-            }
-
-            let zigScancodeConst = codeMap[ev.code];
-            if (!zigScancodeConst) {
-                zigScancodeConst = codeMap.Unknown;
             }
 
             const zigKey = new Uint16Array(
@@ -137,12 +107,10 @@ export default function getPlatformEnv(canvas_element, getInstance) {
                 zigKeyConst,
                 1
             )[0];
-            const zigScancode = new Uint16Array(
-                getMemory().buffer,
-                zigScancodeConst,
-                1
-            )[0];
-            return [zigKey, zigScancode];
+            return [
+                zigKey,
+                codeMap[ev.code] ? codeMap[ev.code] : codeMap.Unknown,
+            ];
         };
         document.addEventListener("keydown", (ev) => {
             if (document.activeElement != canvas_element) return;
@@ -651,4 +619,175 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             gl.scissor(x, y, width, height);
         },
     };
+}
+
+function load_scancodes(instance) {
+    const e = instance.exports;
+    const codeMapPtrs = {
+        Unknown: e.SCANCODE_UNKNOWN,
+        Unidentified: e.SCANCODE_UNKNOWN,
+        Escape: e.SCANCODE_ESCAPE,
+        Digit0: e.SCANCODE__0,
+        Digit1: e.SCANCODE__1,
+        Digit2: e.SCANCODE__2,
+        Digit3: e.SCANCODE__3,
+        Digit4: e.SCANCODE__4,
+        Digit5: e.SCANCODE__5,
+        Digit6: e.SCANCODE__6,
+        Digit7: e.SCANCODE__7,
+        Digit8: e.SCANCODE__8,
+        Digit9: e.SCANCODE__9,
+        Minus: e.SCANCODE_MINUS,
+        Equal: e.SCANCODE_EQUALS,
+        Backspace: e.SCANCODE_BACKSPACE,
+        Tab: e.SCANCODE_TAB,
+        KeyQ: e.SCANCODE_Q,
+        KeyW: e.SCANCODE_W,
+        KeyE: e.SCANCODE_E,
+        KeyR: e.SCANCODE_R,
+        KeyT: e.SCANCODE_T,
+        KeyY: e.SCANCODE_Y,
+        KeyU: e.SCANCODE_U,
+        KeyI: e.SCANCODE_I,
+        KeyO: e.SCANCODE_O,
+        KeyP: e.SCANCODE_P,
+        BracketLeft: e.SCANCODE_LEFTBRACKET,
+        BracketRight: e.SCANCODE_RIGHTBRACKET,
+        Enter: e.SCANCODE_RETURN,
+        ControlLeft: e.SCANCODE_LCTRL,
+        KeyA: e.SCANCODE_A,
+        KeyS: e.SCANCODE_S,
+        KeyD: e.SCANCODE_D,
+        KeyF: e.SCANCODE_F,
+        KeyG: e.SCANCODE_G,
+        KeyH: e.SCANCODE_H,
+        KeyJ: e.SCANCODE_J,
+        KeyK: e.SCANCODE_K,
+        KeyL: e.SCANCODE_L,
+        Semicolon: e.SCANCODE_SEMICOLON,
+        Quote: e.SCANCODE_APOSTROPHE,
+        Backquote: e.SCANCODE_GRAVE,
+        ShiftLeft: e.SCANCODE_LSHIFT,
+        Backslash: e.SCANCODE_BACKSLASH,
+        KeyZ: e.SCANCODE_Z,
+        KeyX: e.SCANCODE_X,
+        KeyC: e.SCANCODE_C,
+        KeyV: e.SCANCODE_V,
+        KeyB: e.SCANCODE_B,
+        KeyN: e.SCANCODE_N,
+        KeyM: e.SCANCODE_M,
+        Comma: e.SCANCODE_COMMA,
+        Period: e.SCANCODE_PERIOD,
+        Slash: e.SCANCODE_SLASH,
+        ShiftRight: e.SCANCODE_RSHIFT,
+        NumpadMultiply: e.SCANCODE_KP_MULTIPLY,
+        AltLeft: e.SCANCODE_LALT,
+        Space: e.SCANCODE_SPACE,
+        CapsLock: e.SCANCODE_CAPSLOCK,
+        F1: e.SCANCODE_F1,
+        F2: e.SCANCODE_F2,
+        F3: e.SCANCODE_F3,
+        F4: e.SCANCODE_F4,
+        F5: e.SCANCODE_F5,
+        F6: e.SCANCODE_F6,
+        F7: e.SCANCODE_F7,
+        F8: e.SCANCODE_F8,
+        F9: e.SCANCODE_F9,
+        F10: e.SCANCODE_F10,
+        Pause: e.SCANCODE_PAUSE,
+        ScrollLock: e.SCANCODE_SCROLLLOCK,
+        Numpad7: e.SCANCODE_KP_7,
+        Numpad8: e.SCANCODE_KP_8,
+        Numpad9: e.SCANCODE_KP_9,
+        NumpadSubtract: e.SCANCODE_KP_MINUS,
+        Numpad4: e.SCANCODE_KP_4,
+        Numpad5: e.SCANCODE_KP_5,
+        Numpad6: e.SCANCODE_KP_6,
+        NumpadAdd: e.SCANCODE_KP_PLUS,
+        Numpad1: e.SCANCODE_KP_1,
+        Numpad2: e.SCANCODE_KP_2,
+        Numpad3: e.SCANCODE_KP_3,
+        Numpad0: e.SCANCODE_KP_0,
+        NumpadDecimal: e.SCANCODE_KP_PERIOD,
+
+        // Only in Firefox
+        PrintScreen: e.SCANCODE_PRINTSCREEN,
+
+        IntlBackslash: e.SCANCODE_NONUSBACKSLASH,
+        F11: e.SCANCODE_F11,
+        F12: e.SCANCODE_F12,
+        NumpadEqual: e.SCANCODE_KP_EQUALS,
+        F13: e.SCANCODE_F13,
+        F14: e.SCANCODE_F14,
+        F15: e.SCANCODE_F15,
+        F16: e.SCANCODE_F16,
+        F17: e.SCANCODE_F17,
+        F18: e.SCANCODE_F18,
+        F19: e.SCANCODE_F19,
+        F20: e.SCANCODE_F20,
+        F21: e.SCANCODE_F21,
+        F22: e.SCANCODE_F22,
+        F23: e.SCANCODE_F23,
+        F24: e.SCANCODE_F24,
+        Lang2: e.SCANCODE_LANG2,
+        Lang1: e.SCANCODE_LANG1,
+        NumpadComma: e.SCANCODE_KP_COMMA,
+        MediaTrackPrevious: e.SCANCODE_AUDIOPREV,
+        MediaTrackNext: e.SCANCODE_AUDIONEXT,
+        NumpadEnter: e.SCANCODE_KP_ENTER,
+        ControlRight: e.SCANCODE_RCTRL,
+        AudioVolumeMute: e.SCANCODE_AUDIOMUTE,
+        MediaPlayPause: e.SCANCODE_AUDIOPLAY,
+        MediaStop: e.SCANCODE_AUDIOSTOP,
+
+        VolumeDown: e.SCANCODE_VOLUMEDOWN,
+        VolumeUp: e.SCANCODE_VOLUMEUP,
+        AudioVolumeDown: e.SCANCODE_VOLUMEDOWN,
+        AudioVolumeUp: e.SCANCODE_VOLUMEUP,
+
+        BrowserHome: e.SCANCODE_AC_HOME,
+        NumpadDivide: e.SCANCODE_KP_DIVIDE,
+        AltRight: e.SCANCODE_RALT,
+        NumLock: e.SCANCODE_NUMLOCKCLEAR,
+        Home: e.SCANCODE_HOME,
+        ArrowUp: e.SCANCODE_UP,
+        PageUp: e.SCANCODE_PAGEUP,
+        ArrowLeft: e.SCANCODE_LEFT,
+        ArrowRight: e.SCANCODE_RIGHT,
+        End: e.SCANCODE_END,
+        ArrowDown: e.SCANCODE_DOWN,
+        PageDown: e.SCANCODE_PAGEDOWN,
+        Insert: e.SCANCODE_INSERT,
+        Delete: e.SCANCODE_DELETE,
+        MetaLeft: e.SCANCODE_APPLICATION,
+        MetaRight: e.SCANCODE_APPLICATION,
+        OSLeft: e.SCANCODE_APPLICATION,
+        OSRight: e.SCANCODE_APPLICATION,
+        ContextMenu: e.SCANCODE_MENU,
+        Power: e.SCANCODE_POWER,
+        BrowserSearch: e.SCANCODE_AC_SEARCH,
+        BrowserFavorites: e.SCANCODE_AC_BOOKMARKS,
+        BrowserRefresh: e.SCANCODE_AC_REFRESH,
+        BrowserStop: e.SCANCODE_AC_STOP,
+        BrowserForward: e.SCANCODE_AC_FORWARD,
+        BrowserBack: e.SCANCODE_AC_BACK,
+        LaunchMediaPlayer: e.SCANCODE_MEDIASELECT,
+        MediaSelect: e.SCANCODE_MEDIASELECT,
+        LaunchApp1: e.SCANCODE_APP1,
+        LaunchMail: e.SCANCODE_MAIL,
+        Eject: e.SCANCODE_EJECT,
+        LaunchApp2: e.SCANCODE_APP2,
+
+        Cut: e.SCANCODE_CUT,
+        Copy: e.SCANCODE_COPY,
+        Help: e.SCANCODE_HELP,
+        Select: e.SCANCODE_SELECT,
+    };
+
+    const codeMap = {};
+    for (let key in codeMapPtrs) {
+        codeMap[key] = new Uint16Array(e.memory.buffer, codeMapPtrs[key], 1)[0];
+    }
+
+    return codeMap;
 }
