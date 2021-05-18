@@ -538,7 +538,7 @@ export default function getPlatformEnv(canvas_element, getInstance) {
         ) {
             const PIXEL_SIZES = {
                 [gl.RGBA]: 4,
-                [gl.RGB]: 4, // shouldn't this be 3?
+                [gl.RGB]: 3,
             };
             const pixel_size = PIXEL_SIZES[format];
 
