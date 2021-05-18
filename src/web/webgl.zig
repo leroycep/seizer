@@ -129,3 +129,4 @@ pub extern fn useProgram(program_id: c_uint) void;
 pub extern fn vertexAttribPointer(attrib_location: c_uint, size: c_uint, type: c_uint, normalize: c_uint, stride: c_uint, offset: ?*const c_void) void;
 pub extern fn viewport(x: c_int, y: c_int, width: c_int, height: c_int) void;
 pub extern fn scissor(x: GLint, y: GLint, width: GLsizei, height: GLsizei) void;
+pub extern fn generateMipmap(mode: GLenum) void;

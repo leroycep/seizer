@@ -538,11 +538,12 @@ export default function getPlatformEnv(canvas_element, getInstance) {
         ) {
             const PIXEL_SIZES = {
                 [gl.RGBA]: 4,
+                [gl.RGB]: 3,
             };
             const pixel_size = PIXEL_SIZES[format];
 
             // Need to find out the pixel size for more formats
-            if (!format) throw new Error("Unimplemented pixel format");
+            if (!pixel_size) throw new Error("Unimplemented pixel format");
 
             const data =
                 data_ptr != 0
@@ -617,6 +618,9 @@ export default function getPlatformEnv(canvas_element, getInstance) {
         },
         scissor(x, y, width, height) {
             gl.scissor(x, y, width, height);
+        },
+        generateMipmap(mode) {
+            gl.generateMipmap(mode);
         },
     };
 }
