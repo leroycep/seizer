@@ -3,7 +3,7 @@ const Timer = std.time.Timer;
 
 pub const math = @import("math");
 pub const event = @import("./event.zig");
-pub const backend = if (std.builtin.arch == .wasm32) @import("web/web.zig") else @import("sdl/sdl.zig");
+pub const backend = if (std.builtin.cpu.arch == .wasm32) @import("web/web.zig") else @import("sdl/sdl.zig");
 pub const glUtil = @import("./gl_util.zig");
 
 pub usingnamespace backend;
