@@ -33,7 +33,7 @@ pub fn log(
     _ = nosuspend stderr.write("\n") catch return;
 }
 
-pub const panic = builtin.default_panic;
+pub const panic = std.builtin.default_panic;
 
 pub const Context = struct {
     // Standard struct members
