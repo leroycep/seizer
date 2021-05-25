@@ -51,8 +51,12 @@ pub const KeyEvent = struct {
 
 pub const TextInput = struct {
     // The backing buffer for text
-    _buf: [32]u8,
-    text: []const u8,
+    buf: [32]u8,
+    len: usize,
+
+    pub fn text(this: *const @This()) []const u8 {
+        return this.buf[0..this.len];
+    }
 };
 
 pub const MouseButton = enum(u8) {

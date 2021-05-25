@@ -267,7 +267,10 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
         c.SDL_KEYDOWN => return Event{ .KeyDown = .{ .key = sdlToCommonKeycode(sdlEvent.key.keysym.sym), .scancode = sdlToCommonScancode(sdlEvent.key.keysym.scancode) } },
         c.SDL_KEYUP => return Event{ .KeyUp = .{ .key = sdlToCommonKeycode(sdlEvent.key.keysym.sym), .scancode = sdlToCommonScancode(sdlEvent.key.keysym.scancode) } },
         c.SDL_TEXTEDITING => return null,
-        c.SDL_TEXTINPUT => return null,
+        c.SDL_TEXTINPUT => return Event{ .TextInput = .{
+            .buf = sdlEvent.text.text,
+            .len = std.mem.indexOfScalar(u8, &sdlEvent.text.text, 0) orelse @panic("No null terminator in string"),
+        } },
 
         // Mouse events
         c.SDL_MOUSEMOTION => return Event{
