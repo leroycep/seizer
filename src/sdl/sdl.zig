@@ -35,23 +35,6 @@ pub fn log(
 
 pub const panic = std.builtin.default_panic;
 
-pub const Context = struct {
-    // Standard struct members
-    alloc: *std.mem.Allocator,
-    running: bool = true,
-
-    // SDL backend specific
-    window: *c.SDL_Window,
-    gl_context: c.SDL_GLContext,
-
-    pub fn setRelativeMouseMode(this: *@This(), val: bool) !void {
-        const res = c.SDL_SetRelativeMouseMode(if (val) .SDL_TRUE else .SDL_FALSE);
-        if (res != 0) {
-            return logSDLErr(error.CouldntSetRelativeMouseMode);
-        }
-    }
-};
-
 /// _ parameter to get gl.load to not complain
 fn get_proc_address(_: u8, proc: [:0]const u8) ?*c_void {
     return c.SDL_GL_GetProcAddress(proc);
@@ -104,6 +87,9 @@ pub fn run(comptime app: App) void {
 
     var ctx: u8 = 0; // bogus context variable to satisfy gl.load
     gl.load(ctx, get_proc_address) catch |err| std.debug.panic("Failed to load OpenGL: {}", .{err});
+
+    // TODO: Make VSync configurable
+    _ = c.SDL_GL_SetSwapInterval(1);
 
     // Setup opengl debug message callback
     // if (builtin.mode == .Debug) {
