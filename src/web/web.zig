@@ -119,8 +119,8 @@ pub fn run(comptime app: App) void {
         export fn onTextInput(len: u8) void {
             catchError(app.event(.{
                 .TextInput = .{
-                    ._buf = TEXT_INPUT_BUFFER,
-                    .text = TEXT_INPUT_BUFFER[0..len],
+                    .buf = TEXT_INPUT_BUFFER,
+                    .len = len,
                 },
             }));
         }
