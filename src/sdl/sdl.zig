@@ -230,8 +230,9 @@ pub fn sdlAssertZero(ret: c_int) void {
 
 pub fn pollEvent() ?Event {
     var event: c.SDL_Event = undefined;
-    if (c.SDL_PollEvent(&event) != 0) {
-        return sdlToCommonEvent(event);
+    while (c.SDL_PollEvent(&event) != 0) {
+        const ev = sdlToCommonEvent(event) orelse continue;
+        return ev;
     } else {
         return null;
     }
