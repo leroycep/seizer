@@ -34,3 +34,15 @@ fn onEventDoNothing(e: event.Event) anyerror!void {
     }
 }
 fn onUpdateDoNothing(currentTime: f64, delta: f64) anyerror!void {}
+
+// Utility functions for generating/installing HTML or JS that are needed for the web target
+pub const GenerateWebOptions = struct {
+    includeAudioEngine: bool = true,
+};
+
+pub fn generateWebFiles(dir: std.fs.Dir, options: GenerateWebOptions) !void {
+    try dir.writeFile("seizer.js", @embedFile("web/seizer.js"));
+    if (options.includeAudioEngine) {
+        try dir.writeFile("audio_engine.js", @embedFile("web/audio_engine.js"));
+    }
+}

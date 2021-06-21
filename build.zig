@@ -11,12 +11,12 @@ const SEIZER = std.build.Pkg{
 const EXAMPLES = [_]std.build.Pkg{
     .{
         .name = "clear",
-        .path = "examples/clear.zig",
+        .path = .{ .path = "examples/clear.zig" },
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
     .{
         .name = "play_wav",
-        .path = "examples/play_wav.zig",
+        .path = .{ .path = "examples/play_wav.zig" },
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
 };
@@ -28,13 +28,13 @@ pub fn build(b: *Builder) void {
     // Install example assets to "<prefix>/www". By default this means "zig-cache/www"
     const install_assets_web = b.addInstallDirectory(.{
         .source_dir = "examples/assets",
-        .install_dir = .Prefix,
+        .install_dir = .prefix,
         .install_subdir = "www",
     });
 
     // Install `seizer.js` to "<prefix>/www". By default this means "zig-cache/www"
-    const install_seizerjs = b.addInstallFile("src/web/seizer.js", "www/seizer.js");
-    const install_audio_enginejs = b.addInstallFile("src/web/audio_engine.js", "www/audio_engine.js");
+    const install_seizerjs = b.addInstallFile(.{ .path = "src/web/seizer.js" }, "www/seizer.js");
+    const install_audio_enginejs = b.addInstallFile(.{ .path = "src/web/audio_engine.js" }, "www/audio_engine.js");
 
     var build_examples_native = b.step("examples-native", "Build all examples for the target platform");
     var build_examples_web = b.step("examples-web", "Build all examples for the web");
