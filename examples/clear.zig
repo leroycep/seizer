@@ -1,5 +1,6 @@
 const seizer = @import("seizer");
 const gl = seizer.gl;
+const builtin = @import("builtin");
 
 // `main()` must return void, or else start.zig will try to print to stderr
 // when an error occurs. Since the web target doesn't support stderr, it will
@@ -15,3 +16,12 @@ fn render(alpha: f64) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 }
+
+usingnamespace if (builtin.target.cpu.arch == .wasm32)
+    struct {
+        export fn _start() void {
+            main();
+        }
+    }
+else
+    struct {};

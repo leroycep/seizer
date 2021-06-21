@@ -4,7 +4,7 @@ const deps = @import("./deps.zig");
 
 const SEIZER = std.build.Pkg{
     .name = "seizer",
-    .path = "src/seizer.zig",
+    .path = .{ .path = "src/seizer.zig" },
     .dependencies = &[_]std.build.Pkg{deps.pkgs.math},
 };
 
@@ -41,7 +41,7 @@ pub fn build(b: *Builder) void {
 
     inline for (EXAMPLES) |example| {
         // ==== Create native executable and step to run it ====
-        const native = b.addExecutable("example-" ++ example.name ++ "-desktop", example.path);
+        const native = b.addExecutable("example-" ++ example.name ++ "-desktop", example.path.path);
         native.setTarget(target);
         native.setBuildMode(mode);
         native.install();
@@ -60,7 +60,7 @@ pub fn build(b: *Builder) void {
         native_run_step.dependOn(&native_run.step);
 
         // ==== Create WASM binary and step to install it ====
-        const web = b.addStaticLibrary("example-" ++ example.name ++ "-web", example.path);
+        const web = b.addSharedLibrary("example-" ++ example.name ++ "-web", example.path.path, .unversioned);
         web.setBuildMode(mode);
         web.setOutputDir(b.fmt("{s}/www", .{b.install_prefix}));
         web.setTarget(.{
@@ -69,7 +69,7 @@ pub fn build(b: *Builder) void {
         });
         web.packages.appendSlice(example.dependencies orelse &[_]std.build.Pkg{}) catch unreachable;
 
-        const install_index = b.addInstallFile("examples/" ++ example.name ++ ".html", "www/" ++ example.name ++ ".html");
+        const install_index = b.addInstallFile(.{ .path = "examples/" ++ example.name ++ ".html" }, "www/" ++ example.name ++ ".html");
 
         const build_web = b.step("example-" ++ example.name ++ "-web", "Build the " ++ example.name ++ " example for the web");
         build_web.dependOn(&web.step);
