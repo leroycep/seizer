@@ -3,17 +3,14 @@ const seizer = @import("seizer");
 const gl = seizer.gl;
 const audio = seizer.audio;
 
-// `main()` must return void, or else start.zig will try to print to stderr
-// when an error occurs. Since the web target doesn't support stderr, it will
-// fail to compile. So keep error unions out of `main`'s return type.
-pub fn main() void {
-    seizer.run(.{
-        .init = init,
-        .deinit = deinit,
-        .update = update,
-        .render = render,
-    });
-}
+// Call the comptime function `seizer.run`, which will ensure that everything is
+// set up for the platform we are targeting.
+pub usingnamespace seizer.run(.{
+    .init = init,
+    .deinit = deinit,
+    .update = update,
+    .render = render,
+});
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var audioEngine: audio.Engine = undefined;

@@ -68,6 +68,7 @@ pub fn build(b: *Builder) void {
             .os_tag = .freestanding,
         });
         web.packages.appendSlice(example.dependencies orelse &[_]std.build.Pkg{}) catch unreachable;
+        web.install();
 
         const install_index = b.addInstallFile(.{ .path = "examples/" ++ example.name ++ ".html" }, "www/" ++ example.name ++ ".html");
 

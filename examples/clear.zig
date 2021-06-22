@@ -2,26 +2,14 @@ const seizer = @import("seizer");
 const gl = seizer.gl;
 const builtin = @import("builtin");
 
-// `main()` must return void, or else start.zig will try to print to stderr
-// when an error occurs. Since the web target doesn't support stderr, it will
-// fail to compile. So keep error unions out of `main`'s return type.
-pub fn main() void {
-    seizer.run(.{
-        .render = render,
-    });
-}
+// Call the comptime function `seizer.run`, which will ensure that everything is
+// set up for the platform we are targeting.
+pub usingnamespace seizer.run(.{
+    .render = render,
+});
 
 // Errors are okay to return from the functions that you pass to `seizer.run()`.
 fn render(alpha: f64) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 }
-
-usingnamespace if (builtin.target.cpu.arch == .wasm32)
-    struct {
-        export fn _start() void {
-            main();
-        }
-    }
-else
-    struct {};

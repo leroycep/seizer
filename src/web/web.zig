@@ -55,11 +55,13 @@ pub extern fn seizer_reject_promise(promise_id: usize, errorno: usize) void;
 pub extern fn seizer_resolve_promise(promise_id: usize, data: usize) void;
 
 extern fn seizer_run(maxDelta: f64, tickDelta: f64) void;
-pub fn run(comptime app: App) void {
-    seizer_run(app.maxDeltaSeconds, app.tickDeltaSeconds);
-
-    const S = struct {
+pub fn run(comptime app: App) type {
+    return struct {
         var init_frame: @Frame(onInit_internal) = undefined;
+
+        export fn _start() void {
+            seizer_run(app.maxDeltaSeconds, app.tickDeltaSeconds);
+        }
 
         export fn onInit(promiseId: usize) void {
             init_frame = async onInit_internal(promiseId);

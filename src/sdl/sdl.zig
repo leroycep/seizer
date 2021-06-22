@@ -49,93 +49,97 @@ pub fn getScreenSize() Vec2i {
     return size;
 }
 
-pub fn run(comptime app: App) void {
-    // Init SDL
-    if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER) != 0) {
-        logSDLErr(error.InitFailed);
-    }
-    defer c.SDL_Quit();
+pub fn run(comptime app: App) type {
+    return struct {
+        pub fn main() !void {
+            // Init SDL
+            if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER) != 0) {
+                logSDLErr(error.InitFailed);
+            }
+            defer c.SDL_Quit();
 
-    sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
-    sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MINOR_VERSION, 0));
-    sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_ES));
-    sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_DOUBLEBUFFER, 1));
+            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
+            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MINOR_VERSION, 0));
+            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_ES));
+            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_DOUBLEBUFFER, 1));
 
-    const screenWidth = app.window.width orelse 640;
-    const screenHeight = app.window.height orelse 480;
+            const screenWidth = app.window.width orelse 640;
+            const screenHeight = app.window.height orelse 480;
 
-    sdl_window = c.SDL_CreateWindow(
-        app.window.title,
-        c.SDL_WINDOWPOS_UNDEFINED_MASK,
-        c.SDL_WINDOWPOS_UNDEFINED_MASK,
-        screenWidth,
-        screenHeight,
-        c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE,
-    ) orelse {
-        logSDLErr(error.CouldntCreateWindow);
+            sdl_window = c.SDL_CreateWindow(
+                app.window.title,
+                c.SDL_WINDOWPOS_UNDEFINED_MASK,
+                c.SDL_WINDOWPOS_UNDEFINED_MASK,
+                screenWidth,
+                screenHeight,
+                c.SDL_WINDOW_SHOWN | c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_RESIZABLE,
+            ) orelse {
+                logSDLErr(error.CouldntCreateWindow);
+            };
+            defer c.SDL_DestroyWindow(sdl_window);
+
+            // TODO: Give user more control over this?
+            if (app.sdlControllerDBPath) |dbpath| {
+                _ = c.SDL_GameControllerAddMappingsFromFile(dbpath);
+            }
+
+            const gl_context = c.SDL_GL_CreateContext(sdl_window);
+            defer c.SDL_GL_DeleteContext(gl_context);
+            c.SDL_ShowWindow(sdl_window);
+
+            var ctx: u8 = 0; // bogus context variable to satisfy gl.load
+            try gl.load(ctx, get_proc_address);
+
+            // TODO: Make VSync configurable
+            _ = c.SDL_GL_SetSwapInterval(1);
+
+            // Setup opengl debug message callback
+            // if (builtin.mode == .Debug) {
+            //     gl.enable(gl.DEBUG_OUTPUT);
+            //     gl.debugMessageCallback(MessageCallback, null);
+            // }
+
+            sdllog.info("application initialized", .{});
+
+            nosuspend try app.init();
+            defer app.deinit();
+
+            // Timestep based on the Gaffer on Games post, "Fix Your Timestep"
+            //    https://www.gafferongames.com/post/fix_your_timestep/
+            const MAX_DELTA = app.maxDeltaSeconds;
+            const TICK_DELTA = app.tickDeltaSeconds;
+            var timer = try Timer.start();
+            var tickTime: f64 = 0.0;
+            var accumulator: f64 = 0.0;
+
+            while (running) {
+                while (pollEvent()) |event| {
+                    try app.event(event);
+                }
+
+                var delta = @intToFloat(f64, timer.lap()) / std.time.ns_per_s; // Delta in seconds
+                if (delta > MAX_DELTA) {
+                    delta = MAX_DELTA; // Try to avoid spiral of death when lag hits
+                }
+
+                accumulator += delta;
+
+                while (accumulator >= TICK_DELTA) {
+                    try app.update(tickTime, TICK_DELTA);
+                    accumulator -= TICK_DELTA;
+                    tickTime += TICK_DELTA;
+                }
+
+                // Where the render is between two timesteps.
+                // If we are halfway between frames (based on what's in the accumulator)
+                // then alpha will be equal to 0.5
+                const alpha = accumulator / TICK_DELTA;
+
+                try app.render(alpha);
+                c.SDL_GL_SwapWindow(sdl_window);
+            }
+        }
     };
-    defer c.SDL_DestroyWindow(sdl_window);
-
-    // TODO: Give user more control over this?
-    if (app.sdlControllerDBPath) |dbpath| {
-        _ = c.SDL_GameControllerAddMappingsFromFile(dbpath);
-    }
-
-    const gl_context = c.SDL_GL_CreateContext(sdl_window);
-    defer c.SDL_GL_DeleteContext(gl_context);
-    c.SDL_ShowWindow(sdl_window);
-
-    var ctx: u8 = 0; // bogus context variable to satisfy gl.load
-    gl.load(ctx, get_proc_address) catch |err| std.debug.panic("Failed to load OpenGL: {}", .{err});
-
-    // TODO: Make VSync configurable
-    _ = c.SDL_GL_SetSwapInterval(1);
-
-    // Setup opengl debug message callback
-    // if (builtin.mode == .Debug) {
-    //     gl.enable(gl.DEBUG_OUTPUT);
-    //     gl.debugMessageCallback(MessageCallback, null);
-    // }
-
-    sdllog.info("application initialized", .{});
-
-    nosuspend app.init() catch |err| std.debug.panic("Failed to initialze app: {}", .{err});
-    defer app.deinit();
-
-    // Timestep based on the Gaffer on Games post, "Fix Your Timestep"
-    //    https://www.gafferongames.com/post/fix_your_timestep/
-    const MAX_DELTA = app.maxDeltaSeconds;
-    const TICK_DELTA = app.tickDeltaSeconds;
-    var timer = Timer.start() catch |err| std.debug.panic("Failed to create timer: {}", .{err});
-    var tickTime: f64 = 0.0;
-    var accumulator: f64 = 0.0;
-
-    while (running) {
-        while (pollEvent()) |event| {
-            app.event(event) catch |err| std.debug.panic("Failed to process event: {}", .{err});
-        }
-
-        var delta = @intToFloat(f64, timer.lap()) / std.time.ns_per_s; // Delta in seconds
-        if (delta > MAX_DELTA) {
-            delta = MAX_DELTA; // Try to avoid spiral of death when lag hits
-        }
-
-        accumulator += delta;
-
-        while (accumulator >= TICK_DELTA) {
-            app.update(tickTime, TICK_DELTA) catch |err| std.debug.panic("Failed to update app: {}", .{err});
-            accumulator -= TICK_DELTA;
-            tickTime += TICK_DELTA;
-        }
-
-        // Where the render is between two timesteps.
-        // If we are halfway between frames (based on what's in the accumulator)
-        // then alpha will be equal to 0.5
-        const alpha = accumulator / TICK_DELTA;
-
-        app.render(alpha) catch |err| std.debug.panic("Failed to render app: {}", .{err});
-        c.SDL_GL_SwapWindow(sdl_window);
-    }
 }
 
 pub fn quit() void {
