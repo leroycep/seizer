@@ -359,7 +359,7 @@ pub const Engine = struct {
         std.mem.set([2]f32, stream, [2]f32{ silence, silence });
 
         // TODO: switch to using samples buffers, instead of individual samples
-        for (stream) |*sample, sampleIdx| {
+        for (stream) |*sample| {
             for (this.output_nodes) |output_node_opt| {
                 const output_node = output_node_opt orelse continue;
 
@@ -369,7 +369,7 @@ pub const Engine = struct {
                 sample[1] = saturating_add(sample[1], val[1]);
             }
 
-            for (this.nodes) |*node, idx| {
+            for (this.nodes) |*node| {
                 switch (node.*) {
                     .None, .DelayOutput => {},
                     .Sound => |*sound_node| {

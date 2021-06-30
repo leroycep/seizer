@@ -58,10 +58,10 @@ pub fn run(comptime app: App) type {
             }
             defer c.SDL_Quit();
 
-            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
-            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_MINOR_VERSION, 0));
-            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_ES));
-            sdlAssertZero(c.SDL_GL_SetAttribute(.SDL_GL_DOUBLEBUFFER, 1));
+            sdlAssertZero(c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MAJOR_VERSION, 3));
+            sdlAssertZero(c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MINOR_VERSION, 0));
+            sdlAssertZero(c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_ES));
+            sdlAssertZero(c.SDL_GL_SetAttribute(c.SDL_GL_DOUBLEBUFFER, 1));
 
             const screenWidth = app.window.width orelse 640;
             const screenHeight = app.window.height orelse 480;
@@ -184,7 +184,7 @@ pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_file_size
 }
 
 // Run async functions
-pub fn execute(allocator: *std.mem.Allocator, comptime func: anytype, args: anytype) !void {
+pub fn execute(_: *std.mem.Allocator, comptime _: anytype, _: anytype) !void {
     _ = @call(.{}, func, args);
 }
 
@@ -192,7 +192,7 @@ pub fn randomBytes(slice: []u8) void {
     std.crypto.random.bytes(slice);
 }
 
-fn MessageCallback(source: gl.GLenum, msgtype: gl.GLenum, id: gl.GLuint, severity: gl.GLenum, len: gl.GLsizei, msg: [*c]const gl.GLchar, userParam: ?*const c_void) callconv(.C) void {
+fn MessageCallback(source: gl.GLenum, msgtype: gl.GLenum, _: gl.GLuint, severity: gl.GLenum, len: gl.GLsizei, msg: [*c]const gl.GLchar, _: ?*const c_void) callconv(.C) void {
     // const MessageCallback: gl.GLDEBUGPROC = {
     const msg_slice = msg[0..@intCast(usize, len)];
     const debug_msg_source = @intToEnum(OpenGL_DebugSource, source);
@@ -357,7 +357,7 @@ fn sdlToCommonButton(btn: u8) MouseButton {
 }
 
 fn sdlToCommonScancode(scn: c.SDL_Scancode) Scancode {
-    switch (@enumToInt(scn)) {
+    switch (scn) {
         c.SDL_SCANCODE_UNKNOWN => return .UNKNOWN,
         c.SDL_SCANCODE_A => return .A,
         c.SDL_SCANCODE_B => return .B,

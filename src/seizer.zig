@@ -33,7 +33,10 @@ fn onEventDoNothing(e: event.Event) anyerror!void {
         else => {},
     }
 }
-fn onUpdateDoNothing(currentTime: f64, delta: f64) anyerror!void {}
+fn onUpdateDoNothing(currentTime: f64, delta: f64) anyerror!void {
+    _ = currentTime;
+    _ = delta;
+}
 
 // Utility functions for generating/installing HTML or JS that are needed for the web target
 pub const GenerateWebOptions = struct {

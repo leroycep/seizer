@@ -23,7 +23,7 @@ fn init() !void {
 
     const sound_node = audioEngine.createSoundNode();
     const filter_node = audioEngine.createBiquadNode(sound_node, .{ .kind = .lowpass, .freq = 1000.0, .q = 1 });
-    const mixer_node = try audioEngine.createMixerNode(&[_]audio.MixerInput{
+    _ = try audioEngine.createMixerNode(&[_]audio.MixerInput{
         .{ .handle = sound_node, .gain = 1 },
     });
     audioEngine.connectToOutput(filter_node);
@@ -41,14 +41,14 @@ fn deinit() void {
     _ = gpa.deinit();
 }
 
-fn update(time: f64, delta: f64) !void {
+fn update(time: f64, _: f64) !void {
     if (time > 2) {
         seizer.quit();
     }
 }
 
 // Errors are okay to return from the functions that you pass to `seizer.run()`.
-fn render(alpha: f64) !void {
+fn render(_: f64) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 }
