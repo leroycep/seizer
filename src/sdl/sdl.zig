@@ -184,7 +184,9 @@ pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_file_size
 }
 
 // Run async functions
-pub fn execute(_: *std.mem.Allocator, comptime _: anytype, _: anytype) !void {
+pub fn execute(allocator: *std.mem.Allocator, comptime func: anytype, args: anytype) !void {
+    _ = allocator;
+
     _ = @call(.{}, func, args);
 }
 

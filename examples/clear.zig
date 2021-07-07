@@ -9,7 +9,9 @@ pub usingnamespace seizer.run(.{
 });
 
 // Errors are okay to return from the functions that you pass to `seizer.run()`.
-fn render(_: f64) !void {
+fn render(alpha: f64) !void {
+    _ = alpha;
+
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 }

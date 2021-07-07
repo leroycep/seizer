@@ -31,17 +31,26 @@ pub const MixerInput = struct {
 };
 
 pub const Engine = struct {
-    pub fn init(_: *@This(), _: *std.mem.Allocator) !void {
+    pub fn init(this: *@This(), allocator: *std.mem.Allocator) !void {
+        _ = this;
+        _ = allocator;
+
         bindings.init();
         this.* = @This(){};
     }
 
-    pub fn deinit(_: *@This()) void {
+    pub fn deinit(this: *@This()) void {
+        _ = this;
+
         bindings.deinit();
     }
 
     // TODO: Remove allocator from function interface?
-    pub fn load(_: *@This(), _: *std.mem.Allocator, filename: [:0]const u8, _: usize) !SoundHandle {
+    pub fn load(this: *@This(), allocator: *std.mem.Allocator, filename: [:0]const u8, max_size: usize) !SoundHandle {
+        _ = this;
+        _ = allocator;
+        _ = max_size;
+
         var sound_id: i32 = undefined;
         suspend {
             bindings.load(@ptrToInt(@frame()), filename.ptr, filename.len, &sound_id);
@@ -49,13 +58,17 @@ pub const Engine = struct {
         return SoundHandle{ .id = try unwrapRetCode(sound_id) };
     }
 
-    pub fn createSoundNode(_: *@This()) NodeHandle {
+    pub fn createSoundNode(this: *@This()) NodeHandle {
+        _ = this;
+
         const ret = bindings.createSoundNode();
         const node_id = unwrapRetCode(ret) catch unreachable;
         return NodeHandle{ .id = node_id };
     }
 
-    pub fn createBiquadNode(_: *@This(), inputNode: NodeHandle, options: BiquadOptions) NodeHandle {
+    pub fn createBiquadNode(this: *@This(), inputNode: NodeHandle, options: BiquadOptions) NodeHandle {
+        _ = this;
+
         const ret = bindings.createBiquadNode(
             inputNode.id,
             @enumToInt(options.kind),
@@ -67,7 +80,9 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_id };
     }
 
-    pub fn createMixerNode(_: *@This(), inputs: []const MixerInput) !NodeHandle {
+    pub fn createMixerNode(this: *@This(), inputs: []const MixerInput) !NodeHandle {
+        _ = this;
+
         const ret = bindings.createMixerNode();
         const node_id = try unwrapRetCode(ret);
         for (inputs) |input| {
@@ -76,22 +91,30 @@ pub const Engine = struct {
         return NodeHandle{ .id = node_id };
     }
 
-    pub fn createDelayOutputNode(_: *@This(), delaySeconds: f32) !NodeHandle {
+    pub fn createDelayOutputNode(this: *@This(), delaySeconds: f32) !NodeHandle {
+        _ = this;
+
         const ret = bindings.createDelayOutputNode(delaySeconds);
         const node_id = try unwrapRetCode(ret);
         return NodeHandle{ .id = node_id };
     }
 
-    pub fn createDelayInputNode(_: *@This(), inputNode: NodeHandle, delayOutputNode: NodeHandle) !void {
+    pub fn createDelayInputNode(this: *@This(), inputNode: NodeHandle, delayOutputNode: NodeHandle) !void {
+        _ = this;
+
         const ret = bindings.createDelayInputNode(inputNode.id, delayOutputNode.id);
         _ = try unwrapRetCode(ret);
     }
 
-    pub fn connectToOutput(_: *@This(), nodeHandle: NodeHandle) void {
+    pub fn connectToOutput(this: *@This(), nodeHandle: NodeHandle) void {
+        _ = this;
+
         bindings.connectToOutput(nodeHandle.id);
     }
 
-    pub fn play(_: *@This(), nodeHandle: NodeHandle, soundHandle: SoundHandle) void {
+    pub fn play(this: *@This(), nodeHandle: NodeHandle, soundHandle: SoundHandle) void {
+        _ = this;
+
         bindings.play(nodeHandle.id, soundHandle.id);
     }
 

@@ -22,7 +22,9 @@ pub const setShaderSource = glShaderSource;
 extern fn seizer_log_write(str_ptr: [*]const u8, str_len: usize) void;
 extern fn seizer_log_flush() void;
 
-fn seizerLogWrite(_: void, bytes: []const u8) error{}!usize {
+fn seizerLogWrite(ctx: void, bytes: []const u8) error{}!usize {
+    _ = ctx;
+
     seizer_log_write(bytes.ptr, bytes.len);
     return bytes.len;
 }
@@ -43,7 +45,9 @@ pub fn log(
     writer.print(format, args) catch {};
 }
 
-pub fn panic(msg: []const u8, _: ?*std.builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, stacktrace: ?*std.builtin.StackTrace) noreturn {
+    _ = stacktrace;
+
     seizer_log_write(msg.ptr, msg.len);
     seizer_log_flush();
     while (true) {
@@ -195,7 +199,10 @@ pub const FetchError = error{
 };
 
 extern fn seizer_fetch(filename_ptr: [*]const u8, filename_len: usize, cb: *c_void, data_out: *FetchError![]u8, allocator: *std.mem.Allocator) void;
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, _: usize) FetchError![]const u8 {
+pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_size: usize) FetchError![]const u8 {
+    // TODO: Actually use the provided max size
+    _ = max_size;
+
     var data: FetchError![]u8 = undefined;
     suspend seizer_fetch(file_name.ptr, file_name.len, @frame(), &data, allocator);
     return data;
