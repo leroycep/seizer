@@ -5,13 +5,18 @@ const deps = @import("./deps.zig");
 const SEIZER = std.build.Pkg{
     .name = "seizer",
     .path = .{ .path = "src/seizer.zig" },
-    .dependencies = &[_]std.build.Pkg{deps.pkgs.math},
+    .dependencies = &[_]std.build.Pkg{ deps.pkgs.math.pkg.?, deps.pkgs.zigimg.pkg.? },
 };
 
 const EXAMPLES = [_]std.build.Pkg{
     .{
         .name = "clear",
         .path = .{ .path = "examples/clear.zig" },
+        .dependencies = &[_]std.build.Pkg{SEIZER},
+    },
+    .{
+        .name = "textures",
+        .path = .{ .path = "examples/textures.zig" },
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
     .{

@@ -8,6 +8,8 @@ pub const glUtil = @import("./gl_util.zig");
 
 pub usingnamespace backend;
 
+pub const Texture = @import("./texture.zig").Texture;
+
 pub const App = struct {
     init: fn () callconv(.Async) anyerror!void = onInitDoNothing,
     deinit: fn () void = onDeinitDoNothing,

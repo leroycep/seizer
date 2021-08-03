@@ -20,3 +20,10 @@ deps:
         user: leroycep
         repo: zigmath
         ref: master
+  zigimg:
+    root: zigimg.zig
+    src:
+      github:
+        user: zigimg
+        repo: zigimg
+        ref: master
