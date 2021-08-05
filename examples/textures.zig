@@ -51,6 +51,8 @@ fn init() !void {
     player_texture = try Texture.initFromFile(&gpa.allocator, "wedge.png", .{});
     errdefer player_texture.deinit();
 
+    std.log.info("Texture is {}x{} pixels", .{ player_texture.size.x, player_texture.size.y });
+
     shader_program = try seizer.glUtil.compileShader(&gpa.allocator, VERT_SHADER, FRAG_SHADER);
 
     // Create VBO to display texture

@@ -74,6 +74,7 @@ pub const Texture = struct {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, options.minFilter);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, options.magFilter);
 
+        this.size = .{ .x = load_res.width, .y = load_res.height };
         return this;
     }
 };
