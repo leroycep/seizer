@@ -20,6 +20,11 @@ const EXAMPLES = [_]std.build.Pkg{
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
     .{
+        .name = "sprite_batch",
+        .path = .{ .path = "examples/sprite_batch.zig" },
+        .dependencies = &[_]std.build.Pkg{SEIZER},
+    },
+    .{
         .name = "play_wav",
         .path = .{ .path = "examples/play_wav.zig" },
         .dependencies = &[_]std.build.Pkg{SEIZER},
