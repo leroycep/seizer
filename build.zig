@@ -25,6 +25,11 @@ const EXAMPLES = [_]std.build.Pkg{
         .dependencies = &[_]std.build.Pkg{SEIZER},
     },
     .{
+        .name = "bitmap_font",
+        .path = .{ .path = "examples/bitmap_font.zig" },
+        .dependencies = &[_]std.build.Pkg{SEIZER},
+    },
+    .{
         .name = "play_wav",
         .path = .{ .path = "examples/play_wav.zig" },
         .dependencies = &[_]std.build.Pkg{SEIZER},
