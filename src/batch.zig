@@ -131,11 +131,30 @@ pub const SpriteBatch = struct {
 
     pub fn drawTexture(this: *@This(), texture: Texture, pos: Vec2f, opts: DrawTextureOptions) void {
         const size = opts.size orelse texture.size.intToFloat(f32);
-        this.drawTextureRaw(texture.glTexture, opts.rect.min, opts.rect.max, pos, size, opts.color);
+        this.drawTextureRaw(
+            texture.glTexture,
+            opts.rect.min,
+            opts.rect.max,
+            pos,
+            .{ .x = pos.x + size.x, .y = pos.y },
+            .{ .x = pos.x, .y = pos.y + size.y },
+            pos.addv(size),
+            opts.color,
+        );
     }
 
     // Takes an OpenGL texture handle, a couple of positions, and adds it to the batch
-    pub fn drawTextureRaw(this: *@This(), texture: gl.GLuint, texPos1: Vec2f, texPos2: Vec2f, pos: Vec2f, size: Vec2f, color: Color) void {
+    pub fn drawTextureRaw(
+        this: *@This(),
+        texture: gl.GLuint,
+        texPos1: Vec2f,
+        texPos2: Vec2f,
+        topLeft: Vec2f,
+        topRight: Vec2f,
+        botLeft: Vec2f,
+        botRight: Vec2f,
+        color: Color,
+    ) void {
         if (texture != this.texture) {
             this.flush();
             this.texture = texture;
@@ -145,43 +164,43 @@ pub const SpriteBatch = struct {
         }
         this.draw_buffer[this.num_vertices..][0..6].* = [6]Vertex{
             Vertex{ // top left
-                .x = pos.x - 0.5,
-                .y = pos.y - 0.5,
+                .x = topLeft.x - 0.5,
+                .y = topLeft.y - 0.5,
                 .u = texPos1.x,
                 .v = texPos1.y,
                 .color = color,
             },
             Vertex{ // bot left
-                .x = pos.x - 0.5,
-                .y = pos.y + size.y - 0.5,
+                .x = botLeft.x - 0.5,
+                .y = botLeft.y - 0.5,
                 .u = texPos1.x,
                 .v = texPos2.y,
                 .color = color,
             },
             Vertex{ // top right
-                .x = pos.x + size.x - 0.5,
-                .y = pos.y - 0.5,
+                .x = topRight.x - 0.5,
+                .y = topRight.y - 0.5,
                 .u = texPos2.x,
                 .v = texPos1.y,
                 .color = color,
             },
             Vertex{ // bot left
-                .x = pos.x - 0.5,
-                .y = pos.y + size.y - 0.5,
+                .x = botLeft.x - 0.5,
+                .y = botLeft.y - 0.5,
                 .u = texPos1.x,
                 .v = texPos2.y,
                 .color = color,
             },
             Vertex{ // top right
-                .x = pos.x + size.x - 0.5,
-                .y = pos.y - 0.5,
+                .x = topRight.x - 0.5,
+                .y = topRight.y - 0.5,
                 .u = texPos2.x,
                 .v = texPos1.y,
                 .color = color,
             },
             Vertex{ // bot right
-                .x = pos.x + size.x - 0.5,
-                .y = pos.y + size.y - 0.5,
+                .x = botRight.x - 0.5,
+                .y = botRight.y - 0.5,
                 .u = texPos2.x,
                 .v = texPos2.y,
                 .color = color,
