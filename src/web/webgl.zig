@@ -123,6 +123,7 @@ pub extern fn texParameterf(target: c_uint, pname: c_uint, param: f32) void;
 pub extern fn texParameteri(target: c_uint, pname: c_uint, param: c_int) void;
 pub extern fn uniform1f(location_id: c_int, x: f32) void;
 pub extern fn uniform1i(location_id: c_int, x: c_int) void;
+pub extern fn uniform2i(location_id: c_int, x: c_int, y: c_int) void;
 pub extern fn uniform4f(location_id: c_int, x: f32, y: f32, z: f32, w: f32) void;
 pub extern fn uniformMatrix4fv(location_id: c_int, data_len: c_int, transpose: c_uint, data_ptr: [*]const f32) void;
 pub extern fn useProgram(program_id: c_uint) void;

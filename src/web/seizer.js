@@ -582,6 +582,9 @@ export default function getPlatformEnv(canvas_element, getInstance) {
         uniform1i(location_id, x) {
             gl.uniform1i(glUniformLocations[location_id], x);
         },
+        uniform2i(location_id, x, y) {
+            gl.uniform2i(glUniformLocations[location_id], x, y);
+        },
         uniform4f(location_id, x, y, z, w) {
             gl.uniform4f(glUniformLocations[location_id], x, y, z, w);
         },
