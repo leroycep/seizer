@@ -33,7 +33,7 @@ fn onDeinitDoNothing() void {}
 fn onEventDoNothing(e: event.Event) anyerror!void {
     // Do nothing but listen for the quit event
     switch (e) {
-        .Quit => quit(),
+        .Quit => backend.quit(),
         else => {},
     }
 }

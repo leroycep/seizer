@@ -17,8 +17,6 @@ pub fn getScreenSize() Vec2i {
     return Vec2i.init(getScreenW(), getScreenH());
 }
 
-pub const setShaderSource = glShaderSource;
-
 extern fn seizer_log_write(str_ptr: [*]const u8, str_len: usize) void;
 extern fn seizer_log_flush() void;
 
