@@ -54,7 +54,7 @@ pub const SpriteBatch = struct {
     clips: std.ArrayList(Quad),
 
     /// Font should be the name of the font texture and csv minus their extensions
-    pub fn init(allocator: *std.mem.Allocator, screenSize: Vec2i) !@This() {
+    pub fn init(allocator: std.mem.Allocator, screenSize: Vec2i) !@This() {
         const program = try glUtil.compileShader(
             allocator,
             @embedFile("batch/sprite.vert"),
@@ -79,9 +79,9 @@ pub const SpriteBatch = struct {
         gl.enableVertexAttribArray(2); // UV attribute
 
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const c_void, @offsetOf(Vertex, "x")));
-        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const c_void, @offsetOf(Vertex, "u")));
-        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @intToPtr(?*const c_void, @offsetOf(Vertex, "color")));
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "x")));
+        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "u")));
+        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "color")));
         gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 
         return @This(){
@@ -217,7 +217,7 @@ pub const SpriteBatch = struct {
             const quad = this.clips.items[this.clips.items.len - 1];
             gl.scissor(
                 @floatToInt(c_int, quad.pos.x - 0.5),
-                @floatToInt(c_int, std.math.floor(@intToFloat(f32, this.screenSize.y) - quad.pos.y - quad.size.y - 0.5)),
+                @floatToInt(c_int, @floor(@intToFloat(f32, this.screenSize.y) - quad.pos.y - quad.size.y - 0.5)),
                 @floatToInt(c_int, quad.size.x),
                 @floatToInt(c_int, quad.size.y),
             );

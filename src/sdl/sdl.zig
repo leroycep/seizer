@@ -36,7 +36,7 @@ pub fn log(
 pub const panic = std.builtin.default_panic;
 
 /// _ parameter to get gl.load to not complain
-fn get_proc_address(_: u8, proc: [:0]const u8) ?*c_void {
+fn get_proc_address(_: u8, proc: [:0]const u8) ?*anyopaque {
     return c.SDL_GL_GetProcAddress(proc);
 }
 
@@ -171,7 +171,7 @@ pub const FetchError = error{
     Unknown,
 };
 
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_file_size: usize) FetchError![]u8 {
+pub fn fetch(allocator: std.mem.Allocator, file_name: []const u8, max_file_size: usize) FetchError![]u8 {
     const cwd = std.fs.cwd();
     const contents = cwd.readFileAlloc(allocator, file_name, max_file_size) catch |err| switch (err) {
         error.FileNotFound, error.OutOfMemory => |e| return e,
@@ -194,7 +194,7 @@ pub fn randomBytes(slice: []u8) void {
     std.crypto.random.bytes(slice);
 }
 
-fn MessageCallback(source: gl.GLenum, msgtype: gl.GLenum, _: gl.GLuint, severity: gl.GLenum, len: gl.GLsizei, msg: [*c]const gl.GLchar, _: ?*const c_void) callconv(.C) void {
+fn MessageCallback(source: gl.GLenum, msgtype: gl.GLenum, _: gl.GLuint, severity: gl.GLenum, len: gl.GLsizei, msg: [*c]const gl.GLchar, _: ?*const anyopaque) callconv(.C) void {
     // const MessageCallback: gl.GLDEBUGPROC = {
     const msg_slice = msg[0..@intCast(usize, len)];
     const debug_msg_source = @intToEnum(OpenGL_DebugSource, source);

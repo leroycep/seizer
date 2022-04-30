@@ -11,7 +11,7 @@ pub const FetchError = error{
     OutOfMemory,
     Unknown,
 };
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8) FetchError![]const u8 {
+pub fn fetch(allocator: std.mem.Allocator, file_name: []const u8) FetchError![]const u8 {
     @compileError("Unimplemented");
 }
 

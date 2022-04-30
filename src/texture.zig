@@ -33,7 +33,7 @@ pub const Texture = struct {
         wrapT: gl.GLint = gl.CLAMP_TO_EDGE,
     };
 
-    pub fn initFromFile(alloc: *std.mem.Allocator, filePath: []const u8, options: InitFromFileOptions) !@This() {
+    pub fn initFromFile(alloc: std.mem.Allocator, filePath: []const u8, options: InitFromFileOptions) !@This() {
         var this = try init();
         errdefer this.deinit();
 

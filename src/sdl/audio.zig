@@ -37,7 +37,7 @@ const MAX_OUTPUT = 10;
 const Generation = u4;
 
 pub const Engine = struct {
-    allocator: *std.mem.Allocator,
+    allocator: std.mem.Allocator,
 
     device_id: c.SDL_AudioDeviceID,
     spec: c.SDL_AudioSpec,
@@ -49,7 +49,7 @@ pub const Engine = struct {
     next_node_slot: u32,
     output_nodes: [MAX_OUTPUT]?u32,
 
-    pub fn init(this: *@This(), allocator: *std.mem.Allocator) !void {
+    pub fn init(this: *@This(), allocator: std.mem.Allocator) !void {
         const wanted = c.SDL_AudioSpec{
             .freq = 44_100,
             .format = c.AUDIO_F32,
@@ -147,7 +147,7 @@ pub const Engine = struct {
         alive: bool,
         generation: Generation,
         audio: [][2]f32,
-        allocator: *std.mem.Allocator,
+        allocator: std.mem.Allocator,
     };
 
     const PlayingSound = struct {
@@ -155,7 +155,7 @@ pub const Engine = struct {
         pos: usize,
     };
 
-    pub fn load(this: *@This(), allocator: *std.mem.Allocator, filename: [:0]const u8, maxFileSize: usize) !SoundHandle {
+    pub fn load(this: *@This(), allocator: std.mem.Allocator, filename: [:0]const u8, maxFileSize: usize) !SoundHandle {
         const starting_slot = this.next_sound_slot;
         var slot = starting_slot;
         while (true) {
@@ -352,7 +352,7 @@ pub const Engine = struct {
     }
 
     // SDL fill audio callback
-    fn fill_audio(userdata: ?*c_void, stream_ptr: ?[*]u8, stream_len: c_int) callconv(.C) void {
+    fn fill_audio(userdata: ?*anyopaque, stream_ptr: ?[*]u8, stream_len: c_int) callconv(.C) void {
         const this = @ptrCast(*@This(), @alignCast(@alignOf(@This()), userdata.?));
         const stream = @ptrCast([*][2]f32, @alignCast(@alignOf([2]f32), stream_ptr.?))[0..@intCast(usize, @divExact(stream_len, @sizeOf([2]f32)))];
         const silence = @intToFloat(f32, this.spec.silence);
@@ -489,7 +489,7 @@ const Biquad = struct {
     out: f32,
 
     pub fn lopass(freq: f32, q: f32) @This() {
-        const k = std.math.tan(std.math.pi * freq);
+        const k = @tan(std.math.pi * freq);
         const norm = 1.0 / (1.0 + k / q + k * k);
 
         const a0 = k * k * norm;
@@ -507,7 +507,7 @@ const Biquad = struct {
     }
 
     pub fn bandpass(freq: f32, q: f32) @This() {
-        const k = std.math.tan(std.math.pi * freq);
+        const k = @tan(std.math.pi * freq);
         const norm = 1.0 / (1.0 + k / q + k * k);
         const a0 = k / q * norm;
         return @This(){

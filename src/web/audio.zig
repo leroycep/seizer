@@ -31,7 +31,7 @@ pub const MixerInput = struct {
 };
 
 pub const Engine = struct {
-    pub fn init(this: *@This(), allocator: *std.mem.Allocator) !void {
+    pub fn init(this: *@This(), allocator: std.mem.Allocator) !void {
         _ = this;
         _ = allocator;
 
@@ -46,7 +46,7 @@ pub const Engine = struct {
     }
 
     // TODO: Remove allocator from function interface?
-    pub fn load(this: *@This(), allocator: *std.mem.Allocator, filename: [:0]const u8, max_size: usize) !SoundHandle {
+    pub fn load(this: *@This(), allocator: std.mem.Allocator, filename: [:0]const u8, max_size: usize) !SoundHandle {
         _ = this;
         _ = allocator;
         _ = max_size;

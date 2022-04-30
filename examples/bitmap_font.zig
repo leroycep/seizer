@@ -22,10 +22,10 @@ var batch: SpriteBatch = undefined;
 var font: BitmapFont = undefined;
 
 fn init() !void {
-    font = try BitmapFont.initFromFile(&gpa.allocator, "PressStart2P_8.fnt");
+    font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
     errdefer font.deinit();
 
-    batch = try SpriteBatch.init(&gpa.allocator, .{ .x = 1, .y = 1 });
+    batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });
 }
 
 fn deinit() void {

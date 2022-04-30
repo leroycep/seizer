@@ -36,7 +36,7 @@ pub const Bitmap = struct {
         xadvance: f32,
     };
 
-    pub fn initFromFile(allocator: *std.mem.Allocator, filename: []const u8) !@This() {
+    pub fn initFromFile(allocator: std.mem.Allocator, filename: []const u8) !@This() {
         const contents = try seizer.fetch(allocator, filename, MAX_FILESIZE);
         defer allocator.free(contents);
 
@@ -189,8 +189,8 @@ pub const Bitmap = struct {
             .Center => pos.x - (this.calcTextWidth(text, options.scale) / 2),
         };
         var y = switch (options.textBaseline) {
-            .Bottom => pos.y - std.math.floor(this.lineHeight * options.scale),
-            .Middle => pos.y - std.math.floor(this.lineHeight * options.scale / 2),
+            .Bottom => pos.y - @floor(this.lineHeight * options.scale),
+            .Middle => pos.y - @floor(this.lineHeight * options.scale / 2),
             .Top => pos.y,
         };
         const direction: f32 = switch (options.textAlign) {
@@ -298,7 +298,7 @@ pub const Bitmap = struct {
 
                 if (options.maxWidth != null and x + direction * xadvance > options.maxWidth.?) {
                     x = 0;
-                    y += std.math.floor(this.lineHeight * options.scale);
+                    y += @floor(this.lineHeight * options.scale);
                 }
 
                 const textAlignOffset = 0;
@@ -327,7 +327,7 @@ pub const Bitmap = struct {
 
         return TextLayout{
             .glyphs = layout_glyphs,
-            .size = vec2f(width, y + std.math.floor(this.lineHeight * options.scale)),
+            .size = vec2f(width, y + @floor(this.lineHeight * options.scale)),
         };
     }
 };

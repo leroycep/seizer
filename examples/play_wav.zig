@@ -17,9 +17,9 @@ var audioEngine: audio.Engine = undefined;
 var sound: seizer.audio.SoundHandle = undefined;
 
 fn init() !void {
-    try audioEngine.init(&gpa.allocator);
+    try audioEngine.init(gpa.allocator());
 
-    sound = try audioEngine.load(&gpa.allocator, "WilhelmScream.wav", 2 * 1024 * 1024);
+    sound = try audioEngine.load(gpa.allocator(), "WilhelmScream.wav", 2 * 1024 * 1024);
 
     const sound_node = audioEngine.createSoundNode();
     const filter_node = audioEngine.createBiquadNode(sound_node, .{ .kind = .lowpass, .freq = 1000.0, .q = 1 });

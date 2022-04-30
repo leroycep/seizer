@@ -196,23 +196,23 @@ pub const FetchError = error{
     Unknown,
 };
 
-extern fn seizer_fetch(filename_ptr: [*]const u8, filename_len: usize, cb: *c_void, data_out: *FetchError![]u8, allocator: *std.mem.Allocator) void;
-pub fn fetch(allocator: *std.mem.Allocator, file_name: []const u8, max_size: usize) FetchError![]const u8 {
+extern fn seizer_fetch(filename_ptr: [*]const u8, filename_len: usize, cb: *anyopaque, data_out: *FetchError![]u8, allocator: *const std.mem.Allocator) void;
+pub fn fetch(allocator: std.mem.Allocator, file_name: []const u8, max_size: usize) FetchError![]const u8 {
     // TODO: Actually use the provided max size
     _ = max_size;
 
     var data: FetchError![]u8 = undefined;
-    suspend seizer_fetch(file_name.ptr, file_name.len, @frame(), &data, allocator);
+    suspend seizer_fetch(file_name.ptr, file_name.len, @frame(), &data, &allocator);
     return data;
 }
 
-export fn wasm_finalize_fetch(cb_void: *c_void, data_out: *FetchError![]u8, buffer: [*]u8, len: usize) void {
+export fn wasm_finalize_fetch(cb_void: *anyopaque, data_out: *FetchError![]u8, buffer: [*]u8, len: usize) void {
     const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
     data_out.* = buffer[0..len];
     resume cb;
 }
 
-export fn wasm_fail_fetch(cb_void: *c_void, data_out: *FetchError![]u8, errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) void {
+export fn wasm_fail_fetch(cb_void: *anyopaque, data_out: *FetchError![]u8, errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) void {
     const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
     data_out.* = switch (@intToError(errno)) {
         error.FileNotFound, error.OutOfMemory, error.Unknown => |e| e,

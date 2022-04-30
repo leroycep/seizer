@@ -48,12 +48,12 @@ const FRAG_SHADER =
 ;
 
 fn init() !void {
-    player_texture = try Texture.initFromFile(&gpa.allocator, "wedge.png", .{});
+    player_texture = try Texture.initFromFile(gpa.allocator(), "wedge.png", .{});
     errdefer player_texture.deinit();
 
     std.log.info("Texture is {}x{} pixels", .{ player_texture.size.x, player_texture.size.y });
 
-    shader_program = try seizer.glUtil.compileShader(&gpa.allocator, VERT_SHADER, FRAG_SHADER);
+    shader_program = try seizer.glUtil.compileShader(gpa.allocator(), VERT_SHADER, FRAG_SHADER);
 
     // Create VBO to display texture
     gl.genBuffers(1, &vbo);
@@ -71,8 +71,8 @@ fn init() !void {
     gl.enableVertexAttribArray(1); // UV attribute
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const c_void, @offsetOf(Vertex, "x")));
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const c_void, @offsetOf(Vertex, "u")));
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "x")));
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "u")));
     gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 }
 

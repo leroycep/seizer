@@ -3,8 +3,8 @@ name: seizer
 main: src/seizer.zig
 dependencies:
 - src: git https://github.com/leroycep/zigmath.git
-- src: git https://github.com/mlarouche/zigimg.git
+- src: git https://github.com/leecannon/zigimg.git branch-zig-master
 
 dev_dependencies:
 - src: git https://github.com/leroycep/zigmath.git
-- src: git https://github.com/zigimg/zigimg.git
+- src: git https://github.com/leecannon/zigimg.git branch-zig-master
