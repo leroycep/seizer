@@ -222,7 +222,7 @@ export fn wasm_fail_fetch(cb_void: *anyopaque, data_out: *FetchError![]u8, errno
 }
 
 // Run async functions
-pub fn execute(allocator: *std.mem.Allocator, comptime func: anytype, args: anytype) !void {
+pub fn execute(allocator: std.mem.Allocator, comptime func: anytype, args: anytype) !void {
     const FuncFrame = @Frame(func);
     // TODO: deinit frame when it is complete
     const frame_buf = try allocator.create(FuncFrame);
