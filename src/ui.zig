@@ -177,6 +177,8 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             padding: Rect = Rect{ 0, 0, 0, 0 },
             /// Minimum size of the element
             min_size: Vec = Vec{ 0, 0 },
+            /// Actual size
+            size: Vec = Vec{ 0, 0 },
             /// Screen space rectangle
             bounds: Rect = Rect{ 0, 0, 0, 0 },
             /// What layout function to use on children
@@ -615,36 +617,35 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             var i: usize = this.nodes.items.len - 1;
             while (i > 0) : (i -|= 1) {
                 const node = this.nodes.items[i];
-                if (node.hidden) {
-                    continue;
-                }
-                this.nodes.items[i].min_size = this.compute_size(node, i);
+                this.nodes.items[i].size = this.compute_size(node, i);
                 if (i == 0) break;
             }
         }
 
         pub fn compute_size(this: *@This(), node: Node, index: usize) geom.Vec2 {
-            if (this.get_child_count(index) == 0) {
-                return node.min_size;
-            }
-            // NOTE: This is assuming that a node with multiple children is a container. This should probably
-            // be encoded in the type system/api instead.
             const stack_vertically = node.layout == .VList or node.layout == .VDiv;
             const stack_horizontally = node.layout == .HList or node.layout == .HDiv;
-            var min_size = geom.Vec2{ node.padding[0] + node.padding[1], node.padding[2] + node.padding[3] };
+            var size = node.min_size;
             var child_iter = this.get_child_iter(index);
+            var count: usize = 0;
             while (child_iter.next()) |child_index| {
+                count += 1;
                 const child = this.nodes.items[child_index];
-                const child_total = child.min_size + geom.Vec2{ child.padding[0] + child.padding[2], child.padding[1] + child.padding[3] };
+                const child_total = child.size;
+                // If the container is a list, stack sizes
                 if (stack_vertically) {
-                    min_size[1] += child_total[1];
+                    size[1] += child_total[1];
                 } else if (stack_horizontally) {
-                    min_size[0] += child_total[0];
+                    size[0] += child_total[0];
                 }
-                // By default, select which ever is larger
-                min_size = @select(i32, min_size < child_total, child_total, min_size);
+                // Regardless of container type, the size should always be
+                // greater than or equal to the child total
+                size = @select(i32, child_total > size, child_total, size);
             }
-            return min_size;
+            // Now that our child sizes are computed, add padding on top of it
+            const padding = geom.Vec2{ node.padding[0] + node.padding[2], node.padding[1] + node.padding[3] };
+            size += padding;
+            return size;
         }
 
         pub fn layout_children(this: *@This(), index: usize) void {
@@ -669,8 +670,7 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
         /// Runs the layout function and returns the new state of the layout component, if applicable
         fn run_layout(this: *@This(), which_layout: Layout, bounds: Rect, child_index: usize, child_num: usize, child_count: usize) Layout {
             const child = this.nodes.items[child_index];
-            const padding = geom.Vec2{ child.padding[0] + child.padding[2], child.padding[1] + child.padding[3] };
-            const total = child.min_size + padding;
+            const total = child.size;
             switch (which_layout) {
                 .Fill => {
                     this.nodes.items[child_index].bounds = bounds;
@@ -702,15 +702,17 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                 .VList => |vlist_data| {
                     const _left = bounds[0];
                     const _top = bounds[1] + vlist_data.top;
+                    const _right = bounds[2];
                     const _bottom = _top + total[1];
-                    this.nodes.items[child_index].bounds = Rect{ _left, _top, bounds[2], _bottom };
+                    this.nodes.items[child_index].bounds = Rect{ _left, _top, _right, _bottom };
                     return .{ .VList = .{ .top = _bottom - bounds[1] } };
                 },
                 .HList => |hlist_data| {
                     const _left = bounds[0] + hlist_data.left;
                     const _top = bounds[1];
                     const _right = _left + total[0];
-                    this.nodes.items[child_index].bounds = Rect{ _left, _top, _right, bounds[3] };
+                    const _bottom = bounds[3];
+                    this.nodes.items[child_index].bounds = Rect{ _left, _top, _right, _bottom };
                     return .{ .HList = .{ .left = _right - bounds[0] } };
                 },
                 .VDiv => {

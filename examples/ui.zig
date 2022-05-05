@@ -69,6 +69,7 @@ const Painter = struct {
                 .Bytes => |string| painter.font.drawText(painter.batch, string, top_left, .{
                     .textBaseline = .Top,
                     .scale = painter.scale,
+                    .color = seizer.batch.Color.BLACK,
                 }),
                 else => {},
             }
@@ -117,11 +118,26 @@ fn init() !void {
     };
     stage = try Stage.init(gpa.allocator(), &painter_global);
 
+    const name_ref = try painter_global.store.new(.{ .Bytes = "Hello, World!" });
+    const counter_ref = try painter_global.store.new(.{.Int = 0});
+    const counter_label_ref = try painter_global.store.new(.{.Bytes = "0"});
+    const dec_label_ref = try painter_global.store.new(.{.Bytes = "<"});
+    const inc_label_ref = try painter_global.store.new(.{.Bytes = ">"});
+    _ = counter_ref;
+
     const center = try stage.insert(null, Stage.Node.center(.None));
     const frame = try stage.insert(center, Stage.Node.vlist(.Frame));
-    const name = try painter_global.store.new(.{ .Bytes = "Hello, World!" });
-    const nameplate = try stage.insert(frame, Stage.Node.relative(.Nameplate).dataValue(name));
+    const nameplate = try stage.insert(frame, Stage.Node.relative(.Nameplate).dataValue(name_ref));
+    const counter_center = try stage.insert(frame, Stage.Node.center(.None));
+    const counter = try stage.insert(counter_center, Stage.Node.hlist(.None));
+    const decrement = try stage.insert(counter, Stage.Node.relative(.Keyup).dataValue(dec_label_ref));
+    const label_center = try stage.insert(counter, Stage.Node.center(.None));
+    const counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
+    const increment = try stage.insert(counter, Stage.Node.relative(.Keyup).dataValue(inc_label_ref));
     _ = nameplate;
+    _ = decrement;
+    _ = counter_label;
+    _ = increment;
 }
 
 fn deinit() void {
