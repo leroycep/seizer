@@ -3,6 +3,7 @@ const zigimg = @import("zigimg");
 const seizer = @import("./seizer.zig");
 const gl = seizer.gl;
 const math = seizer.math;
+const geom = seizer.geometry;
 
 pub const Texture = struct {
     glTexture: gl.GLuint,
@@ -23,6 +24,10 @@ pub const Texture = struct {
 
     pub fn deinit(this: @This()) void {
         gl.deleteTextures(1, &this.glTexture);
+    }
+
+    pub fn pix2uv(tex: @This(), pixel: geom.Vec2) geom.Vec2f {
+        return geom.vec.itof(pixel) / geom.Vec2f{ @intToFloat(f32, tex.size.x), @intToFloat(f32, tex.size.y) };
     }
 
     pub const InitFromFileOptions = struct {

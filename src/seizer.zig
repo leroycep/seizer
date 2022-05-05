@@ -2,12 +2,17 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Timer = std.time.Timer;
 
-pub const math = @import("math");
-pub const event = @import("./event.zig");
-pub const backend = if (builtin.cpu.arch == .wasm32) @import("web/web.zig") else @import("sdl/sdl.zig");
-pub const glUtil = @import("./gl_util.zig");
+// NOTE: Sort the imports alphabetically, please
+
 pub const batch = @import("./batch.zig");
+pub const backend = if (builtin.cpu.arch == .wasm32) @import("web/web.zig") else @import("sdl/sdl.zig");
+pub const event = @import("./event.zig");
 pub const font = @import("./font.zig");
+pub const glUtil = @import("./gl_util.zig");
+pub const geometry = @import("./geometry.zig");
+pub const math = @import("math");
+pub const ninepatch = @import("./ninepatch.zig");
+pub const ui = @import("./ui.zig");
 
 pub usingnamespace backend;
 

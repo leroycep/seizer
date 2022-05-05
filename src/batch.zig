@@ -27,6 +27,7 @@ pub const Color = packed struct {
     a: u8,
 
     pub const WHITE = Color{ .r = 0xFF, .g = 0xFF, .b = 0xFF, .a = 0xFF };
+    pub const BLACK = Color{ .r = 0x00, .g = 0x00, .b = 0x00, .a = 0xFF };
 };
 
 pub const Quad = struct {
