@@ -121,12 +121,13 @@ pub fn run(comptime app: App) type {
 
         export const TEXT_INPUT_BUFFER: [32]u8 = undefined;
         export fn onTextInput(len: u8) void {
-            catchError(app.event(.{
-                .TextInput = .{
-                    .buf = TEXT_INPUT_BUFFER,
-                    .len = len,
-                },
-            }));
+            // NOTE: The values of TEXT_INPUT_BUFFER will not be automatically copied, so manually copy them
+            var event = seizer.event.Event{ .TextInput = .{
+                .buf = undefined,
+                .len = len,
+            } };
+            std.mem.copy(u8, &event.TextInput.buf, &TEXT_INPUT_BUFFER);
+            catchError(app.event(event));
         }
 
         export fn onResize() void {
