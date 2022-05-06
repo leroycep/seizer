@@ -15,7 +15,8 @@ const NinePatch = seizer.ninepatch.NinePatch;
 const UIStage = seizer.ui.Stage;
 const Stage = UIStage(NodeStyle, Painter, store.Ref);
 
-const NodeStyle = enum { None, Frame, Nameplate, Label, Keyup, Keydown };
+/// All of the possible frame styles for nodes
+const NodeStyle = enum { None, Frame, Nameplate, Label, Keyrest, Keyup, Keydown };
 
 const Painter = struct {
     batch: *SpriteBatch,
@@ -52,6 +53,7 @@ const Painter = struct {
             .Nameplate => return geom.Rect{ 16, 16, 16, 16 } * scale,
             .Label => return geom.Rect{ 4, 4, 4, 4 } * scale,
             .Keyup => return geom.Rect{ 8, 8, 8, 8 } * scale,
+            .Keyrest => return geom.Rect{ 8, 8, 8, 8 } * scale,
             .Keydown => return geom.Rect{ 8, 8, 8, 8 } * scale,
         }
     }
@@ -81,6 +83,7 @@ const Painter = struct {
 // set up for the platform we are targeting.
 pub usingnamespace seizer.run(.{
     .init = init,
+    .event = event,
     .deinit = deinit,
     .render = render,
 });
@@ -93,6 +96,8 @@ var painter_global: Painter = undefined;
 // Assets
 var font: BitmapFont = undefined;
 var uitexture: Texture = undefined;
+
+var last_focused_node: ?Stage.Node = null;
 
 fn init() !void {
     font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
@@ -111,29 +116,32 @@ fn init() !void {
             .Frame = NinePatch.initv(uitexture, .{ 0, 0, 48, 48 }, .{ 16, 16 }),
             .Nameplate = NinePatch.initv(uitexture, .{ 48, 0, 48, 48 }, .{ 16, 16 }),
             .Label = NinePatch.initv(uitexture, .{ 96, 24, 12, 12 }, .{ 4, 4 }),
-            .Keyup = NinePatch.initv(uitexture, .{ 96, 0, 24, 24 }, .{ 8, 8 }),
+            .Keyrest = NinePatch.initv(uitexture, .{ 96, 0, 24, 24 }, .{ 8, 8 }),
+            .Keyup = NinePatch.initv(uitexture, .{ 120, 24, 24, 24 }, .{ 8, 8 }),
             .Keydown = NinePatch.initv(uitexture, .{ 120, 0, 24, 24 }, .{ 8, 8 }),
         }),
         .scale = 2,
     };
     stage = try Stage.init(gpa.allocator(), &painter_global);
 
+    // Create values in the store to be used by the UI
     const name_ref = try painter_global.store.new(.{ .Bytes = "Hello, World!" });
-    const counter_ref = try painter_global.store.new(.{.Int = 0});
-    const counter_label_ref = try painter_global.store.new(.{.Bytes = "0"});
-    const dec_label_ref = try painter_global.store.new(.{.Bytes = "<"});
-    const inc_label_ref = try painter_global.store.new(.{.Bytes = ">"});
+    const counter_ref = try painter_global.store.new(.{ .Int = 0 });
+    const counter_label_ref = try painter_global.store.new(.{ .Bytes = "0" });
+    const dec_label_ref = try painter_global.store.new(.{ .Bytes = "<" });
+    const inc_label_ref = try painter_global.store.new(.{ .Bytes = ">" });
     _ = counter_ref;
 
+    // Create the layout for the UI
     const center = try stage.insert(null, Stage.Node.center(.None));
     const frame = try stage.insert(center, Stage.Node.vlist(.Frame));
     const nameplate = try stage.insert(frame, Stage.Node.relative(.Nameplate).dataValue(name_ref));
     const counter_center = try stage.insert(frame, Stage.Node.center(.None));
     const counter = try stage.insert(counter_center, Stage.Node.hlist(.None));
-    const decrement = try stage.insert(counter, Stage.Node.relative(.Keyup).dataValue(dec_label_ref));
+    const decrement = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(dec_label_ref));
     const label_center = try stage.insert(counter, Stage.Node.center(.None));
     const counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
-    const increment = try stage.insert(counter, Stage.Node.relative(.Keyup).dataValue(inc_label_ref));
+    const increment = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(inc_label_ref));
     _ = nameplate;
     _ = decrement;
     _ = counter_label;
@@ -146,6 +154,55 @@ fn deinit() void {
     font.deinit();
     batch.deinit();
     _ = gpa.deinit();
+}
+
+fn event(e: seizer.event.Event) !void {
+    switch (e) {
+        .MouseMotion => |mouse| {
+            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
+            if (stage.get_node_at_point(mouse_pos)) |*node| hover: {
+                if (last_focused_node) |*last_node| {
+                    if (node.handle == last_node.handle) break :hover;
+                    last_node.style = .Keyrest;
+                    _ = stage.set_node(last_node.*);
+                    last_focused_node = null;
+                }
+                if (node.style == .Keyrest) {
+                    node.style = .Keyup;
+                    _ = stage.set_node(node.*);
+                    last_focused_node = node.*;
+                }
+            } else if (last_focused_node) |*last_node| {
+                last_node.style = .Keyrest;
+                _ = stage.set_node(last_node.*);
+                last_focused_node = null;
+            }
+        },
+        .MouseButtonDown => |mouse| {
+            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
+            if (stage.get_node_at_point(mouse_pos)) |*node| {
+                if (node.style == .Keyup) {
+                    node.style = .Keydown;
+                    _ = stage.set_node(node.*);
+                    last_focused_node = node.*;
+                }
+            }
+        },
+        .MouseButtonUp => |mouse| {
+            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
+            if (stage.get_node_at_point(mouse_pos)) |*node| {
+                if (node.style == .Keydown) {
+                    node.style = .Keyup;
+                    _ = stage.set_node(node.*);
+                    last_focused_node = node.*;
+                }
+            }
+        },
+        .Quit => {
+            seizer.backend.quit();
+        },
+        else => {},
+    }
 }
 
 // Errors are okay to return from the functions that you pass to `seizer.run()`.
