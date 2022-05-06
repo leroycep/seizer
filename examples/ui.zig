@@ -73,7 +73,7 @@ const Painter = struct {
                         .textBaseline = .Top,
                         .scale = painter.scale,
                         .color = seizer.batch.Color.BLACK,
-                        .area = geom.rect.itof(area),
+                        .area = geom.rect.itof(node.bounds),
                     });
                 },
                 else => {},

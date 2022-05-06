@@ -69,6 +69,12 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             }
             prevTime = currentTime;
 
+            if (canvas_element.width != canvas_element.clientWidth || canvas_element.height != canvas_element.clientHeight) {
+                canvas_element.width = canvas_element.clientWidth;
+                canvas_element.height = canvas_element.clientHeight;
+                instance.exports.onResize();
+            }
+
             accumulator += delta;
 
             while (accumulator >= tickDelta) {
