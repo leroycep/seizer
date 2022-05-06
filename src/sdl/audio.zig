@@ -478,8 +478,6 @@ pub const Engine = struct {
     };
 };
 
-const tan = std.math.tan;
-
 const Biquad = struct {
     a0: f32,
     a1: f32,
@@ -491,7 +489,7 @@ const Biquad = struct {
     out: f32,
 
     pub fn lopass(freq: f32, q: f32) @This() {
-        const k = tan(std.math.pi * freq);
+        const k = @tan(std.math.pi * freq);
         const norm = 1.0 / (1.0 + k / q + k * k);
 
         const a0 = k * k * norm;
@@ -509,7 +507,7 @@ const Biquad = struct {
     }
 
     pub fn bandpass(freq: f32, q: f32) @This() {
-        const k = tan(std.math.pi * freq);
+        const k = @tan(std.math.pi * freq);
         const norm = 1.0 / (1.0 + k / q + k * k);
         const a0 = k / q * norm;
         return @This(){

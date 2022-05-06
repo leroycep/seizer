@@ -60,11 +60,11 @@ pub const TextInput = struct {
 };
 
 pub const MouseButton = enum(u8) {
-    Left,
-    Middle,
-    Right,
-    X1,
-    X2,
+    Left = 0,
+    Middle = 1,
+    Right = 2,
+    X1 = 3,
+    X2 = 4,
 
     pub fn to_buttons_number(self: @This()) u32 {
         return switch (self) {

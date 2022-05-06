@@ -26,8 +26,9 @@ pub fn log(
     args: anytype,
 ) void {
     const stderr = std.io.getStdErr().writer();
-    const held = std.debug.getStderrMutex().acquire();
-    defer held.release();
+    const held = std.debug.getStderrMutex();
+    held.lock();
+    defer held.unlock();
     nosuspend stderr.print("[{s}][{s}] ", .{ std.meta.tagName(message_level), std.meta.tagName(scope) }) catch return;
     nosuspend stderr.print(format, args) catch return;
     _ = nosuspend stderr.write("\n") catch return;

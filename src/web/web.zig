@@ -78,9 +78,9 @@ pub fn run(comptime app: App) type {
         }
 
         export fn onMouseMove(x: i32, y: i32, relx: i32, rely: i32, buttons: u32) void {
-            catchError(catchError(app.event(.{
+            catchError(app.event(.{
                 .MouseMotion = .{ .pos = Vec2i.init(x, y), .rel = Vec2i.init(relx, rely), .buttons = buttons },
-            })));
+            }));
         }
 
         export fn onMouseButton(x: i32, y: i32, down: i32, button_int: u8) void {
@@ -89,16 +89,16 @@ pub fn run(comptime app: App) type {
                 .button = @intToEnum(seizer.event.MouseButton, button_int),
             };
             if (down == 0) {
-                catchError(catchError(app.event(.{ .MouseButtonUp = event })));
+                catchError(app.event(.{ .MouseButtonUp = event }));
             } else {
-                catchError(catchError(app.event(.{ .MouseButtonDown = event })));
+                catchError(app.event(.{ .MouseButtonDown = event }));
             }
         }
 
         export fn onMouseWheel(x: i32, y: i32) void {
-            catchError(catchError(app.event(.{
+            catchError(app.event(.{
                 .MouseWheel = Vec2i.init(x, y),
-            })));
+            }));
         }
 
         export fn onKeyDown(key: u16, scancode: u16) void {

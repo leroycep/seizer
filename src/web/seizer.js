@@ -182,6 +182,25 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             const [zigKey, zigScancode] = keyEventToKeyScancode(ev);
             instance.exports.onKeyUp(zigKey, zigScancode);
         });
+
+        document.addEventListener("mousemove", (ev) => {
+            var rect = ev.target.getBoundingClientRect();
+            instance.exports.onMouseMove(ev.clientX - rect.left, ev.clientY - rect.top, ev.movementX, ev.movementY, ev.buttons);
+        });
+
+        document.addEventListener("mousedown", (ev) => {
+            var rect = ev.target.getBoundingClientRect();
+            instance.exports.onMouseButton(ev.clientX - rect.left, ev.clientY - rect.top, 1, ev.button);
+        });
+
+        document.addEventListener("mouseup", (ev) => {
+            var rect = ev.target.getBoundingClientRect();
+            instance.exports.onMouseButton(ev.clientX - rect.left, ev.clientY - rect.top, 0, ev.button);
+        });
+
+        document.addEventListener("wheel", (ev) => {
+            instance.exports.onMouseWheel(ev.deltaX, ev.deltaY);
+        });
     };
 
     const gl = canvas_element.getContext("webgl2", {
@@ -552,10 +571,10 @@ export default function getPlatformEnv(canvas_element, getInstance) {
             const data =
                 data_ptr != 0
                     ? new Uint8Array(
-                          getMemory().buffer,
-                          data_ptr,
-                          width * height * pixel_size
-                      )
+                        getMemory().buffer,
+                        data_ptr,
+                        width * height * pixel_size
+                    )
                     : null;
 
             gl.texImage2D(
