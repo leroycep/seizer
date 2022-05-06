@@ -52,9 +52,9 @@ const Painter = struct {
             .Frame => return geom.Rect{ 16, 16, 16, 16 } * scale,
             .Nameplate => return geom.Rect{ 16, 16, 16, 16 } * scale,
             .Label => return geom.Rect{ 4, 4, 4, 4 } * scale,
-            .Keyup => return geom.Rect{ 8, 8, 8, 8 } * scale,
+            .Keyup => return geom.Rect{ 8, 7, 8, 9 } * scale,
             .Keyrest => return geom.Rect{ 8, 8, 8, 8 } * scale,
-            .Keydown => return geom.Rect{ 8, 8, 8, 8 } * scale,
+            .Keydown => return geom.Rect{ 8, 9, 8, 7 } * scale,
         }
     }
 
@@ -65,7 +65,7 @@ const Painter = struct {
         if (node.data) |data| {
             const value = painter.store.get(data);
             const vec2 = math.Vec2f.init;
-            const area = node.bounds + (node.padding * geom.Rect{ 1, 1, -1, -1 });
+            const area = node.bounds + (painter.padding(node) * geom.Rect{ 1, 1, -1, -1 });
             const top_left = vec2(@intToFloat(f32, area[0]), @intToFloat(f32, area[1]));
             switch (value) {
                 .Bytes => |string| painter.font.drawText(painter.batch, string, top_left, .{
