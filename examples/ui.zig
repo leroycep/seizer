@@ -191,8 +191,11 @@ fn event(e: seizer.event.Event) !void {
         },
         .MouseButtonUp => |mouse| {
             const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
-            if (stage.get_node_at_point(mouse_pos)) |*node| {
+            if (stage.get_node_at_point(mouse_pos)) |*node| click: {
                 if (node.style == .Keydown) {
+                    if (last_focused_node) |last| {
+                        if (node.handle != last.handle) break :click;
+                    } else break :click;
                     if (node.handle == increment) {
                         var count = painter_global.store.get(counter_ref);
                         count.Int += 1;
