@@ -98,6 +98,11 @@ var font: BitmapFont = undefined;
 var uitexture: Texture = undefined;
 
 var last_focused_node: ?Stage.Node = null;
+var increment: usize = undefined;
+var decrement: usize = undefined;
+var counter_label: usize = undefined;
+var counter_label_ref: store.Ref = undefined;
+var counter_ref: store.Ref = undefined;
 
 fn init() !void {
     font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
@@ -126,11 +131,10 @@ fn init() !void {
 
     // Create values in the store to be used by the UI
     const name_ref = try painter_global.store.new(.{ .Bytes = "Hello, World!" });
-    const counter_ref = try painter_global.store.new(.{ .Int = 0 });
-    const counter_label_ref = try painter_global.store.new(.{ .Bytes = "0" });
+    counter_ref = try painter_global.store.new(.{ .Int = 0 });
+    counter_label_ref = try painter_global.store.new(.{ .Bytes = "0" });
     const dec_label_ref = try painter_global.store.new(.{ .Bytes = "<" });
     const inc_label_ref = try painter_global.store.new(.{ .Bytes = ">" });
-    _ = counter_ref;
 
     // Create the layout for the UI
     const center = try stage.insert(null, Stage.Node.center(.None));
@@ -138,14 +142,11 @@ fn init() !void {
     const nameplate = try stage.insert(frame, Stage.Node.relative(.Nameplate).dataValue(name_ref));
     const counter_center = try stage.insert(frame, Stage.Node.center(.None));
     const counter = try stage.insert(counter_center, Stage.Node.hlist(.None));
-    const decrement = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(dec_label_ref));
+    decrement = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(dec_label_ref));
     const label_center = try stage.insert(counter, Stage.Node.center(.None));
-    const counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
-    const increment = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(inc_label_ref));
+    counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
+    increment = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(inc_label_ref));
     _ = nameplate;
-    _ = decrement;
-    _ = counter_label;
-    _ = increment;
 }
 
 fn deinit() void {
@@ -192,6 +193,27 @@ fn event(e: seizer.event.Event) !void {
             const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
             if (stage.get_node_at_point(mouse_pos)) |*node| {
                 if (node.style == .Keydown) {
+                    if (node.handle == increment) {
+                        var count = painter_global.store.get(counter_ref);
+                        count.Int += 1;
+                        try painter_global.store.set(.Int, counter_ref, count.Int);
+
+                        var buf: [100]u8 = undefined;
+                        var lbl = try std.fmt.bufPrint(&buf, "{}", .{count.Int});
+                        try painter_global.store.set(.Bytes, counter_label_ref, lbl);
+                        stage.modified = true;
+                        stage.update_min_size(counter_label);
+                    } else if (node.handle == decrement) {
+                        var count = painter_global.store.get(counter_ref);
+                        count.Int -= 1;
+                        try painter_global.store.set(.Int, counter_ref, count.Int);
+
+                        var buf: [100]u8 = undefined;
+                        var lbl = try std.fmt.bufPrint(&buf, "{}", .{count.Int});
+                        try painter_global.store.set(.Bytes, counter_label_ref, lbl);
+                        stage.modified = true;
+                        stage.update_min_size(counter_label);
+                    }
                     node.style = .Keyup;
                     _ = stage.set_node(node.*);
                     last_focused_node = node.*;

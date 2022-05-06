@@ -13,84 +13,6 @@ const Allocator = std.mem.Allocator;
 
 const List = std.ArrayList;
 
-pub const Event = enum {
-    PointerMove,
-    PointerPress,
-    PointerRelease,
-    PointerClick,
-    PointerEnter,
-    PointerLeave,
-};
-
-pub const EventData = struct {
-    _type: Event,
-    pointer: PointerData,
-    current: usize,
-    target: usize,
-};
-
-pub const InputData = struct {
-    pointer: PointerData,
-    keys: KeyData,
-};
-
-const InputInfo = struct {
-    pointer_diff: geom.Vec2,
-    pointer_move: bool,
-    pointer_press: bool,
-    pointer_release: bool,
-    secondary_press: bool,
-    secondary_release: bool,
-    pointer_drag: bool,
-};
-
-pub const PointerData = struct {
-    left: bool,
-    right: bool,
-    middle: bool,
-    pos: Vec,
-};
-
-pub const KeyData = struct {
-    up: bool,
-    down: bool,
-    left: bool,
-    right: bool,
-    accept: bool,
-    reject: bool,
-};
-
-pub fn Audience(comptime T: type) type {
-    return struct {
-        const Callback = fn (T, EventData) void;
-        const Listener = struct { handle: usize, event: Event, callback: Callback };
-
-        list: std.ArrayList(Listener),
-
-        pub fn init(alloc: Allocator) @This() {
-            return @This(){
-                .list = std.ArrayList(Listener).init(alloc),
-            };
-        }
-
-        pub fn deinit(this: *@This()) void {
-            this.list.deinit();
-        }
-
-        pub fn add(this: *@This(), handle: usize, event: Event, callback: Callback) !void {
-            try this.list.append(.{ .handle = handle, .event = event, .callback = callback });
-        }
-
-        pub fn dispatch(this: *@This(), ctx: T, event: EventData) void {
-            for (this.list.items) |listener| {
-                if (event._type == listener.event and event.current == listener.handle) {
-                    listener.callback(ctx, event);
-                }
-            }
-        }
-    };
-}
-
 /// Available layout algorithms
 pub const Layout = union(enum) {
     /// Default layout of root - expands children to fill entire space
@@ -122,58 +44,23 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
     if (!@hasDecl(Painter, "paint")) @compileLog("Painter must have fn paint(*Painter, Node) void");
     return struct {
         modified: bool,
-        inputs_last: InputData = .{
-            .pointer = .{ .pos = Vec{ 0, 0 }, .left = false, .right = false, .middle = false },
-            .keys = .{
-                .up = false,
-                .left = false,
-                .right = false,
-                .down = false,
-                .accept = false,
-                .reject = false,
-            },
-        },
-        pointer_start_press: Vec = Vec{ 0, 0 },
         /// A monotonically increasing integer assigning new handles
         handle_count: usize,
         root_layout: Layout = .Fill,
         /// Array of all ui elements
         nodes: List(Node),
-        /// Array of reorder operations to perform
-        reorder_op: ?Reorder,
         painter: *Painter,
-
-        // Reorder operations that can take significant processing time, so
-        // wait until we are doing layout to begin
-        const Reorder = union(enum) {
-            // Insert: usize,
-            Remove: usize,
-            BringToFront: usize,
-        };
-
-        pub const PaintFn = fn (Node) void;
-        pub const SizeFn = fn (T) Vec;
 
         const Self = @This();
 
         pub const Node = struct {
-            /// Determines whether the current node and it's children are visible
-            hidden: bool = false,
             /// Indicates whether the rect has a background
             style: Style,
-            /// If the node prevents other nodes from recieving events
-            event_filter: EventFilter = .Prevent,
-            /// Whether the pointer is over the node
-            pointer_over: bool = false,
-            /// If the pointer is pressed over the node
-            pointer_pressed: bool = false,
-            /// Pointer FSM
-            pointer_state: enum { Open, Hover, Press, Drag, Click } = .Open,
             /// How many descendants this node has
             children: usize = 0,
             /// A unique handle
             handle: usize = 0,
-            ///
+            /// How much space to leave
             padding: Rect = Rect{ 0, 0, 0, 0 },
             /// Minimum size of the element
             min_size: Vec = Vec{ 0, 0 },
@@ -185,8 +72,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             layout: Layout = .Relative,
             /// User specified type
             data: ?T = null,
-
-            const EventFilter = union(enum) { Prevent, Pass, PassExcept: Event };
 
             pub fn anchor(_anchor: Rect, margin: Rect, style: Style) @This() {
                 return @This(){
@@ -249,12 +134,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                 };
             }
 
-            pub fn eventFilter(this: @This(), value: EventFilter) @This() {
-                var node = this;
-                node.event_filter = value;
-                return node;
-            }
-
             pub fn hasStyle(this: @This(), value: Style) @This() {
                 var node = this;
                 node.style = value;
@@ -280,7 +159,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                 .modified = true,
                 .handle_count = 100,
                 .nodes = nodelist,
-                .reorder_op = null,
                 .painter = painter,
             };
         }
@@ -346,10 +224,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             var i: usize = 0;
             while (i < this.nodes.items.len) : (i += 1) {
                 const node = this.nodes.items[i];
-                if (node.hidden) {
-                    i += node.children;
-                    continue;
-                }
                 this.painter.paint(node);
             }
         }
@@ -360,10 +234,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             if (this.nodes.items.len == 0) return;
             // If nothing has been modified, we don't need to proceed
             if (!this.modified) return;
-            // Perform reorder operation if one was queued
-            if (this.reorder_op != null) {
-                this.reorder();
-            }
 
             this.run_sizing();
 
@@ -563,6 +433,13 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             return null;
         }
 
+        pub fn update_min_size(this: @This(), handle: usize) void {
+            if (this.get_index_by_handle(handle)) |index| {
+                const node = this.nodes.items[index];
+                this.nodes.items[index].min_size = this.painter.size(node);
+            }
+        }
+
         pub fn get_node(this: @This(), handle: usize) ?Node {
             if (this.get_index_by_handle(handle)) |node| {
                 return this.nodes.items[node];
@@ -570,51 +447,11 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             return null;
         }
 
-        pub fn set_slice_hidden(slice: []Node, hidden: bool) void {
-            for (slice) |*node| {
-                node.*.hidden = hidden;
-            }
-        }
-
-        pub fn hide_node(this: *@This(), handle: usize) bool {
-            if (this.get_index_by_handle(handle)) |i| {
-                var rootnode = this.nodes.items[i];
-                var slice = this.nodes.items[i .. i + rootnode.children];
-                set_slice_hidden(slice, true);
-                return true;
-            }
-            return false;
-        }
-
-        pub fn show_node(this: *@This(), handle: usize) bool {
-            if (this.get_index_by_handle(handle)) |i| {
-                var rootnode = this.nodes.items[i];
-                var slice = this.nodes.items[i .. i + rootnode.children];
-                set_slice_hidden(slice, false);
-                return true;
-            }
-            return false;
-        }
-
-        pub fn toggle_hidden(this: *@This(), handle: usize) bool {
-            if (this.get_index_by_handle(handle)) |i| {
-                const rootnode = this.nodes.items[i];
-                const hidden = !rootnode.hidden;
-                var slice = this.nodes.items[i .. i + rootnode.children];
-                set_slice_hidden(slice, hidden);
-                return true;
-            }
-            return false;
-        }
-
-        /// Returns true if the node existed
-        pub fn set_node(this: *@This(), node: Node) bool {
+        pub fn set_node(this: *@This(), node: Node) void {
             if (this.get_index_by_handle(node.handle)) |i| {
                 this.nodes.items[i] = node;
                 this.modified = true;
-                return true;
             }
-            return false;
         }
 
         const ParentIter = struct {
@@ -692,71 +529,46 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
         /// Prepare to move a nodetree to the front of it's parent
         pub fn bring_to_front(this: *@This(), handle: usize) void {
             this.modified = true;
-            if (this.reorder_op != null) {
-                this.reorder();
-            }
-            this.reorder_op = .{ .BringToFront = handle };
+            const index = this.get_index_by_handle(handle) orelse return;
+            // Do nothing, the node is already at the front
+            if (index == this.nodes.items.len - 1) return;
+
+            const node = this.nodes.items[index];
+            const slice = slice: {
+                if (this.get_parent(index)) |parent_index| {
+                    const parent = this.nodes.items[parent_index];
+                    break :slice this.nodes.items[index .. parent_index + parent.children + 1];
+                } else {
+                    break :slice this.nodes.items[index..];
+                }
+            };
+
+            std.mem.rotate(Node, slice, node.children + 1);
         }
 
         /// Queue a nodetree for removal
         pub fn remove(this: *@This(), handle: usize) void {
             this.modified = true;
-            if (this.reorder_op != null) {
-                this.reorder();
+            // Get the node
+            const index = this.get_index_by_handle(handle) orelse return;
+            const node = this.nodes.items[index];
+            const count = node.children + 1;
+
+            // Get slice of children and rest
+            const rest_slice = this.nodes.items[index + node.children + 1 ..];
+
+            // Move all elements back by the length of node.children
+            std.mem.copy(Node, this.nodes.items[index .. index + rest_slice.len], rest_slice);
+
+            // Remove children count from parents
+            var parent_iter = this.get_parent_iter(index);
+            while (parent_iter.next()) |parent| {
+                std.debug.assert(this.nodes.items[parent].children > node.children);
+                this.nodes.items[parent].children -= count;
             }
-            this.reorder_op = .{ .Remove = handle };
-        }
 
-        /// Empty reorder list
-        fn reorder(this: *@This()) void {
-            if (this.reorder_op) |op| {
-                this.run_reorder(op);
-            }
-            this.reorder_op = null;
-        }
-
-        fn run_reorder(this: *@This(), reorder_op: Reorder) void {
-            switch (reorder_op) {
-                .Remove => |handle| {
-                    // Get the node
-                    const index = this.get_index_by_handle(handle) orelse return;
-                    const node = this.nodes.items[index];
-                    const count = node.children + 1;
-
-                    // Get slice of children and rest
-                    const rest_slice = this.nodes.items[index + node.children + 1 ..];
-
-                    // Move all elements back by the length of node.children
-                    std.mem.copy(Node, this.nodes.items[index .. index + rest_slice.len], rest_slice);
-
-                    // Remove children count from parents
-                    var parent_iter = this.get_parent_iter(index);
-                    while (parent_iter.next()) |parent| {
-                        std.debug.assert(this.nodes.items[parent].children > node.children);
-                        this.nodes.items[parent].children -= count;
-                    }
-
-                    // Remove unneeded slots
-                    this.nodes.shrinkRetainingCapacity(index + rest_slice.len);
-                },
-                .BringToFront => |handle| {
-                    const index = this.get_index_by_handle(handle) orelse return;
-                    // Do nothing, the node is already at the front
-                    if (index == this.nodes.items.len - 1) return;
-
-                    const node = this.nodes.items[index];
-                    const slice = slice: {
-                        if (this.get_parent(index)) |parent_index| {
-                            const parent = this.nodes.items[parent_index];
-                            break :slice this.nodes.items[index .. parent_index + parent.children + 1];
-                        } else {
-                            break :slice this.nodes.items[index..];
-                        }
-                    };
-
-                    std.mem.rotate(Node, slice, node.children + 1);
-                },
-            }
+            // Remove unneeded slots
+            this.nodes.shrinkRetainingCapacity(index + rest_slice.len);
         }
     };
 }
