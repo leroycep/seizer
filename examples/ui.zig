@@ -68,11 +68,14 @@ const Painter = struct {
             const area = node.bounds + (painter.padding(node) * geom.Rect{ 1, 1, -1, -1 });
             const top_left = vec2(@intToFloat(f32, area[0]), @intToFloat(f32, area[1]));
             switch (value) {
-                .Bytes => |string| painter.font.drawText(painter.batch, string, top_left, .{
-                    .textBaseline = .Top,
-                    .scale = painter.scale,
-                    .color = seizer.batch.Color.BLACK,
-                }),
+                .Bytes => |string| {
+                    painter.font.drawText(painter.batch, string, top_left, .{
+                        .textBaseline = .Top,
+                        .scale = painter.scale,
+                        .color = seizer.batch.Color.BLACK,
+                        .area = geom.rect.itof(area),
+                    });
+                },
                 else => {},
             }
         }
@@ -103,6 +106,10 @@ var decrement: usize = undefined;
 var counter_label: usize = undefined;
 var counter_label_ref: store.Ref = undefined;
 var counter_ref: store.Ref = undefined;
+var text_ref: store.Ref = undefined;
+var textinput: usize = undefined;
+var is_typing = false;
+var cursor: f32 = 0;
 
 fn init() !void {
     font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
@@ -135,6 +142,7 @@ fn init() !void {
     counter_label_ref = try painter_global.store.new(.{ .Bytes = "0" });
     const dec_label_ref = try painter_global.store.new(.{ .Bytes = "<" });
     const inc_label_ref = try painter_global.store.new(.{ .Bytes = ">" });
+    text_ref = try painter_global.store.new(.{ .Bytes = "" });
 
     // Create the layout for the UI
     const center = try stage.insert(null, Stage.Node.center(.None));
@@ -146,6 +154,7 @@ fn init() !void {
     const label_center = try stage.insert(counter, Stage.Node.center(.None));
     counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
     increment = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(inc_label_ref));
+    textinput = try stage.insert(frame, Stage.Node.relative(.Label).dataValue(text_ref));
     _ = nameplate;
 }
 
@@ -180,12 +189,16 @@ fn event(e: seizer.event.Event) !void {
             }
         },
         .MouseButtonDown => |mouse| {
+            is_typing = false;
             const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
             if (stage.get_node_at_point(mouse_pos)) |*node| {
                 if (node.style == .Keyup) {
                     node.style = .Keydown;
                     _ = stage.set_node(node.*);
                     last_focused_node = node.*;
+                }
+                if (node.handle == textinput) {
+                    is_typing = true;
                 }
             }
         },
@@ -223,6 +236,24 @@ fn event(e: seizer.event.Event) !void {
                 }
             }
         },
+        .TextInput => |input| {
+            if (is_typing) {
+                const string = painter_global.store.get(text_ref).Bytes;
+                const new_string = try std.mem.concat(gpa.allocator(), u8, &.{ string, input.text() });
+                defer gpa.allocator().free(new_string);
+                cursor = font.calcTextWidth(new_string, painter_global.scale);
+                try painter_global.store.set(.Bytes, text_ref, new_string);
+            }
+        },
+        .KeyDown => |key| {
+            if (key.key == .BACKSPACE and is_typing) {
+                const string = painter_global.store.get(text_ref).Bytes;
+                const len = string.len -| 1;
+                const new_string = string[0..len];
+                cursor = font.calcTextWidth(new_string, painter_global.scale);
+                try painter_global.store.set(.Bytes, text_ref, new_string);
+            }
+        },
         .Quit => {
             seizer.backend.quit();
         },
@@ -230,7 +261,7 @@ fn event(e: seizer.event.Event) !void {
     }
 }
 
-// Errors are okay to return from the functions that you pass to `seizer.run()`.
+// Error
 fn render(alpha: f64) !void {
     _ = alpha;
 
@@ -244,6 +275,16 @@ fn render(alpha: f64) !void {
 
     stage.layout(.{ 0, 0, screen_size.x, screen_size.y });
     stage.paint();
+
+    if (is_typing) cursor: {
+        const node = stage.get_node(textinput) orelse break :cursor;
+        const rect = geom.rect.itof(node.bounds + node.padding * geom.Rect{ 1, 1, -1, -1 });
+        font.drawText(&batch, "|", .{ .x = rect[0] + cursor, .y = rect[1] }, .{
+            .textBaseline = .Top,
+            .color = seizer.batch.Color.BLACK,
+            .scale = painter_global.scale,
+        });
+    }
 
     font.drawText(&batch, "Hello, world!", .{ .x = 50, .y = 50 }, .{});
     batch.flush();

@@ -185,6 +185,14 @@ pub const rect = struct {
     /////////////////////////////////////
     // f32 float backed rect functions //
     /////////////////////////////////////
+    pub fn as_aabbf(rectangle: Rectf) AABBf {
+        return AABBf{
+            rectangle[0],
+            rectangle[1],
+            rectangle[2] - rectangle[0],
+            rectangle[3] - rectangle[1],
+        };
+    }
 
     pub fn topf(rectangle: Rectf) f32 {
         return rectangle[1];

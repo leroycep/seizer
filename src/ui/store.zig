@@ -5,16 +5,44 @@ const Float = f32;
 const Bytes = []const u8;
 const Handle = u16;
 
+const MutBytes = struct {
+    data: std.BoundedArray(u8, 64),
+
+    pub fn new() MutBytes {
+        var this = MutBytes{ .data = std.BoundedArray(u8, 64).init(0) catch unreachable };
+        return this;
+    }
+
+    pub fn from(data: []const u8) MutBytes {
+        var this = MutBytes{ .data = std.BoundedArray(u8, 64).init(0) catch unreachable };
+        this.write(data);
+        return this;
+    }
+
+    pub fn read(mut_bytes: *MutBytes) []const u8 {
+        return mut_bytes.data.constSlice();
+    }
+
+    /// Writes to the slice, truncating bytes outside of range
+    pub fn write(mut_bytes: *MutBytes, new_data: []const u8) void {
+        const len = if (mut_bytes.data.capacity() < new_data.len) mut_bytes.data.capacity() else new_data.len;
+        std.mem.copy(u8, mut_bytes.data.buffer[0..len], new_data[0..len]);
+        mut_bytes.data.len = len;
+    }
+};
+
 pub const Types = enum {
     Int,
     Float,
     Bytes,
+    MutBytes,
 
     fn real_type(t: Types) type {
         return switch (t) {
             .Int => Int,
             .Float => Float,
             .Bytes => Bytes,
+            .MutBytes => MutBytes,
         };
     }
 };
@@ -23,12 +51,27 @@ pub const Value = union(Types) {
     Int: Int,
     Float: Float,
     Bytes: Bytes,
+    MutBytes: MutBytes,
+
+    pub fn int(value: Int) @This() {
+        return .{ .Int = value };
+    }
+    pub fn float(value: Float) @This() {
+        return .{ .Float = value };
+    }
+    pub fn bytes(value: Bytes) @This() {
+        return .{ .Bytes = value };
+    }
+    pub fn mutbytes(value: []const u8) @This() {
+        return .{ .MutBytes = MutBytes.from(value) };
+    }
 };
 
 pub const Ref = union(Types) {
     Int: Handle,
     Float: Handle,
     Bytes: Handle,
+    MutBytes: Handle,
 };
 
 const StoreError = error{
@@ -39,6 +82,7 @@ pub const UnmanagedStore = struct {
     int: []Int,
     float: []Float,
     bytes: []Bytes,
+    mutbytes: []MutBytes,
 
     // Assume that if a reference exists, it is valid
     pub fn get(store: @This(), ref: Ref) Value {
@@ -54,6 +98,10 @@ pub const UnmanagedStore = struct {
             .Bytes => |handle| {
                 std.debug.assert(handle < store.bytes.len);
                 return Value{ .Bytes = store.bytes[handle] };
+            },
+            .MutBytes => |handle| {
+                std.debug.assert(handle < store.mutbytes.len);
+                return Value{ .MutBytes = store.mutbytes[handle] };
             },
         }
     }
@@ -71,6 +119,10 @@ pub const UnmanagedStore = struct {
             .Bytes => {
                 if (index > store.bytes.len) return error.OutOfBounds;
                 return Ref{ .Bytes = index };
+            },
+            .MutBytes => {
+                if (index > store.mutbytes.len) return error.OutOfBounds;
+                return Ref{ .MutBytes = index };
             },
         }
     }
@@ -93,6 +145,11 @@ pub const UnmanagedStore = struct {
                 std.debug.assert(handle < store.bytes.len);
                 store.bytes[handle] = value;
             },
+            .MutBytes => {
+                const handle = ref.MutBytes;
+                std.debug.assert(handle < store.mutbytes.len);
+                store.mutbytes[handle] = value;
+            },
         }
     }
 };
@@ -101,8 +158,9 @@ test "Unmanaged Store" {
     var int: [4]Int = .{ 0, 1, 2, 3 };
     var float: [4]Float = .{ 0.0, 0.1, 0.2, 0.3 };
     var bytes: [3][]const u8 = .{ "Word", "Wassup?", "Stuff" };
+    var mutbytes: [3]MutBytes = .{ MutBytes.from("Word"), MutBytes.from("Wassup?"), MutBytes.from("Stuff") };
 
-    const store = UnmanagedStore{ .int = &int, .float = &float, .bytes = &bytes };
+    const store = UnmanagedStore{ .int = &int, .float = &float, .bytes = &bytes, .mutbytes = &mutbytes };
 
     const three = try store.get_ref(.Int, 3);
     const point_2 = try store.get_ref(.Float, 2);
@@ -118,6 +176,7 @@ pub const Store = struct {
     int: std.ArrayList(Int),
     float: std.ArrayList(Float),
     bytes: std.ArrayList(Bytes),
+    mutbytes: std.ArrayList(MutBytes),
     store: UnmanagedStore,
 
     pub fn init(allocator: std.mem.Allocator) @This() {
@@ -126,12 +185,14 @@ pub const Store = struct {
             .int = std.ArrayList(Int).init(allocator),
             .float = std.ArrayList(Float).init(allocator),
             .bytes = std.ArrayList(Bytes).init(allocator),
+            .mutbytes = std.ArrayList(MutBytes).init(allocator),
             .store = undefined,
         };
         this.store = UnmanagedStore{
             .int = this.int.items,
             .float = this.float.items,
             .bytes = this.bytes.items,
+            .mutbytes = this.mutbytes.items,
         };
         return this;
     }
@@ -146,6 +207,7 @@ pub const Store = struct {
         store.int.deinit();
         store.float.deinit();
         store.bytes.deinit();
+        store.mutbytes.deinit();
     }
 
     /// Create a new value of given type, initializing it to zero
@@ -170,6 +232,12 @@ pub const Store = struct {
                 store.store.bytes = store.bytes.items;
                 return store.store.get_ref(value, handle);
             },
+            .MutBytes => |val| {
+                const handle = @intCast(Handle, store.mutbytes.items.len);
+                try store.mutbytes.append(val);
+                store.store.mutbytes = store.mutbytes.items;
+                return store.store.get_ref(value, handle);
+            },
         }
     }
 
@@ -177,8 +245,9 @@ pub const Store = struct {
         std.debug.assert(ref == T);
         if (T == .Bytes) {
             std.debug.assert(store.bytes.items.len > ref.Bytes);
-            store.allocator.free(store.bytes.items[ref.Bytes]);
+            // dupe then free to allow self reference
             const string = try store.allocator.dupe(u8, value);
+            store.allocator.free(store.bytes.items[ref.Bytes]);
             store.store.set(T, ref, string);
         } else {
             store.store.set(T, ref, value);
@@ -229,4 +298,18 @@ test "Store float" {
         try store.set(.Float, float_ref, float_val);
     }
     try std.testing.expectApproxEqAbs(@as(f32, 69.69), store.get(float_ref).Float, 0.1);
+}
+
+test "Store mut bytes" {
+    var store = Store.init(std.testing.allocator);
+    defer store.deinit();
+
+    const word_ref = try store.new(Value.mutbytes("Hello"));
+    try std.testing.expectEqualSlices(u8, "Hello", store.get(word_ref).MutBytes.read());
+    try store.set(.MutBytes, word_ref, MutBytes.from("Word 2: Electric Boogaloo"));
+    try std.testing.expectEqualSlices(u8, "Word 2: Electric Boogaloo", store.get(word_ref).MutBytes.read());
+
+    const long = "this is a really long string that will get truncated instead of returning an error";
+    try store.set(.MutBytes, word_ref, MutBytes.from(long));
+    try std.testing.expectEqualSlices(u8, "this is a really long string that will get truncated instead of ", store.get(word_ref).MutBytes.read());
 }

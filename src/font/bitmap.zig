@@ -181,6 +181,7 @@ pub const Bitmap = struct {
         textBaseline: TextBaseline = .Bottom,
         color: Color = Color.WHITE,
         scale: f32 = 1,
+        area: ?seizer.geometry.Rectf = null,
     };
 
     pub fn drawText(this: @This(), drawbatcher: *SpriteBatch, text: []const u8, pos: Vec2f, options: DrawOptions) void {
@@ -197,6 +198,12 @@ pub const Bitmap = struct {
             .Left, .Center => 1,
             .Right => -1,
         };
+
+        if (options.area) |rect| {
+            const aabb = seizer.geometry.rect.as_aabbf(rect);
+            drawbatcher.pushClip(.{ .pos = .{ .x = aabb[0], .y = aabb[1] }, .size = .{ .x = aabb[2], .y = aabb[3] } });
+        }
+        defer if (options.area) |_| drawbatcher.popClip();
 
         var i: usize = 0;
         while (i < text.len) : (i += 1) {
