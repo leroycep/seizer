@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    {[metadata]s}
+    {[description]s}
+    {[iconUrl]s}
+    <title>{[title]s}</title>
+    <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }}
+        #game-canvas {{
+            width: 100vw;
+            height: 100vh;
+        }}
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas" width="{[width]d}" height="{[height]d}" tabindex="1">
+    </canvas>
+    <script id="seizer-js">{[js]s}</script>
+    <script>
+            const canvas_element = document.getElementById("game-canvas");
+            var globalInstance;
+
+            let env = {{
+                ...getEnv(canvas_element, () => globalInstance),
+            }};
+
+            fetch("{[wasmFile]s}")
+                .then((response) => response.arrayBuffer())
+                .then((bytes) => WebAssembly.instantiate(bytes, {{ env }}))
+                .then((results) => results.instance)
+                .then((instance) => {{
+                    globalInstance = instance;
+                    instance.exports._start();
+                }});
+    </script>
+  </body>
+</html>

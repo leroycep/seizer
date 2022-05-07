@@ -26,8 +26,9 @@ function idpromise_resolve(id, data) {
     delete idpromise_promises[id];
 }
 
+var getEnv = getPlatformEnv;
 // Platform ENV
-export default function getPlatformEnv(canvas_element, getInstance) {
+function getPlatformEnv(canvas_element, getInstance) {
     const getMemory = () => getInstance().exports.memory;
     const utf8decoder = new TextDecoder();
     const readCharStr = (ptr, len) =>

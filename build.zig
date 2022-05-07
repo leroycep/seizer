@@ -1,6 +1,7 @@
 const std = @import("std");
 const Builder = std.build.Builder;
 const GitRepoStep = @import("tools/GitRepoStep.zig");
+const HTMLBundleStep = @import("tools/HTMLBundleStep.zig");
 
 pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
@@ -14,6 +15,7 @@ pub fn build(b: *Builder) !void {
     });
 
     // Install `seizer.js` to "<prefix>/www". By default this means "zig-cache/www"
+    const seizerjs = std.build.FileSource{ .path = "src/web/seizer.js" };
     const install_seizerjs = b.addInstallFile(.{ .path = "src/web/seizer.js" }, "www/seizer.js");
     const install_audio_enginejs = b.addInstallFile(.{ .path = "src/web/audio_engine.js" }, "www/audio_engine.js");
 
@@ -115,8 +117,13 @@ pub fn build(b: *Builder) !void {
         });
         web.packages.appendSlice(example.dependencies orelse &[_]std.build.Pkg{}) catch unreachable;
 
-        const str = b.dupePath(b.fmt("examples/{s}.html", .{name}));
-        const install_index = b.addInstallFile(.{ .path = str }, b.dupePath(b.fmt("www/{s}.html", .{name})));
+        const install_html = HTMLBundleStep.create(b, .{
+            .path = "www",
+            .js_path = seizerjs,
+            .wasm_path = web.getOutputSource(),
+            .output_name = b.fmt("{s}.html", .{name}),
+            .title = name,
+        });
 
         const build_web = b.step(b.fmt("example-{s}-web", .{name}), b.fmt("Build the {s} example for the web", .{name}));
         build_web.dependOn(fetch);
@@ -124,7 +131,7 @@ pub fn build(b: *Builder) !void {
         build_web.dependOn(&install_assets_web.step);
         build_web.dependOn(&install_seizerjs.step);
         build_web.dependOn(&install_audio_enginejs.step);
-        build_web.dependOn(&install_index.step);
+        build_web.dependOn(&install_html.step);
 
         build_examples_web.dependOn(build_web);
     }
