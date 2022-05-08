@@ -21,6 +21,8 @@ const NodeStyle = enum {
     Frame,
     Nameplate,
     Label,
+    Input,
+    InputEdit,
     Keyrest,
     Keyup,
     Keydown,
@@ -32,9 +34,8 @@ const NodeStyle = enum {
     pub fn get_padding(style: NodeStyle) geom.Rect {
         switch (style) {
             .None => return geom.Rect{ 0, 0, 0, 0 },
-            .Frame => return geom.Rect{ 16, 16, 16, 16 },
-            .Nameplate => return geom.Rect{ 16, 16, 16, 16 },
-            .Label => return geom.Rect{ 4, 4, 4, 4 },
+            .Frame, .Nameplate => return geom.Rect{ 16, 16, 16, 16 },
+            .Label, .Input, .InputEdit => return geom.Rect{ 4, 4, 4, 4 },
             .Keyup => return geom.Rect{ 8, 7, 8, 9 },
             .Keyrest => return geom.Rect{ 8, 8, 8, 8 },
             .Keydown => return geom.Rect{ 8, 9, 8, 7 },
@@ -75,20 +76,6 @@ const Painter = struct {
         return geom.Vec2{ 0, 0 };
     }
 
-    pub fn padding(painter: *Painter, node: Stage.Node) geom.Rect {
-        _ = painter;
-        const scale = @splat(4, @floatToInt(i32, painter.scale));
-        switch (node.style) {
-            .None => return geom.Rect{ 0, 0, 0, 0 } * scale,
-            .Frame => return geom.Rect{ 16, 16, 16, 16 } * scale,
-            .Nameplate => return geom.Rect{ 16, 16, 16, 16 } * scale,
-            .Label => return geom.Rect{ 4, 4, 4, 4 } * scale,
-            .Keyup => return geom.Rect{ 8, 7, 8, 9 } * scale,
-            .Keyrest => return geom.Rect{ 8, 8, 8, 8 } * scale,
-            .Keydown => return geom.Rect{ 8, 9, 8, 7 } * scale,
-        }
-    }
-
     pub fn paint(painter: *Painter, node: Stage.Node) void {
         if (painter.ninepatch.get(node.style)) |ninepatch| {
             ninepatch.draw(painter.batch, geom.rect.itof(node.bounds), painter.scale);
@@ -96,7 +83,7 @@ const Painter = struct {
         if (node.data) |data| {
             const value = painter.store.get(data);
             const vec2 = math.Vec2f.init;
-            const area = node.bounds + (painter.padding(node) * geom.Rect{ 1, 1, -1, -1 });
+            const area = node.bounds + (NodeStyle.get_padding(node.style) * @splat(4, @floatToInt(i32, painter.scale)) * geom.Rect{ 1, 1, -1, -1 });
             const top_left = vec2(@intToFloat(f32, area[0]), @intToFloat(f32, area[1]));
             switch (value) {
                 .Bytes => |string| {
@@ -141,7 +128,8 @@ var painter_global: Painter = undefined;
 var font: BitmapFont = undefined;
 var uitexture: Texture = undefined;
 
-var last_focused_node: ?Stage.Node = null;
+var last_hover_node: ?Stage.Node = null;
+var last_focus_node: ?Stage.Node = null;
 var increment: usize = undefined;
 var decrement: usize = undefined;
 var counter_label: usize = undefined;
@@ -150,6 +138,29 @@ var text_ref: store.Ref = undefined;
 var textinput: usize = undefined;
 var is_typing = false;
 var cursor: f32 = 0;
+
+const Event = enum { enter, exit, press, release, onblur };
+const StateAdvance = struct { begin: NodeStyle, event: Event, end: NodeStyle, emit: u16 = 0 };
+
+fn state_event(states: []const StateAdvance, node: *Stage.Node, e: Event) u16 {
+    for (states) |state| {
+        if (node.style == state.begin and state.event == e) {
+            node.style = state.end;
+            return state.emit;
+        }
+    }
+    return 0;
+}
+
+const button_transitions = [_]StateAdvance{
+    StateAdvance{ .begin = .Keyrest, .event = .enter, .end = .Keyup },
+    StateAdvance{ .begin = .Keyup, .event = .exit, .end = .Keyrest },
+    StateAdvance{ .begin = .Keyup, .event = .press, .end = .Keydown },
+    StateAdvance{ .begin = .Keydown, .event = .exit, .end = .Keyrest },
+    StateAdvance{ .begin = .Keydown, .event = .release, .end = .Keyup, .emit = 1 },
+    StateAdvance{ .begin = .Input, .event = .press, .end = .InputEdit, .emit = 2 },
+    StateAdvance{ .begin = .InputEdit, .event = .onblur, .end = .Input, .emit = 3 },
+};
 
 fn init() !void {
     font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
@@ -168,6 +179,8 @@ fn init() !void {
             .Frame = NinePatch.initv(uitexture, .{ 0, 0, 48, 48 }, .{ 16, 16 }),
             .Nameplate = NinePatch.initv(uitexture, .{ 48, 0, 48, 48 }, .{ 16, 16 }),
             .Label = NinePatch.initv(uitexture, .{ 96, 24, 12, 12 }, .{ 4, 4 }),
+            .Input = NinePatch.initv(uitexture, .{ 96, 24, 12, 12 }, .{ 4, 4 }),
+            .InputEdit = NinePatch.initv(uitexture, .{ 96, 24, 12, 12 }, .{ 4, 4 }),
             .Keyrest = NinePatch.initv(uitexture, .{ 96, 0, 24, 24 }, .{ 8, 8 }),
             .Keyup = NinePatch.initv(uitexture, .{ 120, 24, 24, 24 }, .{ 8, 8 }),
             .Keydown = NinePatch.initv(uitexture, .{ 120, 0, 24, 24 }, .{ 8, 8 }),
@@ -187,19 +200,25 @@ fn init() !void {
     const center = try stage.insert(null, NodeStyle.frame(.None).container(.Center));
     const frame = try stage.insert(center, NodeStyle.frame(.Frame).container(.VList));
     const nameplate = try stage.insert(frame, NodeStyle.frame(.Nameplate).dataValue(name_ref));
+    _ = nameplate;
+
+    // Counter
     const counter_center = try stage.insert(frame, NodeStyle.frame(.None).container(.Center));
     const counter = try stage.insert(counter_center, NodeStyle.frame(.None).container(.HList));
     decrement = try stage.insert(counter, NodeStyle.frame(.Keyrest).dataValue(dec_label_ref));
     const label_center = try stage.insert(counter, NodeStyle.frame(.None).container(.Center));
     counter_label = try stage.insert(label_center, NodeStyle.frame(.Label).dataValue(counter_ref));
     increment = try stage.insert(counter, NodeStyle.frame(.Keyrest).dataValue(inc_label_ref));
-    textinput = try stage.insert(frame, NodeStyle.frame(.Label).dataValue(text_ref));
-    _ = nameplate;
+
+    // Text input
+    textinput = try stage.insert(frame, NodeStyle.frame(.Input).dataValue(text_ref));
 
     for (stage.nodes.items) |*node| {
-        node.min_size = painter_global.size(node.*);
-        node.padding = painter_global.padding(node.*);
+        const n = node.*;
+        node.padding = NodeStyle.get_padding(n.style) * @splat(4, @floatToInt(i32, painter_global.scale));
+        node.min_size = painter_global.size(n);
     }
+    stage.modified = true;
 }
 
 fn deinit() void {
@@ -210,74 +229,76 @@ fn deinit() void {
     _ = gpa.deinit();
 }
 
+fn pointer_event(e: seizer.event.Event, mouse_pos: geom.Vec2) void {
+    const hovered = last_hover_node != null;
+    const focused = last_focus_node != null;
+    const might_blur = (e == .MouseButtonDown and focused);
+    const might_exit = (e == .MouseMotion and hovered);
+    const node_opt = stage.get_node_at_point(mouse_pos);
+    if (might_blur and (node_opt == null or (node_opt != null and last_focus_node.?.handle != node_opt.?.handle))) {
+        const emit = state_event(&button_transitions, &last_focus_node.?, .onblur);
+        _ = stage.set_node(last_focus_node.?);
+        last_focus_node = null;
+        if (emit == 3) is_typing = false;
+    }
+    if (might_exit and (node_opt == null or (node_opt != null and last_hover_node.?.handle != node_opt.?.handle))) {
+        const emit = state_event(&button_transitions, &last_hover_node.?, .exit);
+        _ = stage.set_node(last_hover_node.?);
+        last_hover_node = null;
+        _ = emit;
+    }
+    if (node_opt == null) return;
+    var node = node_opt.?;
+    // We are *definitely* in bounds now
+    const emit = emit: {
+        switch (e) {
+            .MouseMotion => {
+                const emit = state_event(&button_transitions, &node, .enter);
+                last_hover_node = node;
+                break :emit emit;
+            },
+            .MouseButtonDown => {
+                const emit = state_event(&button_transitions, &node, .press);
+                last_focus_node = node;
+                break :emit emit;
+            },
+            .MouseButtonUp => {
+                const emit = state_event(&button_transitions, &node, .release);
+                break :emit emit;
+            },
+            else => break :emit 0,
+        }
+    };
+    _ = stage.set_node(node);
+    switch (emit) {
+        2 => is_typing = true,
+        3 => is_typing = false, // Honestly we should never get here
+        1 => {
+            if (node.handle == increment) {
+                var count = painter_global.store.get(counter_ref);
+                count.Int += 1;
+                try painter_global.store.set(.Int, counter_ref, count.Int);
+            } else if (node.handle == decrement) {
+                var count = painter_global.store.get(counter_ref);
+                count.Int -= 1;
+                try painter_global.store.set(.Int, counter_ref, count.Int);
+            }
+            stage.modified = true;
+            if (stage.get_node(counter_label)) |label| {
+                const size = painter_global.size(label);
+                stage.update_min_size(counter_label, size);
+            }
+        },
+        else => {},
+    }
+}
+
 fn event(e: seizer.event.Event) !void {
+    var mousepos: ?geom.Vec2 = null;
     switch (e) {
-        .MouseMotion => |mouse| {
-            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
-            if (stage.get_node_at_point(mouse_pos)) |*node| hover: {
-                if (last_focused_node) |*last_node| {
-                    if (node.handle == last_node.handle) break :hover;
-                    last_node.style = .Keyrest;
-                    _ = stage.set_node(last_node.*);
-                    last_focused_node = null;
-                }
-                if (node.style == .Keyrest) {
-                    node.style = .Keyup;
-                    _ = stage.set_node(node.*);
-                    last_focused_node = node.*;
-                }
-            } else if (last_focused_node) |*last_node| {
-                last_node.style = .Keyrest;
-                _ = stage.set_node(last_node.*);
-                last_focused_node = null;
-            }
-        },
-        .MouseButtonDown => |mouse| {
-            is_typing = false;
-            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
-            if (stage.get_node_at_point(mouse_pos)) |*node| {
-                if (node.style == .Keyup) {
-                    node.style = .Keydown;
-                    _ = stage.set_node(node.*);
-                    last_focused_node = node.*;
-                }
-                if (node.handle == textinput) {
-                    is_typing = true;
-                }
-            }
-        },
-        .MouseButtonUp => |mouse| {
-            const mouse_pos = geom.Vec2{ mouse.pos.x, mouse.pos.y };
-            if (stage.get_node_at_point(mouse_pos)) |*node| click: {
-                if (node.style == .Keydown) {
-                    if (last_focused_node) |last| {
-                        if (node.handle != last.handle) break :click;
-                    } else break :click;
-                    if (node.handle == increment) {
-                        var count = painter_global.store.get(counter_ref);
-                        count.Int += 1;
-                        try painter_global.store.set(.Int, counter_ref, count.Int);
-                        stage.modified = true;
-                        if (stage.get_node(counter_label)) |label| {
-                            const size = painter_global.size(label);
-                            stage.update_min_size(counter_label, size);
-                        }
-                    } else if (node.handle == decrement) {
-                        var count = painter_global.store.get(counter_ref);
-                        count.Int -= 1;
-                        try painter_global.store.set(.Int, counter_ref, count.Int);
-                        stage.modified = true;
-                        if (stage.get_node(counter_label)) |label| {
-                            const size = painter_global.size(label);
-                            stage.update_min_size(counter_label, size);
-                        }
-                    }
-                    node.style = .Keyup;
-                    _ = stage.set_node(node.*);
-                    last_focused_node = node.*;
-                }
-            }
-        },
+        .MouseMotion => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
+        .MouseButtonDown => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
+        .MouseButtonUp => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
         .TextInput => |input| {
             if (is_typing) {
                 const string = painter_global.store.get(text_ref).Bytes;
@@ -296,11 +317,10 @@ fn event(e: seizer.event.Event) !void {
                 try painter_global.store.set(.Bytes, text_ref, new_string);
             }
         },
-        .Quit => {
-            seizer.backend.quit();
-        },
+        .Quit => seizer.backend.quit(),
         else => {},
     }
+    if (mousepos) |p| pointer_event(e, p);
 }
 
 // Error

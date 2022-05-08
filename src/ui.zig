@@ -45,6 +45,19 @@ pub const LayoutData = union(Layout) {
     // Grid: []const f32,
 };
 
+// pub const Container = struct {
+//     style: i16,
+//     children: i16,
+//     layout: LayoutData,
+//     padding: Rect = Rect{ 0, 0, 0, 0 },
+// };
+
+// pub const Element = struct {
+//     data: ?store.Ref,
+//     grow: Vec = Vec{ 0, 0 },
+//     min_size: Vec = Vec{ 0, 0 },
+// };
+
 /// Provide your basic types
 pub fn Stage(comptime Style: type) type {
     return struct {
@@ -79,14 +92,14 @@ pub fn Stage(comptime Style: type) type {
 
             pub fn container(node: Node, _layout: Layout) Node {
                 var new_node = node;
-                new_node.layout = switch(_layout) {
+                new_node.layout = switch (_layout) {
                     .Fill => LayoutData.Fill,
                     .Relative => LayoutData.Relative,
                     .Center => LayoutData.Center,
                     .HDiv => LayoutData.HDiv,
                     .VDiv => LayoutData.VDiv,
-                    .HList => LayoutData{.HList = .{}},
-                    .VList => LayoutData{.VList = .{}},
+                    .HList => LayoutData{ .HList = .{} },
+                    .VList => LayoutData{ .VList = .{} },
                 };
                 return new_node;
             }
