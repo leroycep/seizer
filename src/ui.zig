@@ -14,7 +14,7 @@ const Allocator = std.mem.Allocator;
 const List = std.ArrayList;
 
 /// Available layout algorithms
-pub const Layout = union(enum) {
+pub const Layout = enum {
     /// Default layout of root - expands children to fill entire space
     Fill,
     /// Default layout. Children are positioned relative to the parent with no
@@ -22,34 +22,38 @@ pub const Layout = union(enum) {
     Relative,
     /// Keep elements centered
     Center,
-    /// Specify an anchor (between 0 and 1) and a margin (in screen space) for
-    /// childrens bounding box
-    Anchor: struct { anchor: Rect, margin: Rect },
-    // Divide horizontal space equally
+    /// Divide horizontal space equally
     HDiv,
-    // Divide vertical space equally
+    /// Divide vertical space equally
     VDiv,
-    // Stack elements horizontally
-    HList: struct { left: i32 = 0 },
-    // Stack elements vertically
-    VList: struct { top: i32 = 0 },
+    /// Stack elements horizontally
+    HList,
+    /// Stack elements vertically
+    VList,
     // Takes a slice of ints specifying the relative size of each column
     // Grid: []const f32,
 };
 
+pub const LayoutData = union(Layout) {
+    Fill,
+    Relative,
+    Center,
+    HDiv,
+    VDiv,
+    HList: struct { left: i32 = 0 },
+    VList: struct { top: i32 = 0 },
+    // Grid: []const f32,
+};
+
 /// Provide your basic types
-pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) type {
-    if (!@hasDecl(Painter, "size")) @compileLog("Painter must have fn size(*Painter, Node) Vec2");
-    if (!@hasDecl(Painter, "padding")) @compileLog("Painter must have fn padding(*Painter, Node) Rect");
-    if (!@hasDecl(Painter, "paint")) @compileLog("Painter must have fn paint(*Painter, Node) void");
+pub fn Stage(comptime Style: type) type {
     return struct {
         modified: bool,
         /// A monotonically increasing integer assigning new handles
         handle_count: usize,
-        root_layout: Layout = .Fill,
+        root_layout: LayoutData = .Fill,
         /// Array of all ui elements
         nodes: List(Node),
-        painter: *Painter,
 
         const Self = @This();
 
@@ -69,20 +73,22 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             /// Screen space rectangle
             bounds: Rect = Rect{ 0, 0, 0, 0 },
             /// What layout function to use on children
-            layout: Layout = .Relative,
+            layout: LayoutData = .Relative,
             /// User specified type
-            data: ?T = null,
+            data: ?store.Ref = null,
 
-            pub fn anchor(_anchor: Rect, margin: Rect, style: Style) @This() {
-                return @This(){
-                    .layout = .{
-                        .Anchor = .{
-                            .anchor = _anchor,
-                            .margin = margin,
-                        },
-                    },
-                    .style = style,
+            pub fn container(node: Node, _layout: Layout) Node {
+                var new_node = node;
+                new_node.layout = switch(_layout) {
+                    .Fill => LayoutData.Fill,
+                    .Relative => LayoutData.Relative,
+                    .Center => LayoutData.Center,
+                    .HDiv => LayoutData.HDiv,
+                    .VDiv => LayoutData.VDiv,
+                    .HList => LayoutData{.HList = .{}},
+                    .VList => LayoutData{.VList = .{}},
                 };
+                return new_node;
             }
 
             pub fn fill(style: Style) @This() {
@@ -140,7 +146,7 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                 return node;
             }
 
-            pub fn dataValue(this: @This(), value: T) @This() {
+            pub fn dataValue(this: @This(), value: store.Ref) @This() {
                 var node = this;
                 node.data = value;
                 return node;
@@ -153,13 +159,12 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             }
         };
 
-        pub fn init(alloc: Allocator, painter: *Painter) !@This() {
+        pub fn init(alloc: Allocator) !@This() {
             var nodelist = try List(Node).initCapacity(alloc, 40);
             return @This(){
                 .modified = true,
                 .handle_count = 100,
                 .nodes = nodelist,
-                .painter = painter,
             };
         }
 
@@ -196,14 +201,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                 index = this.nodes.items.len - 1;
                 this.nodes.items[index].handle = handle;
             }
-            this.nodes.items[index].padding = this.painter.padding(node);
-            const min_size = this.painter.size(node);
-            this.nodes.items[index].min_size = @select(
-                i32,
-                this.nodes.items[index].min_size < min_size,
-                min_size,
-                this.nodes.items[index].min_size,
-            );
             return handle;
         }
 
@@ -220,12 +217,8 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             return null;
         }
 
-        pub fn paint(this: @This()) void {
-            var i: usize = 0;
-            while (i < this.nodes.items.len) : (i += 1) {
-                const node = this.nodes.items[i];
-                this.painter.paint(node);
-            }
+        pub fn get_rects(this: @This()) []const Node {
+            return this.nodes.items;
         }
 
         /// Layout
@@ -310,7 +303,7 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
         }
 
         /// Runs the layout function and returns the new state of the layout component, if applicable
-        fn run_layout(this: *@This(), which_layout: Layout, bounds: Rect, child_index: usize, child_num: usize, child_count: usize) Layout {
+        fn run_layout(this: *@This(), which_layout: LayoutData, bounds: Rect, child_index: usize, child_num: usize, child_count: usize) LayoutData {
             const child = this.nodes.items[child_index];
             const total = child.size;
             switch (which_layout) {
@@ -329,17 +322,6 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
                     const pos = geom.rect.top_left(bounds) + center - min_half;
                     this.nodes.items[child_index].bounds = Rect{ pos[0], pos[1], pos[0] + total[0], pos[1] + total[1] };
                     return .Center;
-                },
-                .Anchor => |anchor_data| {
-                    const MAX = geom.vec.double(.{ 100, 100 });
-                    const size_doubled = geom.vec.double((geom.rect.bottom_right(bounds) - geom.rect.top_left(bounds)));
-                    const anchor = geom.rect.shift(
-                        @divTrunc((MAX - (MAX - anchor_data.anchor)) * size_doubled, MAX),
-                        geom.rect.top_left(bounds),
-                    );
-                    const margin = anchor + anchor_data.margin;
-                    this.nodes.items[child_index].bounds = margin;
-                    return .{ .Anchor = anchor_data };
                 },
                 .VList => |vlist_data| {
                     const _left = bounds[0];
@@ -433,10 +415,9 @@ pub fn Stage(comptime Style: type, comptime Painter: type, comptime T: type) typ
             return null;
         }
 
-        pub fn update_min_size(this: @This(), handle: usize) void {
+        pub fn update_min_size(this: @This(), handle: usize, min_size: geom.Vec2) void {
             if (this.get_index_by_handle(handle)) |index| {
-                const node = this.nodes.items[index];
-                this.nodes.items[index].min_size = this.painter.size(node);
+                this.nodes.items[index].min_size = min_size;
             }
         }
 

@@ -13,10 +13,34 @@ const SpriteBatch = seizer.batch.SpriteBatch;
 const BitmapFont = seizer.font.Bitmap;
 const NinePatch = seizer.ninepatch.NinePatch;
 const UIStage = seizer.ui.Stage;
-const Stage = UIStage(NodeStyle, Painter, store.Ref);
+const Stage = UIStage(NodeStyle);
 
 /// All of the possible frame styles for nodes
-const NodeStyle = enum { None, Frame, Nameplate, Label, Keyrest, Keyup, Keydown };
+const NodeStyle = enum {
+    None,
+    Frame,
+    Nameplate,
+    Label,
+    Keyrest,
+    Keyup,
+    Keydown,
+
+    pub fn frame(style: NodeStyle) Stage.Node {
+        return Stage.Node{ .style = style, .padding = style.get_padding() };
+    }
+
+    pub fn get_padding(style: NodeStyle) geom.Rect {
+        switch (style) {
+            .None => return geom.Rect{ 0, 0, 0, 0 },
+            .Frame => return geom.Rect{ 16, 16, 16, 16 },
+            .Nameplate => return geom.Rect{ 16, 16, 16, 16 },
+            .Label => return geom.Rect{ 4, 4, 4, 4 },
+            .Keyup => return geom.Rect{ 8, 7, 8, 9 },
+            .Keyrest => return geom.Rect{ 8, 8, 8, 8 },
+            .Keydown => return geom.Rect{ 8, 9, 8, 7 },
+        }
+    }
+};
 
 const Painter = struct {
     batch: *SpriteBatch,
@@ -34,6 +58,13 @@ const Painter = struct {
             const value = painter.store.get(data);
             switch (value) {
                 .Bytes => |string| {
+                    const width = painter.font.calcTextWidth(string, painter.scale);
+                    const height = painter.font.lineHeight * painter.scale;
+                    return geom.vec.ftoi(geom.Vec2f{ width, height });
+                },
+                .Int => |int| {
+                    var buf: [32]u8 = undefined;
+                    const string = std.fmt.bufPrint(&buf, "{}", .{int}) catch buf[0..];
                     const width = painter.font.calcTextWidth(string, painter.scale);
                     const height = painter.font.lineHeight * painter.scale;
                     return geom.vec.ftoi(geom.Vec2f{ width, height });
@@ -76,6 +107,16 @@ const Painter = struct {
                         .area = geom.rect.itof(node.bounds),
                     });
                 },
+                .Int => |int| {
+                    var buf: [32]u8 = undefined;
+                    const string = std.fmt.bufPrint(&buf, "{}", .{int}) catch buf[0..];
+                    painter.font.drawText(painter.batch, string, top_left, .{
+                        .textBaseline = .Top,
+                        .scale = painter.scale,
+                        .color = seizer.batch.Color.BLACK,
+                        .area = geom.rect.itof(node.bounds),
+                    });
+                },
                 else => {},
             }
         }
@@ -104,7 +145,6 @@ var last_focused_node: ?Stage.Node = null;
 var increment: usize = undefined;
 var decrement: usize = undefined;
 var counter_label: usize = undefined;
-var counter_label_ref: store.Ref = undefined;
 var counter_ref: store.Ref = undefined;
 var text_ref: store.Ref = undefined;
 var textinput: usize = undefined;
@@ -134,28 +174,32 @@ fn init() !void {
         }),
         .scale = 2,
     };
-    stage = try Stage.init(gpa.allocator(), &painter_global);
+    stage = try Stage.init(gpa.allocator());
 
     // Create values in the store to be used by the UI
     const name_ref = try painter_global.store.new(.{ .Bytes = "Hello, World!" });
     counter_ref = try painter_global.store.new(.{ .Int = 0 });
-    counter_label_ref = try painter_global.store.new(.{ .Bytes = "0" });
     const dec_label_ref = try painter_global.store.new(.{ .Bytes = "<" });
     const inc_label_ref = try painter_global.store.new(.{ .Bytes = ">" });
     text_ref = try painter_global.store.new(.{ .Bytes = "" });
 
     // Create the layout for the UI
-    const center = try stage.insert(null, Stage.Node.center(.None));
-    const frame = try stage.insert(center, Stage.Node.vlist(.Frame));
-    const nameplate = try stage.insert(frame, Stage.Node.relative(.Nameplate).dataValue(name_ref));
-    const counter_center = try stage.insert(frame, Stage.Node.center(.None));
-    const counter = try stage.insert(counter_center, Stage.Node.hlist(.None));
-    decrement = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(dec_label_ref));
-    const label_center = try stage.insert(counter, Stage.Node.center(.None));
-    counter_label = try stage.insert(label_center, Stage.Node.relative(.Label).dataValue(counter_label_ref));
-    increment = try stage.insert(counter, Stage.Node.relative(.Keyrest).dataValue(inc_label_ref));
-    textinput = try stage.insert(frame, Stage.Node.relative(.Label).dataValue(text_ref));
+    const center = try stage.insert(null, NodeStyle.frame(.None).container(.Center));
+    const frame = try stage.insert(center, NodeStyle.frame(.Frame).container(.VList));
+    const nameplate = try stage.insert(frame, NodeStyle.frame(.Nameplate).dataValue(name_ref));
+    const counter_center = try stage.insert(frame, NodeStyle.frame(.None).container(.Center));
+    const counter = try stage.insert(counter_center, NodeStyle.frame(.None).container(.HList));
+    decrement = try stage.insert(counter, NodeStyle.frame(.Keyrest).dataValue(dec_label_ref));
+    const label_center = try stage.insert(counter, NodeStyle.frame(.None).container(.Center));
+    counter_label = try stage.insert(label_center, NodeStyle.frame(.Label).dataValue(counter_ref));
+    increment = try stage.insert(counter, NodeStyle.frame(.Keyrest).dataValue(inc_label_ref));
+    textinput = try stage.insert(frame, NodeStyle.frame(.Label).dataValue(text_ref));
     _ = nameplate;
+
+    for (stage.nodes.items) |*node| {
+        node.min_size = painter_global.size(node.*);
+        node.padding = painter_global.padding(node.*);
+    }
 }
 
 fn deinit() void {
@@ -213,22 +257,20 @@ fn event(e: seizer.event.Event) !void {
                         var count = painter_global.store.get(counter_ref);
                         count.Int += 1;
                         try painter_global.store.set(.Int, counter_ref, count.Int);
-
-                        var buf: [100]u8 = undefined;
-                        var lbl = try std.fmt.bufPrint(&buf, "{}", .{count.Int});
-                        try painter_global.store.set(.Bytes, counter_label_ref, lbl);
                         stage.modified = true;
-                        stage.update_min_size(counter_label);
+                        if (stage.get_node(counter_label)) |label| {
+                            const size = painter_global.size(label);
+                            stage.update_min_size(counter_label, size);
+                        }
                     } else if (node.handle == decrement) {
                         var count = painter_global.store.get(counter_ref);
                         count.Int -= 1;
                         try painter_global.store.set(.Int, counter_ref, count.Int);
-
-                        var buf: [100]u8 = undefined;
-                        var lbl = try std.fmt.bufPrint(&buf, "{}", .{count.Int});
-                        try painter_global.store.set(.Bytes, counter_label_ref, lbl);
                         stage.modified = true;
-                        stage.update_min_size(counter_label);
+                        if (stage.get_node(counter_label)) |label| {
+                            const size = painter_global.size(label);
+                            stage.update_min_size(counter_label, size);
+                        }
                     }
                     node.style = .Keyup;
                     _ = stage.set_node(node.*);
@@ -274,7 +316,9 @@ fn render(alpha: f64) !void {
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     stage.layout(.{ 0, 0, screen_size.x, screen_size.y });
-    stage.paint();
+    for (stage.get_rects()) |node| {
+        painter_global.paint(node);
+    }
 
     if (is_typing) cursor: {
         const node = stage.get_node(textinput) orelse break :cursor;
