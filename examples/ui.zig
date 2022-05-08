@@ -13,7 +13,7 @@ const SpriteBatch = seizer.batch.SpriteBatch;
 const BitmapFont = seizer.font.Bitmap;
 const NinePatch = seizer.ninepatch.NinePatch;
 const Stage = seizer.ui.Stage;
-const Observer = seizer.ui.observer;
+const Observer = seizer.ui.Observer;
 
 /// All of the possible frame styles for nodes
 const NodeStyle = enum(u16) {
@@ -232,9 +232,9 @@ fn event(e: seizer.event.Event) !void {
     }
     if (mousepos) |p| action: {
         const action = observer.notify_pointer(&stage, e, p);
+        if (action.emit_blur == 3) is_typing = false;
         switch (action.emit) {
             2 => is_typing = true,
-            3 => is_typing = false, // Honestly we should never get here
             1 => {
                 var node = action.node orelse break :action;
                 if (node.handle == increment) {

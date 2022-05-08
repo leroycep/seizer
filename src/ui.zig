@@ -3,7 +3,7 @@
 //! zig std library.
 
 pub const store = @import("ui/store.zig");
-pub const observer = @import("ui/observer.zig");
+pub const Observer = @import("ui/Observer.zig");
 
 const std = @import("std");
 const geom = @import("geometry.zig");
