@@ -21,50 +21,74 @@ transitions: []const Transition,
 //     };
 // }
 
-const NotifyResult = struct { emit: u16, emit_blur: u16, emit_exit: u16,  node: ?Node };
+const NotifyResult = struct { emit: u16, emit_blur: u16, emit_exit: u16, node: ?Node };
 
 pub fn notify_pointer(observer: *Observer, stage: *Stage, e: seizer.event.Event, mouse_pos: geom.Vec2) NotifyResult {
-    const hovered = observer.hover != null;
-    const focused = observer.focus != null;
-    const might_blur = (e == .MouseButtonDown and focused);
-    const might_exit = (e == .MouseMotion and hovered);
-    const node_opt = stage.get_node_at_point(mouse_pos);
     var result = NotifyResult{ .emit = 0, .emit_blur = 0, .emit_exit = 0, .node = null };
-    if (might_blur and (node_opt == null or (node_opt != null and observer.focus.?.handle != node_opt.?.handle))) {
-        result.emit_blur = advancePollAction(observer.transitions, &observer.focus.?, .onblur);
-        _ = stage.set_node(observer.focus.?);
-        observer.focus = null;
+    if (stage.get_node_at_point(mouse_pos)) |*node| {
+        result.emit_exit = observer.exit(stage, e);
+        result.emit_blur = observer.unfocus(stage, e);
+        switch (e) {
+            .MouseMotion => {
+                result.emit = advancePollAction(observer.transitions, node, .enter);
+                observer.hover = node.*;
+            },
+            .MouseButtonDown => {
+                const can_focus = observer.focusable(node.*);
+                result.emit = advancePollAction(observer.transitions, node, .press);
+                if (can_focus) observer.focus = node.*;
+            },
+            .MouseButtonUp => {
+                result.emit = advancePollAction(observer.transitions, node, .release);
+            },
+            else => {},
+        }
+        _ = stage.set_node(node.*);
+        result.node = node.*;
+    } else {
+        result.emit_exit = observer.exit(stage, e);
+        result.emit_blur = observer.unfocus(stage, e);
     }
-    if (might_exit and (node_opt == null or (node_opt != null and observer.hover.?.handle != node_opt.?.handle))) {
-        result.emit_exit = advancePollAction(observer.transitions, &observer.hover.?, .exit);
-        _ = stage.set_node(observer.hover.?);
-        observer.hover = null;
-    }
-    if (node_opt == null) return result;
-    var node = node_opt.?;
-    result.node = node;
     // We are *definitely* in bounds now
-    switch (e) {
-        .MouseMotion => {
-            result.emit = advancePollAction(observer.transitions, &node, .enter);
-            observer.hover = node;
-        },
-        .MouseButtonDown => {
-            result.emit = advancePollAction(observer.transitions, &node, .press);
-            observer.focus = node;
-        },
-        .MouseButtonUp => {
-            result.emit = advancePollAction(observer.transitions, &node, .release);
-        },
-        else => {},
-    }
-    _ = stage.set_node(node);
     return result;
+}
+
+fn focusable(observer: *Observer, node: Node) bool {
+    for (observer.transitions) |transition| {
+        if (node.style == transition.end and transition.event == .onblur) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn unfocus(observer: *Observer, stage: *Stage, e: seizer.event.Event) u16 {
+    if (e == .MouseButtonDown) {
+        if (observer.focus) |*focus| {
+            const emit_blur = advancePollAction(observer.transitions, focus, .onblur);
+            _ = stage.set_node(focus.*);
+            observer.focus = null;
+            return emit_blur;
+        }
+    }
+    return 0;
+}
+
+fn exit(observer: *Observer, stage: *Stage, e: seizer.event.Event) u16 {
+    if (e == .MouseMotion) {
+        if (observer.hover) |*hover| {
+            const emit_exit = advancePollAction(observer.transitions, hover, .exit);
+            _ = stage.set_node(hover.*);
+            observer.hover = null;
+            return emit_exit;
+        }
+    }
+    return 0;
 }
 
 // -------------------------------------------------------------------------------------------------
 
-pub fn advancePollAction(transitions: []const Transition, node: *Node, condition: Condition) Action {
+fn advancePollAction(transitions: []const Transition, node: *Node, condition: Condition) Action {
     for (transitions) |transition| {
         if (node.style == transition.begin and transition.event == condition) {
             node.style = transition.end;
