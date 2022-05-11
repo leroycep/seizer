@@ -78,7 +78,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
 
         /// Run the render function of the current scene.
         pub fn render(this: *@This(), alpha: f64) anyerror!void {
-            // if (this.scenes.items.len == 0) return;
+            if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
             inline for (Scenes) |S, i| {
                 if (i == scene.which) {
@@ -90,7 +90,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         pub fn update(this: *@This(), currentTime: f64, delta: f64) anyerror!void {
-            // if (this.scenes.items.len == 0) return;
+            if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
             inline for (Scenes) |S, i| {
                 if (i == scene.which and @hasDecl(S, "update")) {
@@ -102,7 +102,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         pub fn event(this: *@This(), e: seizer.event.Event) anyerror!void {
-            // if (this.scenes.items.len == 0) return;
+            if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
             inline for (Scenes) |S, i| {
                 if (i == scene.which and @hasDecl(S, "event")) {
