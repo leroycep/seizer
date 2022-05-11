@@ -19,6 +19,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         .is_exhaustive = false,
     };
     inline for (Scenes) |t, i| {
+        if (!@hasDecl(t, "render")) @compileError("fn render(T, f64) !void must be implemented for scenes");
         scene_enum.fields = scene_enum.fields ++ [_]std.builtin.Type.EnumField{.{ .name = @typeName(t), .value = i }};
     }
     const SceneEnum = @Type(.{ .Enum = scene_enum });
@@ -93,9 +94,9 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
             if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
             inline for (Scenes) |S, i| {
-                if (i == scene.which and @hasDecl(S, "update")) {
+                if (i == scene.which) {
                     const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    try @field(S, "update")(ptr, currentTime, delta);
+                    if (@hasDecl(S, "update")) try @field(S, "update")(ptr, currentTime, delta);
                     break;
                 }
             }

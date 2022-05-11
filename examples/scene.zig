@@ -18,6 +18,7 @@ pub usingnamespace seizer.run(.{
     .init = init,
     .event = event,
     .render = render,
+    .update = update,
 });
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -28,6 +29,10 @@ fn init() !void {
         .scene = try SceneManager.init(gpa.allocator(), &context, .{}),
     };
     try context.scene.push(.Scene1);
+}
+
+fn update(a: f64, delta: f64) !void {
+    try context.scene.update(a, delta);
 }
 
 fn event(e: seizer.event.Event) !void {
