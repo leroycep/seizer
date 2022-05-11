@@ -55,6 +55,11 @@ pub fn build(b: *Builder) !void {
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
+            .name = "scene",
+            .path = .{ .path = "examples/scene.zig" },
+            .dependencies = &[_]std.build.Pkg{SEIZER},
+        },
+        .{
             .name = "textures",
             .path = .{ .path = "examples/textures.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},

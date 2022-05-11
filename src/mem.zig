@@ -30,17 +30,6 @@ pub const StackAllocator = struct {
         return Allocator.init(self, alloc, resize, free);
     }
 
-    /// Provides a lock free thread safe `Allocator` interface to the underlying `StackAllocator`
-    /// *WARNING* using this at the same time as the interface returned by `getAllocator` is not thread safe
-    // pub fn threadSafeAllocator(self: *StackAllocator) Allocator {
-    //     return Allocator.init(
-    //         self,
-    //         threadSafeAlloc,
-    //         Allocator.NoResize(StackAllocator).noResize,
-    //         Allocator.NoOpFree(StackAllocator).noOpFree,
-    //     );
-    // }
-
     pub fn ownsPtr(self: *StackAllocator, ptr: [*]u8) bool {
         return sliceContainsPtr(self.buffer, ptr);
     }
@@ -136,22 +125,6 @@ pub const StackAllocator = struct {
 
         self.end_index = prev_offset;
     }
-
-    // fn threadSafeAlloc(self: *StackAllocator, n: usize, ptr_align: u29, len_align: u29, ra: usize) ![]u8 {
-    //     _ = len_align;
-    //     _ = ra;
-    //     var end_index = @atomicLoad(usize, &self.end_index, .SeqCst);
-    //     while (true) {
-    //         const adjust_off = mem.alignPointerOffset(self.buffer.ptr + end_index, ptr_align) orelse
-    //             return error.OutOfMemory;
-    //         const adjusted_index = end_index + adjust_off;
-    //         const new_end_index = adjusted_index + n;
-    //         if (new_end_index > self.buffer.len) {
-    //             return error.OutOfMemory;
-    //         }
-    //         end_index = @cmpxchgWeak(usize, &self.end_index, end_index, new_end_index, .SeqCst, .SeqCst) orelse return self.buffer[adjusted_index..new_end_index];
-    //     }
-    // }
 
     pub fn reset(self: *StackAllocator) void {
         self.end_index = 0;
