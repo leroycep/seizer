@@ -50,9 +50,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         pub fn push(this: *@This(), comptime which: SceneEnum) anyerror!void {
             const i = @enumToInt(which);
             const scene = try this.alloc.create(Scenes[i]);
-            if (@hasDecl(Scenes[i], "init")) {
-                scene.* = try @field(Scenes[i], "init")(this.ctx);
-            }
+            scene.* = try @field(Scenes[i], "init")(this.ctx);
             try this.scenes.append(.{ .which = i, .ptr = scene });
         }
 
