@@ -2,7 +2,7 @@ const std = @import("std");
 const seizer = @import("../seizer.zig");
 const geom = seizer.geometry;
 const Node = seizer.ui.Node;
-const Stage = seizer.ui.Stage;
+const LayoutEngine = seizer.ui.LayoutEngine;
 
 pub const State = u16;
 pub const Condition = enum { enter, exit, press, release, onblur };
@@ -21,13 +21,13 @@ transitions: []const Transition,
 //     };
 // }
 
-const NotifyResult = struct { emit: u16, emit_blur: u16, emit_exit: u16, node: ?Node };
+pub const NotifyResult = struct { emit: u16, emit_blur: u16, emit_exit: u16, node: ?Node };
 
-pub fn notify_pointer(observer: *Observer, stage: *Stage, e: seizer.event.Event, mouse_pos: geom.Vec2) NotifyResult {
+pub fn notify_pointer(observer: *Observer, layout: *LayoutEngine, e: seizer.event.Event, mouse_pos: geom.Vec2) NotifyResult {
     var result = NotifyResult{ .emit = 0, .emit_blur = 0, .emit_exit = 0, .node = null };
-    if (stage.get_node_at_point(mouse_pos)) |*node| {
-        result.emit_exit = observer.exit(stage, e);
-        result.emit_blur = observer.unfocus(stage, e);
+    if (layout.get_node_at_point(mouse_pos)) |*node| {
+        result.emit_exit = observer.exit(layout, e);
+        result.emit_blur = observer.unfocus(layout, e);
         switch (e) {
             .MouseMotion => {
                 result.emit = advancePollAction(observer.transitions, node, .enter);
@@ -43,11 +43,11 @@ pub fn notify_pointer(observer: *Observer, stage: *Stage, e: seizer.event.Event,
             },
             else => {},
         }
-        _ = stage.set_node(node.*);
+        _ =layout.set_node(node.*);
         result.node = node.*;
     } else {
-        result.emit_exit = observer.exit(stage, e);
-        result.emit_blur = observer.unfocus(stage, e);
+        result.emit_exit = observer.exit(layout, e);
+        result.emit_blur = observer.unfocus(layout, e);
     }
     // We are *definitely* in bounds now
     return result;
@@ -62,11 +62,11 @@ fn focusable(observer: *Observer, node: Node) bool {
     return false;
 }
 
-fn unfocus(observer: *Observer, stage: *Stage, e: seizer.event.Event) u16 {
+fn unfocus(observer: *Observer,layout: *LayoutEngine, e: seizer.event.Event) u16 {
     if (e == .MouseButtonDown) {
         if (observer.focus) |*focus| {
             const emit_blur = advancePollAction(observer.transitions, focus, .onblur);
-            _ = stage.set_node(focus.*);
+            _ = layout.set_node(focus.*);
             observer.focus = null;
             return emit_blur;
         }
@@ -74,11 +74,11 @@ fn unfocus(observer: *Observer, stage: *Stage, e: seizer.event.Event) u16 {
     return 0;
 }
 
-fn exit(observer: *Observer, stage: *Stage, e: seizer.event.Event) u16 {
+fn exit(observer: *Observer, layout: *LayoutEngine, e: seizer.event.Event) u16 {
     if (e == .MouseMotion) {
         if (observer.hover) |*hover| {
             const emit_exit = advancePollAction(observer.transitions, hover, .exit);
-            _ = stage.set_node(hover.*);
+            _ = layout.set_node(hover.*);
             observer.hover = null;
             return emit_exit;
         }
