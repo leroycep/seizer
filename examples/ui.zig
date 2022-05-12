@@ -85,12 +85,7 @@ fn init() !void {
 
     batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });
 
-    stage = Stage{
-        .store = Store.init(gpa.allocator()),
-        .layout = try LayoutEngine.init(gpa.allocator()),
-        .painter = Painter.init(gpa.allocator(), &font, &batch),
-        .observer = Observer{.transitions = &button_transitions},
-    };
+    stage = try Stage.init(gpa.allocator(), &font, &batch, &button_transitions);
     stage.painter.scale = 2;
 
     try stage.painter.addStyle(@enumToInt(NodeStyle.Frame), NinePatch.initv(texture, .{ 0, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });

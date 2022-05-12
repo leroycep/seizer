@@ -20,6 +20,15 @@ pub const Stage = struct {
     painter: Painter,
     observer: Observer,
 
+    pub fn init (allocator: std.mem.Allocator, font: *BitmapFont, batch: *SpriteBatch, transitions: []const Observer.Transition) !Stage {
+        return Stage{
+            .store = store.Store.init(allocator),
+            .layout = try LayoutEngine.init(allocator),
+            .painter = Painter.init(allocator, font, batch),
+            .observer = Observer{.transitions = transitions},
+        };
+    }
+
     pub fn deinit(stage: *Stage) void {
         stage.layout.deinit();
         stage.store.deinit();
