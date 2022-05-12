@@ -40,7 +40,21 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         pub fn deinit(this: *@This()) void {
+            while (this.scenes.popOrNull()) |scene| {
+                this.dispatch_deinit(scene);
+            }
             this.scenes.deinit();
+        }
+
+        fn dispatch_deinit(this: *@This(), scene: ScenePtr) void {
+            inline for (Scenes) |S, i| {
+                if (i == scene.which) {
+                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
+                    @field(S, "deinit")(ptr);
+                    this.alloc.destroy(ptr);
+                }
+                break;
+            }
         }
 
         ////////////////////////////
@@ -56,14 +70,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
 
         pub fn pop(this: *@This()) void {
             const scene = this.scenes.popOrNull() orelse return;
-            inline for (Scenes) |S, i| {
-                if (i == scene.which) {
-                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    @field(S, "deinit")(ptr);
-                    this.alloc.destroy(ptr);
-                }
-                break;
-            }
+            this.dispatch_deinit(scene);
         }
 
         pub fn replace(this: *@This(), comptime which: SceneEnum) anyerror!void {
