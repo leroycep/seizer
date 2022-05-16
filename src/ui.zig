@@ -53,6 +53,8 @@ pub const Stage = struct {
                 },
                 else => {},
             }
+        } else {
+            return node.min_size;
         }
         return geom.Vec2{ 0, 0 };
     }

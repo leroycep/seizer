@@ -154,6 +154,7 @@ pub fn insert(this: *@This(), parent_opt: ?usize, node: Node) !usize {
 
 /// Returns the topmost node at point
 pub fn get_node_at_point(this: @This(), position: Vec) ?Node {
+    if (this.nodes.items.len == 0) return null;
     var i: usize = this.nodes.items.len - 1;
     while (i > 0) : (i -|= 1) {
         const node = this.nodes.items[i];
