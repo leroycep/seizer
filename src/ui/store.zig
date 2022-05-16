@@ -204,6 +204,7 @@ pub const Store = struct {
         store.store.int = &.{};
         store.store.float = &.{};
         store.store.bytes = &.{};
+        store.store.mutbytes = &.{};
         store.int.deinit();
         store.float.deinit();
         store.bytes.deinit();

@@ -6,10 +6,12 @@ const builtin = @import("builtin");
 const SceneManager = seizer.scene.Manager(Context, &[_]type{
     Scene1,
     Scene2,
+    Scene3,
 });
 
 const Context = struct {
     scene: SceneManager,
+    alloc: std.mem.Allocator,
 };
 
 // Call the comptime function `seizer.run`, which will ensure that everything is
@@ -27,6 +29,7 @@ var context: Context = undefined;
 fn init() !void {
     context = .{
         .scene = try SceneManager.init(gpa.allocator(), &context, .{}),
+        .alloc = gpa.allocator(),
     };
     try context.scene.push(.Scene1);
 }
@@ -52,9 +55,18 @@ pub const Scene1 = struct {
     pub fn init(ctx: *Context) !@This() {
         return @This(){.ctx = ctx};
     }
+    pub fn deinit(_: *@This()) void {
+
+    }
     pub fn event(this: *@This(), e: seizer.event.Event) !void {
         switch (e) {
-            .MouseButtonDown => try this.ctx.scene.push(.Scene2),
+            .MouseButtonDown => |mouse| {
+                switch (mouse.button) {
+                    .Right => this.ctx.scene.pop(),
+                    .Left => try this.ctx.scene.push(.Scene2),
+                    else => {},
+                }
+            },
             else => {},
         }
     }
@@ -70,14 +82,62 @@ pub const Scene1 = struct {
 
 pub const Scene2 = struct {
     ctx: *Context,
+    string: []const u8,
     pub fn init(ctx: *Context) !@This() {
-        return @This(){.ctx = ctx};
+        const string = try std.fmt.allocPrint(ctx.alloc, "Help", .{});
+        return @This(){.ctx = ctx, .string = string};
+    }
+    pub fn deinit(this: *@This()) void {
+        this.ctx.alloc.free(this.string);
+    }
+    pub fn event(this: *@This(), e: seizer.event.Event) !void {
+        switch (e) {
+            .MouseButtonDown => |mouse| {
+                switch (mouse.button) {
+                    .Right => this.ctx.scene.pop(),
+                    .Left => try this.ctx.scene.push(.Scene3),
+                    else => {},
+                }
+            },
+            else => {},
+        }
     }
     pub fn render(this: *@This(), alpha: f64) !void {
         _ = this;
         _ = alpha;
 
         gl.clearColor(0.5, 0.7, 0.5, 1.0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+    }
+};
+
+pub const Scene3 = struct {
+    ctx: *Context,
+    string: []const u8,
+    pub fn init(ctx: *Context) !@This() {
+        const string = try std.fmt.allocPrint(ctx.alloc, "Help", .{});
+        return @This(){.ctx = ctx, .string = string};
+    }
+    pub fn deinit(this: *@This()) void {
+        this.ctx.alloc.free(this.string);
+    }
+    pub fn event(this: *@This(), e: seizer.event.Event) !void {
+        switch (e) {
+            .MouseButtonDown => |mouse| {
+                switch (mouse.button) {
+                    .Right => this.ctx.scene.pop(),
+                    // .Left => try this.ctx.scene.push(.Scene2),
+                    else => {},
+                }
+            },
+            else => {},
+        }
+    }
+    pub fn render(this: *@This(), alpha: f64) !void {
+        _ = this;
+        _ = alpha;
+
+        gl.clearColor(0.5, 0.5, 0.7, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
     }
 };

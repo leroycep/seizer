@@ -52,8 +52,8 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
                     const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
                     @field(S, "deinit")(ptr);
                     this.alloc.destroy(ptr);
+                    break;
                 }
-                break;
             }
         }
 
