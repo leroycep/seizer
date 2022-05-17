@@ -209,7 +209,7 @@ pub fn run_sizing(this: *@This()) void {
 pub fn compute_size(this: *@This(), node: Node, index: usize) geom.Vec2 {
     const stack_vertically = node.layout == .VList or node.layout == .VDiv;
     const stack_horizontally = node.layout == .HList or node.layout == .HDiv;
-    var size = node.min_size;
+    var size = Vec{0,0};
     var child_iter = this.get_child_iter(index);
     var count: usize = 0;
     while (child_iter.next()) |child_index| {
@@ -226,6 +226,7 @@ pub fn compute_size(this: *@This(), node: Node, index: usize) geom.Vec2 {
         // greater than or equal to the child total
         size = @select(i32, child_total > size, child_total, size);
     }
+    size = @select(i32, node.min_size > size, node.min_size, size);
     // Now that our child sizes are computed, add padding on top of it
     const padding = geom.Vec2{ node.padding[0] + node.padding[2], node.padding[1] + node.padding[3] };
     size += padding;
