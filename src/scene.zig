@@ -60,8 +60,8 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         fn dispatch_deinit(this: *@This(), scene: ScenePtr) void {
-            _ = this;
             scene_table[scene.which].deinit(scene.ptr);
+            this.alloc.destroy(scene.ptr);
         }
 
         ////////////////////////////
