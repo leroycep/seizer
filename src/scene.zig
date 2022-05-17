@@ -19,6 +19,8 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         .is_exhaustive = false,
     };
     const SceneTable = struct {
+        size: usize,
+        alignment: u29,
         deinit: fn (*anyopaque) void,
         render: fn (*anyopaque, f64) anyerror!void,
         update: ?fn (*anyopaque, f64, f64) anyerror!void,
@@ -29,6 +31,8 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         if (!@hasDecl(t, "render")) @compileError("fn render(T, f64) !void must be implemented for scenes");
         scene_enum.fields = scene_enum.fields ++ [_]std.builtin.Type.EnumField{.{ .name = @typeName(t), .value = i }};
         scene_table = scene_table ++ [_]SceneTable{.{
+            .size = @sizeOf(t),
+            .alignment = @alignOf(t),
             .deinit = @ptrCast(fn (*anyopaque) void, @field(t, "deinit")),
             .render = @ptrCast(fn (*anyopaque, f64) anyerror!void, @field(t, "render")),
             .update = if (@hasDecl(t, "update")) @ptrCast(fn (*anyopaque, f64, f64) anyerror!void, @field(t, "update")) else null,
@@ -60,8 +64,10 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         fn dispatch_deinit(this: *@This(), scene: ScenePtr) void {
-            scene_table[scene.which].deinit(scene.ptr);
-            this.alloc.destroy(scene.ptr);
+            const table = scene_table[scene.which];
+            table.deinit(scene.ptr);
+            const non_const_ptr = @intToPtr([*]u8, @ptrToInt(scene.ptr));
+            this.alloc.rawFree(non_const_ptr[0..table.size], table.alignment, @returnAddress());
         }
 
         ////////////////////////////
