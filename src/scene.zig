@@ -18,9 +18,22 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         .decls = &.{},
         .is_exhaustive = false,
     };
+    const SceneTable = struct {
+        deinit: fn (*anyopaque) void,
+        render: fn (*anyopaque, f64) anyerror!void,
+        update: ?fn (*anyopaque, f64, f64) anyerror!void,
+        event: ?fn (*anyopaque, seizer.event.Event) anyerror!void,
+    };
+    comptime var scene_table: []const SceneTable = &.{};
     inline for (Scenes) |t, i| {
         if (!@hasDecl(t, "render")) @compileError("fn render(T, f64) !void must be implemented for scenes");
         scene_enum.fields = scene_enum.fields ++ [_]std.builtin.Type.EnumField{.{ .name = @typeName(t), .value = i }};
+        scene_table = scene_table ++ [_]SceneTable{.{
+            .deinit = @ptrCast(fn (*anyopaque) void, @field(t, "deinit")),
+            .render = @ptrCast(fn (*anyopaque, f64) anyerror!void, @field(t, "render")),
+            .update = if (@hasDecl(t, "update")) @ptrCast(fn (*anyopaque, f64, f64) anyerror!void, @field(t, "update")) else null,
+            .event = if (@hasDecl(t, "event")) @ptrCast(fn (*anyopaque, seizer.event.Event) anyerror!void, @field(t, "event")) else null,
+        }};
     }
     const SceneEnum = @Type(.{ .Enum = scene_enum });
     return struct {
@@ -47,14 +60,8 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         }
 
         fn dispatch_deinit(this: *@This(), scene: ScenePtr) void {
-            inline for (Scenes) |S, i| {
-                if (i == scene.which) {
-                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    @field(S, "deinit")(ptr);
-                    this.alloc.destroy(ptr);
-                    break;
-                }
-            }
+            _ = this;
+            scene_table[scene.which].deinit(scene.ptr);
         }
 
         ////////////////////////////
@@ -86,36 +93,22 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         pub fn render(this: *@This(), alpha: f64) anyerror!void {
             if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
-            inline for (Scenes) |S, i| {
-                if (i == scene.which) {
-                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    try @field(S, "render")(ptr, alpha);
-                    break;
-                }
-            }
+            try scene_table[scene.which].render(scene.ptr, alpha);
         }
 
         pub fn update(this: *@This(), currentTime: f64, delta: f64) anyerror!void {
             if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
-            inline for (Scenes) |S, i| {
-                if (i == scene.which) {
-                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    if (@hasDecl(S, "update")) try @field(S, "update")(ptr, currentTime, delta);
-                    break;
-                }
+            if (scene_table[scene.which].update) |updateFn| {
+                try updateFn(scene.ptr, currentTime, delta);
             }
         }
 
         pub fn event(this: *@This(), e: seizer.event.Event) anyerror!void {
             if (this.scenes.items.len == 0) return;
             const scene = this.scenes.items[this.scenes.items.len - 1];
-            inline for (Scenes) |S, i| {
-                if (i == scene.which and @hasDecl(S, "event")) {
-                    const ptr = @ptrCast(*S, @alignCast(@alignOf(S), scene.ptr));
-                    if (@hasDecl(S, "event")) try @field(S, "event")(ptr, e);
-                    break;
-                }
+            if (scene_table[scene.which].event) |eventFn| {
+                try eventFn(scene.ptr, e);
             }
         }
     };

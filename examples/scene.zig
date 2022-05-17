@@ -53,16 +53,17 @@ fn render(alpha: f64) !void {
 pub const Scene1 = struct {
     ctx: *Context,
     pub fn init(ctx: *Context) !@This() {
+        std.log.info("Enter scene 1", .{});
         return @This(){.ctx = ctx};
     }
     pub fn deinit(_: *@This()) void {
-
+        std.log.info("Exit scene 1", .{});
     }
     pub fn event(this: *@This(), e: seizer.event.Event) !void {
         switch (e) {
             .MouseButtonDown => |mouse| {
                 switch (mouse.button) {
-                    .Right => this.ctx.scene.pop(),
+                    // .Right => this.ctx.scene.pop(),
                     .Left => try this.ctx.scene.push(.Scene2),
                     else => {},
                 }
@@ -84,10 +85,12 @@ pub const Scene2 = struct {
     ctx: *Context,
     string: []const u8,
     pub fn init(ctx: *Context) !@This() {
+        std.log.info("Enter scene 2", .{});
         const string = try std.fmt.allocPrint(ctx.alloc, "Help", .{});
         return @This(){.ctx = ctx, .string = string};
     }
     pub fn deinit(this: *@This()) void {
+        std.log.info("Exit scene 2", .{});
         this.ctx.alloc.free(this.string);
     }
     pub fn event(this: *@This(), e: seizer.event.Event) !void {
@@ -95,7 +98,7 @@ pub const Scene2 = struct {
             .MouseButtonDown => |mouse| {
                 switch (mouse.button) {
                     .Right => this.ctx.scene.pop(),
-                    .Left => try this.ctx.scene.push(.Scene3),
+                    .Left => try this.ctx.scene.replace(.Scene3),
                     else => {},
                 }
             },
@@ -115,10 +118,12 @@ pub const Scene3 = struct {
     ctx: *Context,
     string: []const u8,
     pub fn init(ctx: *Context) !@This() {
+        std.log.info("Enter scene 3", .{});
         const string = try std.fmt.allocPrint(ctx.alloc, "Help", .{});
         return @This(){.ctx = ctx, .string = string};
     }
     pub fn deinit(this: *@This()) void {
+        std.log.info("Exit scene 3", .{});
         this.ctx.alloc.free(this.string);
     }
     pub fn event(this: *@This(), e: seizer.event.Event) !void {
