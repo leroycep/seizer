@@ -43,7 +43,7 @@ pub fn notify_pointer(observer: *Observer, layout: *LayoutEngine, e: seizer.even
             },
             else => {},
         }
-        _ =layout.set_node(node.*);
+        _ = layout.set_node(node.*);
         result.node = node.*;
     } else {
         result.emit_exit = observer.exit(layout, e);
@@ -62,7 +62,7 @@ fn focusable(observer: *Observer, node: Node) bool {
     return false;
 }
 
-fn unfocus(observer: *Observer,layout: *LayoutEngine, e: seizer.event.Event) u16 {
+fn unfocus(observer: *Observer, layout: *LayoutEngine, e: seizer.event.Event) u16 {
     if (e == .MouseButtonDown) {
         if (observer.focus) |*focus| {
             const emit_blur = advancePollAction(observer.transitions, focus, .onblur);
