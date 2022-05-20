@@ -1,12 +1,59 @@
 const std = @import("std");
 const seizer = @import("./seizer.zig");
 
+const SceneTable = struct {
+    size: usize,
+    alignment: u29,
+    deinit: fn (*anyopaque) void,
+    render: fn (*anyopaque, f64) anyerror!void,
+    update: ?fn (*anyopaque, f64, f64) anyerror!void,
+    event: ?fn (*anyopaque, seizer.event.Event) anyerror!void,
+};
+
+pub fn GetSceneTable(comptime T: type) SceneTable {
+    if (!@hasDecl(T, "deinit")) @compileError("fn render(*T) void must be implemented for scenes");
+    if (!@hasDecl(T, "render")) @compileError("fn render(*T, f64) !void must be implemented for scenes");
+
+    const deinit_info = @typeInfo(@TypeOf(@field(T, "deinit"))).Fn;
+    if (deinit_info.return_type != void) @compileError("fn deinit must return void (no errors).");
+    if (deinit_info.args[0].arg_type != *T) @compileError("fn deinit must take a pointer to self.");
+
+    const render_info = @typeInfo(@TypeOf(@field(T, "render"))).Fn;
+    if (render_info.args[0].arg_type != *T) @compileError("fn render must take a pointer to self.");
+    if (render_info.args[1].arg_type != f64) @compileError("fn render must take an alpha parameter (f64).");
+
+    if (@hasDecl(T, "update")) {
+        const update_info = @typeInfo(@TypeOf(@field(T, "update"))).Fn;
+        if (update_info.args[0].arg_type != *T) @compileError("fn update must take a pointer to self.");
+        if (update_info.args[1].arg_type != f64) @compileError("fn update must take a currentTime parameter (f64).");
+        if (update_info.args[2].arg_type != f64) @compileError("fn update must take a delta parameter (f64).");
+    }
+
+    if (@hasDecl(T, "event")) {
+        const event_info = @typeInfo(@TypeOf(@field(T, "event"))).Fn;
+        if (event_info.args[0].arg_type != *T) @compileError("fn event must take a pointer to self.");
+        if (event_info.args[1].arg_type != seizer.event.Event) @compileError("fn event must take an event parameter (Event).");
+    }
+
+    return SceneTable{
+        .size = @sizeOf(T),
+        .alignment = @alignOf(T),
+        .deinit = @ptrCast(fn (*anyopaque) void, @field(T, "deinit")),
+        .render = @ptrCast(fn (*anyopaque, f64) anyerror!void, @field(T, "render")),
+        .update = if (@hasDecl(T, "update")) @ptrCast(fn (*anyopaque, f64, f64) anyerror!void, @field(T, "update")) else null,
+        .event = if (@hasDecl(T, "event")) @ptrCast(fn (*anyopaque, seizer.event.Event) anyerror!void, @field(T, "event")) else null,
+    };
+}
+
 /// This function returns a scene manager for the the passed in Scene types.
-/// Scene types must define a `fn render(this: *@This(), alpha: f64) anyerror!void`, where
-/// `this` is a pointer to the struct the function is declared in. Scenes may also define the following:
+/// Scene types must define the following:
 /// ```
 /// fn init(context: *Context) anyerror!void
-/// fn deinit(this: *@This(), currentTime: f64, delta: f64) void
+/// fn deinit(this: *@This()) void
+/// fn render(this: *@This(), alpha: f64) anyerror!void
+/// ```
+/// Scenes can also define the following types.
+/// ```
 /// fn event(this: *@This(), event: event.Event) anyerror!void
 /// fn update(this: *@This(), currentTime: f64, delta: f64) anyerror!void
 /// ```
@@ -18,26 +65,11 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         .decls = &.{},
         .is_exhaustive = false,
     };
-    const SceneTable = struct {
-        size: usize,
-        alignment: u29,
-        deinit: fn (*anyopaque) void,
-        render: fn (*anyopaque, f64) anyerror!void,
-        update: ?fn (*anyopaque, f64, f64) anyerror!void,
-        event: ?fn (*anyopaque, seizer.event.Event) anyerror!void,
-    };
     comptime var scene_table: []const SceneTable = &.{};
     inline for (Scenes) |t, i| {
-        if (!@hasDecl(t, "render")) @compileError("fn render(T, f64) !void must be implemented for scenes");
+        if (!@hasDecl(t, "init")) @compileError("fn init(Context) !T must be implemented for scenes");
         scene_enum.fields = scene_enum.fields ++ [_]std.builtin.Type.EnumField{.{ .name = @typeName(t), .value = i }};
-        scene_table = scene_table ++ [_]SceneTable{.{
-            .size = @sizeOf(t),
-            .alignment = @alignOf(t),
-            .deinit = @ptrCast(fn (*anyopaque) void, @field(t, "deinit")),
-            .render = @ptrCast(fn (*anyopaque, f64) anyerror!void, @field(t, "render")),
-            .update = if (@hasDecl(t, "update")) @ptrCast(fn (*anyopaque, f64, f64) anyerror!void, @field(t, "update")) else null,
-            .event = if (@hasDecl(t, "event")) @ptrCast(fn (*anyopaque, seizer.event.Event) anyerror!void, @field(t, "event")) else null,
-        }};
+        scene_table = scene_table ++ [_]SceneTable{GetSceneTable(t)};
     }
     const SceneEnum = @Type(.{ .Enum = scene_enum });
     return struct {
