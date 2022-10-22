@@ -21,11 +21,11 @@ pub usingnamespace backend;
 pub const Texture = @import("./texture.zig").Texture;
 
 pub const App = struct {
-    init: fn () callconv(.Async) anyerror!void = onInitDoNothing,
-    deinit: fn () void = onDeinitDoNothing,
-    event: fn (event: event.Event) anyerror!void = onEventDoNothing,
-    update: fn (currentTime: f64, delta: f64) anyerror!void = onUpdateDoNothing,
-    render: fn (alpha: f64) anyerror!void,
+    init: *const fn () callconv(.Async) anyerror!void = onInitDoNothing,
+    deinit: *const fn () void = onDeinitDoNothing,
+    event: *const fn (event: event.Event) anyerror!void = onEventDoNothing,
+    update: *const fn (currentTime: f64, delta: f64) anyerror!void = onUpdateDoNothing,
+    render: *const fn (alpha: f64) anyerror!void,
     window: struct {
         title: [:0]const u8 = "Zig Game Engine",
         width: ?i32 = null,
@@ -36,7 +36,7 @@ pub const App = struct {
     sdlControllerDBPath: ?[:0]const u8 = null,
 };
 
-fn onInitDoNothing() anyerror!void {}
+fn onInitDoNothing() callconv(.Async) anyerror!void {}
 fn onDeinitDoNothing() void {}
 fn onEventDoNothing(e: event.Event) anyerror!void {
     // Do nothing but listen for the quit event

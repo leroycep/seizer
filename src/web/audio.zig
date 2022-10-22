@@ -32,7 +32,6 @@ pub const MixerInput = struct {
 
 pub const Engine = struct {
     pub fn init(this: *@This(), allocator: std.mem.Allocator) !void {
-        _ = this;
         _ = allocator;
 
         bindings.init();

@@ -26,12 +26,12 @@ pub fn build(b: *Builder) !void {
     const math_repo = GitRepoStep.create(b, .{
         .url = "https://github.com/leroycep/zigmath",
         .branch = "master",
-        .sha = "2f404f0af1f07f0cbdd72da58b5941aa374dfc12",
+        .sha = "f6c4c5902b6da0674359bf2f69f569f5d1eac03d",
     });
     const zigimg_repo = GitRepoStep.create(b, .{
         .url = "https://github.com/zigimg/zigimg",
         .branch = "master",
-        .sha = "ed46298464cdef9f7aa97ae1d817bf621424419a"
+        .sha = "80c66bda408918398016273a56abd76df075c2c5",
     });
 
     // Create fetch step to simplify adding dependencies
@@ -39,49 +39,59 @@ pub fn build(b: *Builder) !void {
     fetch.dependOn(&math_repo.step);
     fetch.dependOn(&zigimg_repo.step);
 
-    const math_pkg = std.build.Pkg{ .name = "math", .path = .{ .path = try std.fs.path.join(b.allocator, &[_][]const u8{ math_repo.getPath(fetch), "math.zig" }) } };
-    const zigimg_pkg = std.build.Pkg{ .name = "zigimg", .path = .{ .path = try std.fs.path.join(b.allocator, &[_][]const u8{ zigimg_repo.getPath(fetch), "zigimg.zig" }) } };
+    const math_pkg = std.build.Pkg{
+        .name = "math",
+        .source = .{
+            .path = try std.fs.path.join(b.allocator, &[_][]const u8{ math_repo.getPath(fetch), "math.zig" }),
+        },
+    };
+    const zigimg_pkg = std.build.Pkg{
+        .name = "zigimg",
+        .source = .{
+            .path = try std.fs.path.join(b.allocator, &[_][]const u8{ zigimg_repo.getPath(fetch), "zigimg.zig" }),
+        },
+    };
 
     const SEIZER = std.build.Pkg{
         .name = "seizer",
-        .path = .{ .path = "src/seizer.zig" },
+        .source = .{ .path = "src/seizer.zig" },
         .dependencies = &[_]std.build.Pkg{ math_pkg, zigimg_pkg },
     };
 
     const EXAMPLES = [_]std.build.Pkg{
         .{
             .name = "clear",
-            .path = .{ .path = "examples/clear.zig" },
+            .source = .{ .path = "examples/clear.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "scene",
-            .path = .{ .path = "examples/scene.zig" },
+            .source = .{ .path = "examples/scene.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "textures",
-            .path = .{ .path = "examples/textures.zig" },
+            .source = .{ .path = "examples/textures.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "sprite_batch",
-            .path = .{ .path = "examples/sprite_batch.zig" },
+            .source = .{ .path = "examples/sprite_batch.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "bitmap_font",
-            .path = .{ .path = "examples/bitmap_font.zig" },
+            .source = .{ .path = "examples/bitmap_font.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "play_wav",
-            .path = .{ .path = "examples/play_wav.zig" },
+            .source = .{ .path = "examples/play_wav.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
         .{
             .name = "ui",
-            .path = .{ .path = "examples/ui.zig" },
+            .source = .{ .path = "examples/ui.zig" },
             .dependencies = &[_]std.build.Pkg{SEIZER},
         },
     };
@@ -90,7 +100,7 @@ pub fn build(b: *Builder) !void {
         const example = b.dupePkg(ex);
         const name = example.name;
         // ==== Create native executable and step to run it ====
-        const native = b.addExecutable(b.fmt("example-{s}-desktop", .{name}), example.path.path);
+        const native = b.addExecutable(b.fmt("example-{s}-desktop", .{name}), example.source.path);
         native.step.dependOn(fetch);
         native.setTarget(target);
         native.setBuildMode(mode);
@@ -112,7 +122,7 @@ pub fn build(b: *Builder) !void {
         native_run_step.dependOn(&native_run.step);
 
         // ==== Create WASM binary and step to install it ====
-        const web = b.addSharedLibrary(b.fmt("example-{s}-web", .{name}), example.path.path, .unversioned);
+        const web = b.addSharedLibrary(b.fmt("example-{s}-web", .{name}), example.source.path, .unversioned);
         web.step.dependOn(fetch);
         web.setBuildMode(mode);
         web.setOutputDir(b.fmt("{s}/www", .{b.install_prefix}));
