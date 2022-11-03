@@ -81,7 +81,7 @@ fn deinit() void {
     _ = gpa.deinit();
 }
 
-const Vertex = packed struct {
+const Vertex = extern struct {
     // Position on screen
     x: f32,
     y: f32,
