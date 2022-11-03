@@ -21,7 +21,7 @@ pub usingnamespace backend;
 pub const Texture = @import("./texture.zig").Texture;
 
 pub const App = struct {
-    init: *const fn () callconv(.Async) anyerror!void = onInitDoNothing,
+    init: *const fn () anyerror!void = onInitDoNothing,
     deinit: *const fn () void = onDeinitDoNothing,
     event: *const fn (event: event.Event) anyerror!void = onEventDoNothing,
     update: *const fn (currentTime: f64, delta: f64) anyerror!void = onUpdateDoNothing,
@@ -36,7 +36,7 @@ pub const App = struct {
     sdlControllerDBPath: ?[:0]const u8 = null,
 };
 
-fn onInitDoNothing() callconv(.Async) anyerror!void {}
+fn onInitDoNothing() anyerror!void {}
 fn onDeinitDoNothing() void {}
 fn onEventDoNothing(e: event.Event) anyerror!void {
     // Do nothing but listen for the quit event

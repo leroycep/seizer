@@ -31,7 +31,7 @@ fn init() !void {
         .scene = try SceneManager.init(gpa.allocator(), &context, .{}),
         .alloc = gpa.allocator(),
     };
-    try context.scene.push(.Scene1);
+    try context.scene.push(.@"scene.Scene1");
 }
 
 fn update(a: f64, delta: f64) !void {
@@ -64,7 +64,7 @@ pub const Scene1 = struct {
             .MouseButtonDown => |mouse| {
                 switch (mouse.button) {
                     // .Right => this.ctx.scene.pop(),
-                    .Left => try this.ctx.scene.push(.Scene2),
+                    .Left => try this.ctx.scene.push(.@"scene.Scene2"),
                     else => {},
                 }
             },
@@ -98,7 +98,7 @@ pub const Scene2 = struct {
             .MouseButtonDown => |mouse| {
                 switch (mouse.button) {
                     .Right => this.ctx.scene.pop(),
-                    .Left => try this.ctx.scene.replace(.Scene3),
+                    .Left => try this.ctx.scene.replace(.@"scene.Scene3"),
                     else => {},
                 }
             },

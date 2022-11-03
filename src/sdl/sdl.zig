@@ -38,7 +38,7 @@ pub const panic = std.builtin.default_panic;
 
 /// _ parameter to get gl.load to not complain
 fn get_proc_address(_: u8, proc: [:0]const u8) ?*anyopaque {
-    return c.SDL_GL_GetProcAddress(proc);
+    return c.SDL_GL_GetProcAddress(proc.ptr);
 }
 
 var sdl_window: *c.SDL_Window = undefined;
@@ -68,7 +68,7 @@ pub fn run(comptime app: App) type {
             const screenHeight = app.window.height orelse 480;
 
             sdl_window = c.SDL_CreateWindow(
-                app.window.title,
+                app.window.title.ptr,
                 c.SDL_WINDOWPOS_UNDEFINED_MASK,
                 c.SDL_WINDOWPOS_UNDEFINED_MASK,
                 screenWidth,

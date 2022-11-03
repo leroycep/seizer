@@ -31,7 +31,7 @@ pub fn build(b: *Builder) !void {
     const zigimg_repo = GitRepoStep.create(b, .{
         .url = "https://github.com/zigimg/zigimg",
         .branch = "master",
-        .sha = "80c66bda408918398016273a56abd76df075c2c5",
+        .sha = "92ab0f2f26f1a26df33132c2d88abf0bfa63cb27",
     });
 
     // Create fetch step to simplify adding dependencies

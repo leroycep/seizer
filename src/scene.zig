@@ -4,10 +4,10 @@ const seizer = @import("./seizer.zig");
 const SceneTable = struct {
     size: usize,
     alignment: u29,
-    deinit: fn (*anyopaque) void,
-    render: fn (*anyopaque, f64) anyerror!void,
-    update: ?fn (*anyopaque, f64, f64) anyerror!void,
-    event: ?fn (*anyopaque, seizer.event.Event) anyerror!void,
+    deinit: *const fn (*anyopaque) void,
+    render: *const fn (*anyopaque, f64) anyerror!void,
+    update: ?*const fn (*anyopaque, f64, f64) anyerror!void,
+    event: ?*const fn (*anyopaque, seizer.event.Event) anyerror!void,
 };
 
 pub fn GetSceneTable(comptime T: type) SceneTable {
@@ -38,10 +38,10 @@ pub fn GetSceneTable(comptime T: type) SceneTable {
     return SceneTable{
         .size = @sizeOf(T),
         .alignment = @alignOf(T),
-        .deinit = @ptrCast(fn (*anyopaque) void, @field(T, "deinit")),
-        .render = @ptrCast(fn (*anyopaque, f64) anyerror!void, @field(T, "render")),
-        .update = if (@hasDecl(T, "update")) @ptrCast(fn (*anyopaque, f64, f64) anyerror!void, @field(T, "update")) else null,
-        .event = if (@hasDecl(T, "event")) @ptrCast(fn (*anyopaque, seizer.event.Event) anyerror!void, @field(T, "event")) else null,
+        .deinit = @ptrCast(*const fn (*anyopaque) void, &@field(T, "deinit")),
+        .render = @ptrCast(*const fn (*anyopaque, f64) anyerror!void, &@field(T, "render")),
+        .update = if (@hasDecl(T, "update")) @ptrCast(*const fn (*anyopaque, f64, f64) anyerror!void, &@field(T, "update")) else null,
+        .event = if (@hasDecl(T, "event")) @ptrCast(*const fn (*anyopaque, seizer.event.Event) anyerror!void, &@field(T, "event")) else null,
     };
 }
 

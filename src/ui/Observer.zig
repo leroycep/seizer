@@ -25,7 +25,8 @@ pub const NotifyResult = struct { emit: u16, emit_blur: u16, emit_exit: u16, nod
 
 pub fn notify_pointer(observer: *Observer, layout: *LayoutEngine, e: seizer.event.Event, mouse_pos: geom.Vec2) NotifyResult {
     var result = NotifyResult{ .emit = 0, .emit_blur = 0, .emit_exit = 0, .node = null };
-    if (layout.get_node_at_point(mouse_pos)) |*node| {
+    var node_opt = layout.get_node_at_point(mouse_pos);
+    if (node_opt) |*node| {
         result.emit_exit = observer.exit(layout, e);
         result.emit_blur = observer.unfocus(layout, e);
         switch (e) {

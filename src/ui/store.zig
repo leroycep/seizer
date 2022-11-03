@@ -37,7 +37,7 @@ pub const Types = enum {
     Bytes,
     MutBytes,
 
-    fn real_type(t: Types) type {
+    fn real_type(comptime t: Types) type {
         return switch (t) {
             .Int => Int,
             .Float => Float,

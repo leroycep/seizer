@@ -45,9 +45,8 @@ pub const Texture = struct {
         const image_contents = try seizer.fetch(alloc, filePath, options.maxSize);
         defer alloc.free(image_contents);
 
-        const load_res = try zigimg.Image.fromMemory(alloc, image_contents);
+        var load_res = try zigimg.Image.fromMemory(alloc, image_contents);
         defer load_res.deinit();
-        if (load_res.pixels == null) return error.ImageLoadFailed;
 
         gl.bindTexture(gl.TEXTURE_2D, this.glTexture);
         defer gl.bindTexture(gl.TEXTURE_2D, 0);
@@ -61,15 +60,15 @@ pub const Texture = struct {
         // TODO: skip converting to RGBA and let OpenGL handle it by telling it what format it is in
         // Difficulties: Zigimg pixels are in reverse of what OpenGL expects, and opengl doesn't allow
         // specifying the order of pixels a limited set of options.
-        var pixelsIterator = zigimg.color.ColorStorageIterator.init(&load_res.pixels.?);
+        var pixelsIterator = zigimg.color.PixelStorageIterator.init(&load_res.pixels);
 
         var i: usize = 0;
         while (pixelsIterator.next()) |color| : (i += 1) {
-            const integer_color = color.toIntegerColor8();
-            pixelData[i * 4 + 0] = integer_color.R;
-            pixelData[i * 4 + 1] = integer_color.G;
-            pixelData[i * 4 + 2] = integer_color.B;
-            pixelData[i * 4 + 3] = integer_color.A;
+            const integer_color = color.toRgba(u8);
+            pixelData[i * 4 + 0] = integer_color.r;
+            pixelData[i * 4 + 1] = integer_color.g;
+            pixelData[i * 4 + 2] = integer_color.b;
+            pixelData[i * 4 + 3] = integer_color.a;
         }
 
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixelData.ptr);
