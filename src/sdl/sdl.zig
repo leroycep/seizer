@@ -43,13 +43,15 @@ var running = true;
 
 pub fn getScreenSize() [2]i32 {
     var size: [2]i32 = undefined;
-    c.SDL_GL_GetDrawableSize(sdl_window, &size[0], &size[1]);
+    c.SDL_GetWindowSize(sdl_window, &size[0], &size[1]);
     return size;
 }
 
 pub fn run(comptime app: App) type {
     return struct {
         pub fn main() !void {
+            _ = c.SDL_SetHint(c.SDL_HINT_VIDEODRIVER, "wayland,x11");
+
             // Init SDL
             if (c.SDL_Init(c.SDL_INIT_VIDEO | c.SDL_INIT_AUDIO | c.SDL_INIT_GAMECONTROLLER) != 0) {
                 logSDLErr(error.InitFailed);
