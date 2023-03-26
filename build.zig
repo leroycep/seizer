@@ -50,4 +50,15 @@ pub fn build(b: *Builder) !void {
         exe.linkLibrary(library);
         exe.addModule("seizer", module);
     }
+    {
+        const exe = b.addExecutable(.{
+            .name = "bitmap_font",
+            .root_source_file = .{ .path = "examples/bitmap_font.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.install();
+        exe.linkLibrary(library);
+        exe.addModule("seizer", module);
+    }
 }

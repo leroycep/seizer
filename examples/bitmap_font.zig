@@ -7,7 +7,6 @@ const gl = seizer.gl;
 const builtin = @import("builtin");
 const Texture = seizer.Texture;
 const SpriteBatch = seizer.batch.SpriteBatch;
-const BitmapFont = seizer.font.Bitmap;
 
 // Call the comptime function `seizer.run`, which will ensure that everything is
 // set up for the platform we are targeting.
@@ -19,13 +18,21 @@ pub usingnamespace seizer.run(.{
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var batch: SpriteBatch = undefined;
-var font: BitmapFont = undefined;
+var font: seizer.font.Bitmap = undefined;
 
 fn init() !void {
-    font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
+    font = try seizer.font.Bitmap.init(gpa.allocator(), .{
+        .font_contents = @embedFile("assets/PressStart2P_8.fnt"),
+        .pages = &.{
+            .{
+                .name = "PressStart2P_8.png",
+                .image = @embedFile("assets/PressStart2P_8.png"),
+            },
+        },
+    });
     errdefer font.deinit();
 
-    batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });
+    batch = try SpriteBatch.init(gpa.allocator(), .{ 1, 1 });
 }
 
 fn deinit() void {
@@ -40,12 +47,16 @@ fn render(alpha: f64) !void {
 
     // Resize gl viewport to match window
     const screen_size = seizer.getScreenSize();
-    gl.viewport(0, 0, screen_size.x, screen_size.y);
+    gl.viewport(0, 0, screen_size[0], screen_size[1]);
     batch.setSize(screen_size);
 
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    font.drawText(&batch, "Hello, world!", .{ .x = 50, .y = 50 }, .{});
+    batch.drawBitmapText(.{
+        .text = "Hello, world!",
+        .font = font,
+        .pos = .{ 50, 50 },
+    });
     batch.flush();
 }

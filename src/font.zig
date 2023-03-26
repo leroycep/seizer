@@ -1,1 +1,1 @@
-pub const Bitmap = @import("font/bitmap.zig").Bitmap;
+pub const Bitmap = @import("./font/Bitmap.zig");

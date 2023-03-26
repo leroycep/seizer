@@ -2,25 +2,16 @@ const std = @import("std");
 const seizer = @import("./seizer.zig");
 const gl = seizer.gl;
 const glUtil = seizer.glUtil;
-const math = seizer.math;
-const Vec = math.Vec;
-const Vec2i = math.Vec(2, i32);
-const vec2i = Vec2i.init;
-const Vec2f = math.Vec(2, f32);
-const vec2f = Vec2f.init;
-const Mat4f = math.Mat4(f32);
 const ArrayList = std.ArrayList;
 const Texture = seizer.Texture;
 
-const Vertex = packed struct {
-    x: f32,
-    y: f32,
-    u: f32,
-    v: f32,
-    color: Color,
+const Vertex = struct {
+    pos: [2]f32,
+    uv: [2]f32,
+    color: [4]u8,
 };
 
-pub const Color = packed struct {
+pub const Color = extern struct {
     r: u8,
     g: u8,
     b: u8,
@@ -31,14 +22,14 @@ pub const Color = packed struct {
 };
 
 pub const Quad = struct {
-    pos: Vec2f,
-    size: Vec2f,
+    pos: [2]f32,
+    size: [2]f32,
 };
 
 /// A UV rectangle
 pub const Rect = struct {
-    min: Vec2f,
-    max: Vec2f,
+    min: [2]f32,
+    max: [2]f32,
 };
 
 pub const SpriteBatch = struct {
@@ -46,16 +37,16 @@ pub const SpriteBatch = struct {
     vertex_array_object: gl.GLuint,
     vertex_buffer_object: gl.GLuint,
     screenPosUniform: gl.GLint,
-    screenPos: Vec2i,
+    screenPos: [2]i32,
     screenSizeUniform: gl.GLint,
-    screenSize: Vec2i,
+    screenSize: [2]i32,
     draw_buffer: [1024]Vertex,
     num_vertices: usize,
     texture: gl.GLuint,
     clips: std.ArrayList(Quad),
 
     /// Font should be the name of the font texture and csv minus their extensions
-    pub fn init(allocator: std.mem.Allocator, screenSize: Vec2i) !@This() {
+    pub fn init(allocator: std.mem.Allocator, screenSize: [2]i32) !@This() {
         const program = try glUtil.compileShader(
             allocator,
             @embedFile("batch/sprite.vert"),
@@ -80,8 +71,8 @@ pub const SpriteBatch = struct {
         gl.enableVertexAttribArray(2); // UV attribute
 
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "x")));
-        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "u")));
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "pos")));
+        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "uv")));
         gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "color")));
         gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 
@@ -92,7 +83,7 @@ pub const SpriteBatch = struct {
             .screenSizeUniform = gl.getUniformLocation(program, "screenSize"),
             .screenSize = screenSize,
             .screenPosUniform = gl.getUniformLocation(program, "screenPos"),
-            .screenPos = .{ .x = 0, .y = 0 },
+            .screenPos = .{ 0, 0 },
             .draw_buffer = undefined,
             .num_vertices = 0,
             .texture = 0,
@@ -107,7 +98,7 @@ pub const SpriteBatch = struct {
         this.clips.deinit();
     }
 
-    pub fn setSize(this: *@This(), screenSize: Vec2i) void {
+    pub fn setSize(this: *@This(), screenSize: [2]i32) void {
         this.screenSize = screenSize;
     }
 
@@ -121,25 +112,105 @@ pub const SpriteBatch = struct {
         _ = this.clips.popOrNull();
     }
 
-    pub const DrawTextureOptions = struct {
-        size: ?Vec2f = null,
-        rect: Rect = .{
-            .min = vec2f(0, 0),
-            .max = vec2f(1, 1),
-        },
-        color: Color = Color.WHITE,
+    pub const DrawBitmapTextOptions = struct {
+        text: []const u8,
+        font: seizer.font.Bitmap,
+        pos: [2]f32,
+        scale: f32 = 1.0,
+        color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
     };
 
-    pub fn drawTexture(this: *@This(), texture: Texture, pos: Vec2f, opts: DrawTextureOptions) void {
-        const size = opts.size orelse texture.size.intToFloat(f32);
+    pub fn drawBitmapText(this: *@This(), options: DrawBitmapTextOptions) void {
+        var direction: f32 = 1;
+        var pos: [2]f32 = options.pos;
+        for (options.text) |char| {
+            const glyph = options.font.glyphs.get(char) orelse continue;
+
+            // TODO: Display error of some kind
+            const page = options.font.pages.get(glyph.page) orelse continue;
+
+            const xadvance = (glyph.xadvance * options.scale);
+            const offset = [2]f32{
+                glyph.offset[0] * options.scale,
+                glyph.offset[1] * options.scale,
+            };
+            const texture_size = [2]f32{
+                @intToFloat(f32, page.size[0]),
+                @intToFloat(f32, page.size[1]),
+            };
+
+            const textAlignOffset = 0;
+            const render_pos = .{
+                pos[0] + offset[0] + textAlignOffset,
+                pos[1] + offset[1],
+            };
+            const render_size = .{
+                glyph.size[0] * options.scale,
+                glyph.size[1] * options.scale,
+            };
+
+            // const uv = [2][2]f32{
+            //     .{
+            //         glyph.pos[0] / texture_size[0],
+            //         glyph.pos[1] / texture_size[1],
+            //     },
+            //     .{
+            //         (glyph.pos[0] + glyph.size[0]) / texture_size[0],
+            //         (glyph.pos[1] + glyph.size[1]) / texture_size[1],
+            //     },
+            // };
+
+            this.drawTexture(page, render_pos, .{
+                .size = render_size,
+                .color = options.color,
+                .rect = .{
+                    .min = .{
+                        glyph.pos[0] / texture_size[0],
+                        glyph.pos[1] / texture_size[1],
+                    },
+                    .max = .{
+                        (glyph.pos[0] + glyph.size[0]) / texture_size[0],
+                        (glyph.pos[1] + glyph.size[1]) / texture_size[1],
+                    },
+                },
+            });
+
+            // try glyph_buffer.appendSlice(&.{
+            //     .{ .pos = .{ render_pos[0], render_pos[1], 0.1 }, .uv = .{ uv[0][0], uv[0][1] } },
+            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1], 0.1 }, .uv = .{ uv[1][0], uv[0][1] } },
+            //     .{ .pos = .{ render_pos[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[0][0], uv[1][1] } },
+
+            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1], 0.1 }, .uv = .{ uv[1][0], uv[0][1] } },
+            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[1][0], uv[1][1] } },
+            //     .{ .pos = .{ render_pos[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[0][0], uv[1][1] } },
+            // });
+
+            pos[0] += direction * xadvance;
+        }
+    }
+
+    pub const DrawTextureOptions = struct {
+        size: ?[2]f32 = null,
+        rect: Rect = .{
+            .min = .{ 0, 0 },
+            .max = .{ 1, 1 },
+        },
+        color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
+    };
+
+    pub fn drawTexture(this: *@This(), texture: Texture, pos: [2]f32, opts: DrawTextureOptions) void {
+        const size = opts.size orelse [2]f32{
+            @intToFloat(f32, texture.size[0]),
+            @intToFloat(f32, texture.size[1]),
+        };
         this.drawTextureRaw(
             texture.glTexture,
             opts.rect.min,
             opts.rect.max,
             pos,
-            .{ .x = pos.x + size.x, .y = pos.y },
-            .{ .x = pos.x, .y = pos.y + size.y },
-            pos.addv(size),
+            .{ pos[0] + size[0], pos[1] },
+            .{ pos[0], pos[1] + size[1] },
+            .{ pos[0] + size[0], pos[1] + size[1] },
             opts.color,
         );
     }
@@ -148,13 +219,13 @@ pub const SpriteBatch = struct {
     pub fn drawTextureRaw(
         this: *@This(),
         texture: gl.GLuint,
-        texPos1: Vec2f,
-        texPos2: Vec2f,
-        topLeft: Vec2f,
-        topRight: Vec2f,
-        botLeft: Vec2f,
-        botRight: Vec2f,
-        color: Color,
+        texPos1: [2]f32,
+        texPos2: [2]f32,
+        topLeft: [2]f32,
+        topRight: [2]f32,
+        botLeft: [2]f32,
+        botRight: [2]f32,
+        color: [4]u8,
     ) void {
         if (texture != this.texture) {
             this.flush();
@@ -165,45 +236,66 @@ pub const SpriteBatch = struct {
         }
         this.draw_buffer[this.num_vertices..][0..6].* = [6]Vertex{
             Vertex{ // top left
-                .x = topLeft.x - 0.5,
-                .y = topLeft.y - 0.5,
-                .u = texPos1.x,
-                .v = texPos1.y,
+                .pos = .{
+                    topLeft[0] - 0.5,
+                    topLeft[1] - 0.5,
+                },
+                .uv = texPos1,
                 .color = color,
             },
             Vertex{ // bot left
-                .x = botLeft.x - 0.5,
-                .y = botLeft.y - 0.5,
-                .u = texPos1.x,
-                .v = texPos2.y,
+                .pos = .{
+                    botLeft[0] - 0.5,
+                    botLeft[1] - 0.5,
+                },
+                .uv = .{
+                    texPos1[0],
+                    texPos2[1],
+                },
                 .color = color,
             },
             Vertex{ // top right
-                .x = topRight.x - 0.5,
-                .y = topRight.y - 0.5,
-                .u = texPos2.x,
-                .v = texPos1.y,
+                .pos = .{
+                    topRight[0] - 0.5,
+                    topRight[1] - 0.5,
+                },
+                .uv = .{
+                    texPos2[0],
+                    texPos1[1],
+                },
                 .color = color,
             },
             Vertex{ // bot left
-                .x = botLeft.x - 0.5,
-                .y = botLeft.y - 0.5,
-                .u = texPos1.x,
-                .v = texPos2.y,
+                .pos = .{
+                    botLeft[0] - 0.5,
+                    botLeft[1] - 0.5,
+                },
+                .uv = .{
+                    texPos1[0],
+                    texPos2[1],
+                },
                 .color = color,
             },
             Vertex{ // top right
-                .x = topRight.x - 0.5,
-                .y = topRight.y - 0.5,
-                .u = texPos2.x,
-                .v = texPos1.y,
+                .pos = .{
+                    topRight[0] - 0.5,
+                    topRight[1] - 0.5,
+                },
+                .uv = .{
+                    texPos2[0],
+                    texPos1[1],
+                },
                 .color = color,
             },
             Vertex{ // bot right
-                .x = botRight.x - 0.5,
-                .y = botRight.y - 0.5,
-                .u = texPos2.x,
-                .v = texPos2.y,
+                .pos = .{
+                    botRight[0] - 0.5,
+                    botRight[1] - 0.5,
+                },
+                .uv = .{
+                    texPos2[0],
+                    texPos2[1],
+                },
                 .color = color,
             },
         };
@@ -217,10 +309,10 @@ pub const SpriteBatch = struct {
             gl.enable(gl.SCISSOR_TEST);
             const quad = this.clips.items[this.clips.items.len - 1];
             gl.scissor(
-                @floatToInt(c_int, quad.pos.x - 0.5),
-                @floatToInt(c_int, @floor(@intToFloat(f32, this.screenSize.y) - quad.pos.y - quad.size.y - 0.5)),
-                @floatToInt(c_int, quad.size.x),
-                @floatToInt(c_int, quad.size.y),
+                @floatToInt(c_int, quad.pos[0] - 0.5),
+                @floatToInt(c_int, @floor(@intToFloat(f32, this.screenSize[1]) - quad.pos[1] - quad.size[1] - 0.5)),
+                @floatToInt(c_int, quad.size[0]),
+                @floatToInt(c_int, quad.size[1]),
             );
         }
 
@@ -249,8 +341,8 @@ pub const SpriteBatch = struct {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, this.texture);
 
-        gl.uniform2i(this.screenPosUniform, this.screenPos.x, this.screenPos.y);
-        gl.uniform2i(this.screenSizeUniform, this.screenSize.x, this.screenSize.y);
+        gl.uniform2i(this.screenPosUniform, this.screenPos[0], this.screenPos[1]);
+        gl.uniform2i(this.screenSizeUniform, this.screenSize[0], this.screenSize[1]);
 
         gl.bindVertexArray(this.vertex_array_object);
         defer gl.bindVertexArray(0);
