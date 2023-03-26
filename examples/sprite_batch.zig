@@ -24,7 +24,7 @@ fn init() !void {
     player_texture = try Texture.initFromMemory(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
     errdefer player_texture.deinit();
 
-    batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });
+    batch = try SpriteBatch.init(gpa.allocator(), .{ 1, 1 });
 }
 
 fn deinit() void {
@@ -38,12 +38,12 @@ fn render(alpha: f64) !void {
 
     // Resize gl viewport to match window
     const screen_size = seizer.getScreenSize();
-    gl.viewport(0, 0, screen_size.x, screen_size.y);
+    gl.viewport(0, 0, screen_size[0], screen_size[1]);
     batch.setSize(screen_size);
 
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    batch.drawTexture(player_texture, .{ .x = 50, .y = 50 }, .{});
+    batch.drawTexture(player_texture, .{ 50, 50 }, .{});
     batch.flush();
 }
