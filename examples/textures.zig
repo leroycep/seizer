@@ -48,10 +48,10 @@ const FRAG_SHADER =
 ;
 
 fn init() !void {
-    player_texture = try Texture.initFromFile(gpa.allocator(), "wedge.png", .{});
+    player_texture = try Texture.initFromMemory(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
     errdefer player_texture.deinit();
 
-    std.log.info("Texture is {}x{} pixels", .{ player_texture.size.x, player_texture.size.y });
+    std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });
 
     shader_program = try seizer.glUtil.compileShader(gpa.allocator(), VERT_SHADER, FRAG_SHADER);
 
@@ -108,7 +108,7 @@ fn render(alpha: f64) !void {
 
     // Resize gl viewport to match window
     const screen_size = seizer.getScreenSize();
-    gl.viewport(0, 0, screen_size.x, screen_size.y);
+    gl.viewport(0, 0, screen_size[0], screen_size[1]);
 
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);

@@ -66,7 +66,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         .is_exhaustive = false,
     };
     comptime var scene_table: []const SceneTable = &.{};
-    inline for (Scenes) |t, i| {
+    inline for (Scenes, 0..) |t, i| {
         if (!@hasDecl(t, "init")) @compileError("fn init(Context) !T must be implemented for scenes");
         scene_enum.fields = scene_enum.fields ++ [_]std.builtin.Type.EnumField{.{ .name = @typeName(t), .value = i }};
         scene_table = scene_table ++ [_]SceneTable{GetSceneTable(t)};

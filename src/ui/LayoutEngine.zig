@@ -86,7 +86,6 @@ pub const Node = struct {
     }
 };
 
-
 pub const LayoutData = union(Layout) {
     Fill,
     Relative,
@@ -209,7 +208,7 @@ pub fn run_sizing(this: *@This()) void {
 pub fn compute_size(this: *@This(), node: Node, index: usize) geom.Vec2 {
     const stack_vertically = node.layout == .VList or node.layout == .VDiv;
     const stack_horizontally = node.layout == .HList or node.layout == .HDiv;
-    var size = Vec{0,0};
+    var size = Vec{ 0, 0 };
     var child_iter = this.get_child_iter(index);
     var count: usize = 0;
     while (child_iter.next()) |child_index| {
@@ -359,7 +358,7 @@ pub fn get_count(this: @This()) usize {
 }
 
 pub fn get_index_by_handle(this: @This(), handle: usize) ?usize {
-    for (this.nodes.items) |node, i| {
+    for (this.nodes.items, 0..) |node, i| {
         if (node.handle == handle) return i;
     }
     return null;

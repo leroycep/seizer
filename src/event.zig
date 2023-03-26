@@ -1,5 +1,3 @@
-const Vec2i = @import("math").Vec2i;
-
 pub const EventTag = enum {
     Quit,
 
@@ -25,7 +23,7 @@ pub const EventTag = enum {
 pub const Event = union(enum) {
     Quit: void,
 
-    ScreenResized: Vec2i,
+    ScreenResized: [2]i32,
 
     KeyDown: KeyEvent,
     KeyUp: KeyEvent,
@@ -35,7 +33,7 @@ pub const Event = union(enum) {
     MouseMotion: MouseMoveEvent,
     MouseButtonDown: MouseButtonEvent,
     MouseButtonUp: MouseButtonEvent,
-    MouseWheel: Vec2i,
+    MouseWheel: [2]i32,
 
     ControllerAxis: ControllerAxisEvent,
     ControllerButtonDown: ControllerButtonEvent,
@@ -86,8 +84,8 @@ pub const MOUSE_BUTTONS = struct {
 };
 
 pub const MouseMoveEvent = struct {
-    pos: Vec2i,
-    rel: Vec2i,
+    pos: [2]i32,
+    rel: [2]i32,
     buttons: u32,
 
     pub fn is_pressed(self: @This(), button: MouseButton) bool {
@@ -96,7 +94,7 @@ pub const MouseMoveEvent = struct {
     }
 };
 
-pub const MouseButtonEvent = struct { pos: Vec2i, button: MouseButton };
+pub const MouseButtonEvent = struct { pos: [2]i32, button: MouseButton };
 
 // Controller
 

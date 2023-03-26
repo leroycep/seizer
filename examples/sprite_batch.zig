@@ -21,7 +21,7 @@ var player_texture: Texture = undefined;
 var batch: SpriteBatch = undefined;
 
 fn init() !void {
-    player_texture = try Texture.initFromFile(gpa.allocator(), "wedge.png", .{});
+    player_texture = try Texture.initFromMemory(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
     errdefer player_texture.deinit();
 
     batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });

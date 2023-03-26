@@ -40,7 +40,7 @@ pub const NinePatch = struct {
         const tl = geom.rect.top_leftf(rect);
         const size = geom.rect.sizef(rect);
         const quads = this.getQuads(vec2f(tl[0], tl[1]), vec2f(size[0], size[1]), scale);
-        for (quads) |quad, i| {
+        for (quads, 0..) |quad, i| {
             renderer.drawTexture(this.tex, quad.pos, .{ .size = quad.size, .rect = rects[i] });
         }
     }

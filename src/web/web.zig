@@ -31,7 +31,7 @@ fn seizerLogWriter() std.io.Writer(void, error{}, seizerLogWrite) {
     return .{ .context = {} };
 }
 
-pub fn log(
+pub fn seizerLog(
     comptime message_level: std.log.Level,
     comptime scope: @Type(.EnumLiteral),
     comptime format: []const u8,
@@ -43,7 +43,7 @@ pub fn log(
     writer.print(format, args) catch {};
 }
 
-pub fn panic(msg: []const u8, stacktrace: ?*std.builtin.StackTrace) noreturn {
+pub fn seizerPanic(msg: []const u8, stacktrace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stacktrace;
 
     seizer_log_write(msg.ptr, msg.len);
@@ -59,17 +59,14 @@ pub extern fn seizer_resolve_promise(promise_id: usize, data: usize) void;
 extern fn seizer_run(maxDelta: f64, tickDelta: f64) void;
 pub fn run(comptime app: App) type {
     return struct {
-        var init_frame: @Frame(onInit_internal) = undefined;
+        pub const log = seizerLog;
+        pub const panic = seizerPanic;
 
         export fn _start() void {
             seizer_run(app.maxDeltaSeconds, app.tickDeltaSeconds);
         }
 
         export fn onInit(promiseId: usize) void {
-            init_frame = async onInit_internal(promiseId);
-        }
-
-        fn onInit_internal(promiseId: usize) void {
             app.init() catch |err| {
                 seizer_reject_promise(promiseId, @errorToInt(err));
                 return;
@@ -177,7 +174,7 @@ export const ERRNO_UNKNOWN = @errorToInt(error.Unknown);
 fn catchError(result: anyerror!void) void {
     if (result) |_| {} else |_| {
         // TODO: notify JS game loop
-        panic("Got error", null);
+        seizerPanic("Got error", null, null);
     }
 }
 
@@ -196,31 +193,6 @@ pub const FetchError = error{
     OutOfMemory,
     Unknown,
 };
-
-extern fn seizer_fetch(filename_ptr: [*]const u8, filename_len: usize, cb: *anyopaque, data_out: *FetchError![]u8, allocator: *const std.mem.Allocator) void;
-pub fn fetch(allocator: std.mem.Allocator, file_name: []const u8, max_size: usize) FetchError![]const u8 {
-    // TODO: Actually use the provided max size
-    _ = max_size;
-
-    var data: FetchError![]u8 = undefined;
-    suspend seizer_fetch(file_name.ptr, file_name.len, @frame(), &data, &allocator);
-    return data;
-}
-
-export fn wasm_finalize_fetch(cb_void: *anyopaque, data_out: *FetchError![]u8, buffer: [*]u8, len: usize) void {
-    const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
-    data_out.* = buffer[0..len];
-    resume cb;
-}
-
-export fn wasm_fail_fetch(cb_void: *anyopaque, data_out: *FetchError![]u8, errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) void {
-    const cb = @ptrCast(anyframe, @alignCast(@alignOf(anyframe), cb_void));
-    data_out.* = switch (@intToError(errno)) {
-        error.FileNotFound, error.OutOfMemory, error.Unknown => |e| e,
-        else => unreachable,
-    };
-    resume cb;
-}
 
 // Run async functions
 pub fn execute(allocator: std.mem.Allocator, comptime func: anytype, args: anytype) !void {

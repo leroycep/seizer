@@ -14,9 +14,6 @@ pub const gl = @import("./gl_es_3v0.zig");
 pub const audio = @import("audio.zig");
 const Timer = std.time.Timer;
 
-const Vec2i = @import("math").Vec2i;
-const vec2i = @import("math").vec2i;
-
 const sdllog = std.log.scoped(.PlatformNative);
 
 pub fn log(
@@ -44,9 +41,9 @@ fn get_proc_address(_: u8, proc: [:0]const u8) ?*anyopaque {
 var sdl_window: *c.SDL_Window = undefined;
 var running = true;
 
-pub fn getScreenSize() Vec2i {
-    var size: Vec2i = undefined;
-    c.SDL_GL_GetDrawableSize(sdl_window, &size.x, &size.y);
+pub fn getScreenSize() [2]i32 {
+    var size: [2]i32 = undefined;
+    c.SDL_GL_GetDrawableSize(sdl_window, &size[0], &size[1]);
     return size;
 }
 
@@ -246,13 +243,13 @@ pub fn pollEvent() ?Event {
 }
 
 pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
-    switch (sdlEvent.@"type") {
+    switch (sdlEvent.type) {
         // Application events
         c.SDL_QUIT => return Event{ .Quit = {} },
 
         // Window events
         c.SDL_WINDOWEVENT => switch (sdlEvent.window.event) {
-            c.SDL_WINDOWEVENT_RESIZED => return Event{ .ScreenResized = vec2i(sdlEvent.window.data1, sdlEvent.window.data2) },
+            c.SDL_WINDOWEVENT_RESIZED => return Event{ .ScreenResized = .{ sdlEvent.window.data1, sdlEvent.window.data2 } },
             else => return null,
         },
         c.SDL_SYSWMEVENT => return null,
@@ -269,28 +266,28 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
         // Mouse events
         c.SDL_MOUSEMOTION => return Event{
             .MouseMotion = .{
-                .pos = Vec2i.init(sdlEvent.motion.x, sdlEvent.motion.y),
-                .rel = Vec2i.init(sdlEvent.motion.xrel, sdlEvent.motion.yrel),
+                .pos = .{ sdlEvent.motion.x, sdlEvent.motion.y },
+                .rel = .{ sdlEvent.motion.xrel, sdlEvent.motion.yrel },
                 .buttons = 0,
             },
         },
         c.SDL_MOUSEBUTTONDOWN => return Event{
             .MouseButtonDown = .{
-                .pos = Vec2i.init(sdlEvent.button.x, sdlEvent.button.y),
+                .pos = .{ sdlEvent.button.x, sdlEvent.button.y },
                 .button = sdlToCommonButton(sdlEvent.button.button),
             },
         },
         c.SDL_MOUSEBUTTONUP => return Event{
             .MouseButtonUp = .{
-                .pos = Vec2i.init(sdlEvent.button.x, sdlEvent.button.y),
+                .pos = .{ sdlEvent.button.x, sdlEvent.button.y },
                 .button = sdlToCommonButton(sdlEvent.button.button),
             },
         },
         c.SDL_MOUSEWHEEL => return Event{
-            .MouseWheel = Vec2i.init(
+            .MouseWheel = .{
                 sdlEvent.wheel.x,
                 sdlEvent.wheel.y,
-            ),
+            },
         },
 
         // Audio events
@@ -316,7 +313,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
                 .button = @intToEnum(ControllerButton, sdlEvent.cbutton.button),
                 .pressed = if (sdlEvent.cbutton.state == c.SDL_PRESSED) true else false,
             };
-            if (sdlEvent.@"type" == c.SDL_CONTROLLERBUTTONUP) {
+            if (sdlEvent.type == c.SDL_CONTROLLERBUTTONUP) {
                 return Event{
                     .ControllerButtonUp = button_event,
                 };

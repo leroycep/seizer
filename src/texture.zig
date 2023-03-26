@@ -2,12 +2,11 @@ const std = @import("std");
 const zigimg = @import("zigimg");
 const seizer = @import("./seizer.zig");
 const gl = seizer.gl;
-const math = seizer.math;
 const geom = seizer.geometry;
 
 pub const Texture = struct {
     glTexture: gl.GLuint,
-    size: math.Vec(2, usize),
+    size: [2]usize,
 
     pub fn init() !@This() {
         var tex: gl.GLuint = 0;
@@ -18,7 +17,7 @@ pub const Texture = struct {
 
         return @This(){
             .glTexture = tex,
-            .size = .{ .x = 0, .y = 0 },
+            .size = .{ 0, 0 },
         };
     }
 
@@ -31,19 +30,15 @@ pub const Texture = struct {
     }
 
     pub const InitFromFileOptions = struct {
-        maxSize: usize = 50000,
         minFilter: gl.GLint = gl.NEAREST,
         magFilter: gl.GLint = gl.NEAREST,
         wrapS: gl.GLint = gl.CLAMP_TO_EDGE,
         wrapT: gl.GLint = gl.CLAMP_TO_EDGE,
     };
 
-    pub fn initFromFile(alloc: std.mem.Allocator, filePath: []const u8, options: InitFromFileOptions) !@This() {
+    pub fn initFromMemory(alloc: std.mem.Allocator, image_contents: []const u8, options: InitFromFileOptions) !@This() {
         var this = try init();
         errdefer this.deinit();
-
-        const image_contents = try seizer.fetch(alloc, filePath, options.maxSize);
-        defer alloc.free(image_contents);
 
         var load_res = try zigimg.Image.fromMemory(alloc, image_contents);
         defer load_res.deinit();
@@ -78,7 +73,7 @@ pub const Texture = struct {
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, options.minFilter);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, options.magFilter);
 
-        this.size = .{ .x = load_res.width, .y = load_res.height };
+        this.size = .{ load_res.width, load_res.height };
         return this;
     }
 };

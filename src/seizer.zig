@@ -10,7 +10,6 @@ pub const event = @import("./event.zig");
 pub const font = @import("./font.zig");
 pub const glUtil = @import("./gl_util.zig");
 pub const geometry = @import("./geometry.zig");
-pub const math = @import("math");
 pub const mem = @import("./mem.zig");
 pub const ninepatch = @import("./ninepatch.zig");
 pub const scene = @import("./scene.zig");

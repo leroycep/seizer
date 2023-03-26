@@ -1,0 +1,10 @@
+.{
+	.name = "seizer",
+	.version = "0.1.0",
+	.dependencies = .{
+		.zigimg = .{
+			.url = "https://github.com/zigimg/zigimg/archive/6d0f7d71a49b19564cf70f07577670f712cfc353.tar.gz",
+			.hash = "12205b3e663cbf2666d7ddb35871967adfd0e7e3f7023c39ff8e08c71df48fb6f3e3",
+		},
+	},
+}

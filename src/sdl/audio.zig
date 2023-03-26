@@ -198,7 +198,7 @@ pub const Engine = struct {
 
         std.mem.set([2]f32, audio, [2]f32{ 0, 0 });
 
-        for (audio) |*sample, idx| {
+        for (audio, 0..) |*sample, idx| {
             sample.* = sampler.sampleF32Stereo(idx);
         }
 
@@ -326,7 +326,7 @@ pub const Engine = struct {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
-        for (this.output_nodes) |output_node_opt, idx| {
+        for (this.output_nodes, 0..) |output_node_opt, idx| {
             if (output_node_opt != null) continue;
             this.output_nodes[idx] = nodeHandle.id;
             return;
