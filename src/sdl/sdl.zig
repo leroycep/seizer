@@ -90,15 +90,6 @@ pub fn run(comptime app: App) type {
             var ctx: u8 = 0; // bogus context variable to satisfy gl.load
             try gl.load(ctx, get_proc_address);
 
-            // TODO: Make VSync configurable
-            _ = c.SDL_GL_SetSwapInterval(1);
-
-            // Setup opengl debug message callback
-            // if (builtin.mode == .Debug) {
-            //     gl.enable(gl.DEBUG_OUTPUT);
-            //     gl.debugMessageCallback(MessageCallback, null);
-            // }
-
             sdllog.info("application initialized", .{});
 
             nosuspend try app.init();
