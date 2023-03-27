@@ -83,4 +83,15 @@ pub fn build(b: *Builder) !void {
         exe.linkLibrary(library);
         exe.addModule("seizer", module);
     }
+    {
+        const exe = b.addExecutable(.{
+            .name = "scene",
+            .root_source_file = .{ .path = "examples/scene.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.install();
+        exe.linkLibrary(library);
+        exe.addModule("seizer", module);
+    }
 }

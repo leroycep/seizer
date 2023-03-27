@@ -3,7 +3,7 @@ const seizer = @import("./seizer.zig");
 
 const SceneTable = struct {
     size: usize,
-    alignment: u29,
+    alignment: u8,
     deinit: *const fn (*anyopaque) void,
     render: *const fn (*anyopaque, f64) anyerror!void,
     update: ?*const fn (*anyopaque, f64, f64) anyerror!void,
@@ -16,28 +16,28 @@ pub fn GetSceneTable(comptime T: type) SceneTable {
 
     const deinit_info = @typeInfo(@TypeOf(@field(T, "deinit"))).Fn;
     if (deinit_info.return_type != void) @compileError("fn deinit must return void (no errors).");
-    if (deinit_info.args[0].arg_type != *T) @compileError("fn deinit must take a pointer to self.");
+    if (deinit_info.params[0].type != *T) @compileError("fn deinit must take a pointer to self.");
 
     const render_info = @typeInfo(@TypeOf(@field(T, "render"))).Fn;
-    if (render_info.args[0].arg_type != *T) @compileError("fn render must take a pointer to self.");
-    if (render_info.args[1].arg_type != f64) @compileError("fn render must take an alpha parameter (f64).");
+    if (render_info.params[0].type != *T) @compileError("fn render must take a pointer to self.");
+    if (render_info.params[1].type != f64) @compileError("fn render must take an alpha parameter (f64).");
 
     if (@hasDecl(T, "update")) {
         const update_info = @typeInfo(@TypeOf(@field(T, "update"))).Fn;
-        if (update_info.args[0].arg_type != *T) @compileError("fn update must take a pointer to self.");
-        if (update_info.args[1].arg_type != f64) @compileError("fn update must take a currentTime parameter (f64).");
-        if (update_info.args[2].arg_type != f64) @compileError("fn update must take a delta parameter (f64).");
+        if (update_info.params[0].type != *T) @compileError("fn update must take a pointer to self.");
+        if (update_info.params[1].type != f64) @compileError("fn update must take a currentTime parameter (f64).");
+        if (update_info.params[2].type != f64) @compileError("fn update must take a delta parameter (f64).");
     }
 
     if (@hasDecl(T, "event")) {
         const event_info = @typeInfo(@TypeOf(@field(T, "event"))).Fn;
-        if (event_info.args[0].arg_type != *T) @compileError("fn event must take a pointer to self.");
-        if (event_info.args[1].arg_type != seizer.event.Event) @compileError("fn event must take an event parameter (Event).");
+        if (event_info.params[0].type != *T) @compileError("fn event must take a pointer to self.");
+        if (event_info.params[1].type != seizer.event.Event) @compileError("fn event must take an event parameter (Event).");
     }
 
     return SceneTable{
         .size = @sizeOf(T),
-        .alignment = @alignOf(T),
+        .alignment = std.math.log2_int(u29, @alignOf(T)),
         .deinit = @ptrCast(*const fn (*anyopaque) void, &@field(T, "deinit")),
         .render = @ptrCast(*const fn (*anyopaque, f64) anyerror!void, &@field(T, "render")),
         .update = if (@hasDecl(T, "update")) @ptrCast(*const fn (*anyopaque, f64, f64) anyerror!void, &@field(T, "update")) else null,
@@ -59,7 +59,6 @@ pub fn GetSceneTable(comptime T: type) SceneTable {
 /// ```
 pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
     comptime var scene_enum: std.builtin.Type.Enum = std.builtin.Type.Enum{
-        .layout = .Auto,
         .tag_type = usize,
         .fields = &.{},
         .decls = &.{},
