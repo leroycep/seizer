@@ -61,4 +61,15 @@ pub fn build(b: *Builder) !void {
         exe.linkLibrary(library);
         exe.addModule("seizer", module);
     }
+    {
+        const exe = b.addExecutable(.{
+            .name = "sprite_batch",
+            .root_source_file = .{ .path = "examples/sprite_batch.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.install();
+        exe.linkLibrary(library);
+        exe.addModule("seizer", module);
+    }
 }
