@@ -6,7 +6,6 @@ const seizer = @import("seizer");
 const gl = seizer.gl;
 const builtin = @import("builtin");
 const store = seizer.ui.store;
-const math = seizer.math;
 const geom = seizer.geometry;
 const Texture = seizer.Texture;
 const SpriteBatch = seizer.batch.SpriteBatch;
@@ -77,13 +76,21 @@ const button_transitions = [_]Observer.Transition{
 };
 
 fn init() !void {
-    font = try BitmapFont.initFromFile(gpa.allocator(), "PressStart2P_8.fnt");
+    font = try seizer.font.Bitmap.init(gpa.allocator(), .{
+        .font_contents = @embedFile("assets/PressStart2P_8.fnt"),
+        .pages = &.{
+            .{
+                .name = "PressStart2P_8.png",
+                .image = @embedFile("assets/PressStart2P_8.png"),
+            },
+        },
+    });
     errdefer font.deinit();
 
-    texture = try Texture.initFromFile(gpa.allocator(), "ui.png", .{});
+    texture = try Texture.initFromMemory(gpa.allocator(), @embedFile("assets/ui.png"), .{});
     errdefer texture.deinit();
 
-    batch = try SpriteBatch.init(gpa.allocator(), .{ .x = 1, .y = 1 });
+    batch = try SpriteBatch.init(gpa.allocator(), .{ 1, 1 });
 
     stage = try Stage.init(gpa.allocator(), &font, &batch, &button_transitions);
     stage.painter.scale = 2;
@@ -186,20 +193,23 @@ fn render(alpha: f64) !void {
 
     // Resize gl viewport to match window
     const screen_size = seizer.getScreenSize();
-    gl.viewport(0, 0, screen_size.x, screen_size.y);
+    gl.viewport(0, 0, screen_size[0], screen_size[1]);
     batch.setSize(screen_size);
 
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    stage.paintAll(.{ 0, 0, screen_size.x, screen_size.y });
+    stage.paintAll(.{ 0, 0, screen_size[0], screen_size[1] });
 
     if (is_typing) cursor: {
         const node = stage.layout.get_node(textinput) orelse break :cursor;
         const rect = geom.rect.itof(node.bounds + node.padding * geom.Rect{ 1, 1, -1, -1 });
-        font.drawText(&batch, "_", .{ .x = rect[0] + cursor, .y = rect[1] }, .{
-            .textBaseline = .Top,
-            .color = seizer.batch.Color.BLACK,
+        batch.drawBitmapText(.{
+            .text = "_",
+            .font = font,
+            .pos = .{ rect[0] + cursor, rect[1] },
+            // .textBaseline = .Top,
+            .color = .{ 0, 0, 0, 0xFF },
             .scale = stage.painter.scale,
         });
     }

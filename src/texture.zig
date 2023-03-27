@@ -25,8 +25,11 @@ pub const Texture = struct {
         gl.deleteTextures(1, &this.glTexture);
     }
 
-    pub fn pix2uv(tex: @This(), pixel: geom.Vec2) geom.Vec2f {
-        return geom.vec.itof(pixel) / geom.Vec2f{ @intToFloat(f32, tex.size.x), @intToFloat(f32, tex.size.y) };
+    pub fn pix2uv(tex: @This(), pixel: [2]i32) [2]f32 {
+        return .{
+            @intToFloat(f32, pixel[0]) / @intToFloat(f32, tex.size[0]),
+            @intToFloat(f32, pixel[1]) / @intToFloat(f32, tex.size[1]),
+        };
     }
 
     pub const InitFromFileOptions = struct {

@@ -20,12 +20,12 @@ pub const Stage = struct {
     painter: Painter,
     observer: Observer,
 
-    pub fn init (allocator: std.mem.Allocator, font: *BitmapFont, batch: *SpriteBatch, transitions: []const Observer.Transition) !Stage {
+    pub fn init(allocator: std.mem.Allocator, font: *BitmapFont, batch: *SpriteBatch, transitions: []const Observer.Transition) !Stage {
         return Stage{
             .store = store.Store.init(allocator),
             .layout = try LayoutEngine.init(allocator),
             .painter = Painter.init(allocator, font, batch),
-            .observer = Observer{.transitions = transitions},
+            .observer = Observer{ .transitions = transitions },
         };
     }
 
@@ -72,9 +72,9 @@ pub const Stage = struct {
     pub fn event(stage: *Stage, evt: seizer.event.Event) ?Observer.NotifyResult {
         var mousepos: ?geom.Vec2 = null;
         switch (evt) {
-            .MouseMotion => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
-            .MouseButtonDown => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
-            .MouseButtonUp => |mouse| mousepos = geom.Vec2{ mouse.pos.x, mouse.pos.y },
+            .MouseMotion => |mouse| mousepos = mouse.pos,
+            .MouseButtonDown => |mouse| mousepos = mouse.pos,
+            .MouseButtonUp => |mouse| mousepos = mouse.pos,
             else => {}, // Wait for next switch
         }
         if (mousepos) |p| {
@@ -124,26 +124,30 @@ pub const Painter = struct {
         }
         if (node.data) |data| {
             const value = _store.get(data);
-            const vec2 = seizer.math.Vec2f.init;
             const area = node.bounds + (node.padding * geom.Rect{ 1, 1, -1, -1 });
-            const top_left = vec2(@intToFloat(f32, area[0]), @intToFloat(f32, area[1]));
+            const top_left = .{ @intToFloat(f32, area[0]), @intToFloat(f32, area[1]) };
             switch (value) {
                 .Bytes => |string| {
-                    painter.font.drawText(painter.batch, string, top_left, .{
-                        .textBaseline = .Top,
+                    painter.batch.drawBitmapText(.{
+                        .text = string,
+                        .font = painter.font.*,
+                        .pos = top_left,
+                        // .textBaseline = .Top,
                         .scale = painter.scale,
-                        .color = seizer.batch.Color.BLACK,
-                        .area = geom.rect.itof(node.bounds),
+                        .color = .{ 0, 0, 0, 0xFF },
+                        // .area = geom.rect.itof(node.bounds),
                     });
                 },
                 .Int => |int| {
                     var buf: [32]u8 = undefined;
-                    const string = std.fmt.bufPrint(&buf, "{}", .{int}) catch buf[0..];
-                    painter.font.drawText(painter.batch, string, top_left, .{
-                        .textBaseline = .Top,
+                    painter.batch.drawBitmapText(.{
+                        .text = std.fmt.bufPrint(&buf, "{}", .{int}) catch buf[0..],
+                        .font = painter.font.*,
+                        .pos = top_left,
+                        // .textBaseline = .Top,
                         .scale = painter.scale,
-                        .color = seizer.batch.Color.BLACK,
-                        .area = geom.rect.itof(node.bounds),
+                        .color = .{ 0, 0, 0, 0xFF },
+                        // .area = geom.rect.itof(node.bounds),
                     });
                 },
                 else => {},

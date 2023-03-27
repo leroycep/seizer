@@ -72,4 +72,15 @@ pub fn build(b: *Builder) !void {
         exe.linkLibrary(library);
         exe.addModule("seizer", module);
     }
+    {
+        const exe = b.addExecutable(.{
+            .name = "ui",
+            .root_source_file = .{ .path = "examples/ui.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.install();
+        exe.linkLibrary(library);
+        exe.addModule("seizer", module);
+    }
 }
