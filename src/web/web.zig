@@ -1,7 +1,6 @@
 pub const gl = @import("./webgl.zig");
 pub const audio = @import("audio.zig");
 const std = @import("std");
-const Vec2i = @import("math").Vec2i;
 const seizer = @import("../seizer.zig");
 const App = seizer.App;
 
@@ -13,8 +12,8 @@ pub fn now() i64 {
 
 pub extern fn getScreenW() i32;
 pub extern fn getScreenH() i32;
-pub fn getScreenSize() Vec2i {
-    return Vec2i.init(getScreenW(), getScreenH());
+pub fn getScreenSize() [2]i32 {
+    return .{ getScreenW(), getScreenH() };
 }
 
 extern fn seizer_log_write(str_ptr: [*]const u8, str_len: usize) void;
@@ -59,7 +58,9 @@ pub extern fn seizer_resolve_promise(promise_id: usize, data: usize) void;
 extern fn seizer_run(maxDelta: f64, tickDelta: f64) void;
 pub fn run(comptime app: App) type {
     return struct {
-        pub const log = seizerLog;
+        pub const std_options = struct {
+            pub const logFn = seizerLog;
+        };
         pub const panic = seizerPanic;
 
         export fn _start() void {
@@ -76,13 +77,17 @@ pub fn run(comptime app: App) type {
 
         export fn onMouseMove(x: i32, y: i32, relx: i32, rely: i32, buttons: u32) void {
             catchError(app.event(.{
-                .MouseMotion = .{ .pos = Vec2i.init(x, y), .rel = Vec2i.init(relx, rely), .buttons = buttons },
+                .MouseMotion = .{
+                    .pos = .{ x, y },
+                    .rel = .{ relx, rely },
+                    .buttons = buttons,
+                },
             }));
         }
 
         export fn onMouseButton(x: i32, y: i32, down: i32, button_int: u8) void {
             const event = seizer.event.MouseButtonEvent{
-                .pos = Vec2i.init(x, y),
+                .pos = .{ x, y },
                 .button = @intToEnum(seizer.event.MouseButton, button_int),
             };
             if (down == 0) {
@@ -94,7 +99,7 @@ pub fn run(comptime app: App) type {
 
         export fn onMouseWheel(x: i32, y: i32) void {
             catchError(app.event(.{
-                .MouseWheel = Vec2i.init(x, y),
+                .MouseWheel = .{ x, y },
             }));
         }
 
