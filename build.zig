@@ -2,6 +2,15 @@ const std = @import("std");
 const Builder = std.build.Builder;
 const HTMLBundleStep = @import("tools/HTMLBundleStep.zig");
 
+const Example = enum {
+    clear,
+    textures,
+    bitmap_font,
+    sprite_batch,
+    ui,
+    scene,
+};
+
 pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -28,70 +37,53 @@ pub fn build(b: *Builder) !void {
     library.linkLibC();
     library.linkSystemLibrary("sdl2");
 
-    {
-        const exe = b.addExecutable(.{
-            .name = "clear",
-            .root_source_file = .{ .path = "examples/clear.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
-    }
-    {
-        const exe = b.addExecutable(.{
-            .name = "textures",
-            .root_source_file = .{ .path = "examples/textures.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
-    }
-    {
-        const exe = b.addExecutable(.{
-            .name = "bitmap_font",
-            .root_source_file = .{ .path = "examples/bitmap_font.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
-    }
-    {
-        const exe = b.addExecutable(.{
-            .name = "sprite_batch",
-            .root_source_file = .{ .path = "examples/sprite_batch.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
-    }
-    {
-        const exe = b.addExecutable(.{
-            .name = "ui",
-            .root_source_file = .{ .path = "examples/ui.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
-    }
-    {
-        const exe = b.addExecutable(.{
-            .name = "scene",
-            .root_source_file = .{ .path = "examples/scene.zig" },
-            .target = target,
-            .optimize = optimize,
-        });
-        exe.install();
-        exe.linkLibrary(library);
-        exe.addModule("seizer", module);
+    const example_option = b.option(Example, "example", "Specify which example to run/build/install");
+
+    const example_fields = @typeInfo(Example).Enum.fields;
+    inline for (example_fields) |tag| {
+        if (target.getCpuArch() != .wasm32) {
+            const tag_name = tag.name;
+            const exe = b.addExecutable(.{
+                .name = tag_name,
+                .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
+                .target = target,
+                .optimize = optimize,
+            });
+            exe.install();
+            exe.linkLibrary(library);
+            exe.addModule("seizer", module);
+
+            if (example_option != null and std.mem.eql(u8, tag_name, @tagName(example_option.?))) {
+                const run_cmd = exe.run();
+                exe.step.dependOn(&exe.step);
+
+                const run_step = b.step("run", "Run the example specified by -Dexample");
+                run_step.dependOn(&run_cmd.step);
+            }
+        } else {
+            const tag_name = tag.name;
+            const exe = b.addSharedLibrary(.{
+                .name = tag_name,
+                .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
+                .target = target,
+                .optimize = optimize,
+            });
+            exe.install();
+            exe.linkLibrary(library);
+            exe.addModule("seizer", module);
+
+            const seizerjs = std.build.FileSource{ .path = "src/web/seizer.js" };
+            // const install_seizerjs = b.addInstallFile(.{ .path = "src/web/seizer.js" }, "www/seizer.js");
+
+            const web_bundle = try HTMLBundleStep.create(b, .{
+                .path = "www",
+                .js_path = seizerjs,
+                .wasm_path = exe.getOutputSource(),
+                .output_name = b.fmt("{s}.html", .{tag_name}),
+                .title = tag_name,
+            });
+
+            web_bundle.step.dependOn(&exe.step);
+        }
     }
 }

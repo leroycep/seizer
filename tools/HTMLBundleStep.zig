@@ -26,11 +26,16 @@ pub fn create(b: *std.build.Builder, opt: struct {
     title: []const u8 = "Seizer Example",
     description: []const u8 = "A Seizer Example Game",
     icon_url: ?[]const u8 = null,
-    resolution: @Vector(2, i16) = @Vector(2, i16){640, 480},
-}) *@This() {
-    var result = b.allocator.create(BundleStep) catch @panic("memory");
+    resolution: @Vector(2, i16) = @Vector(2, i16){ 640, 480 },
+}) !*@This() {
+    var result = try b.allocator.create(BundleStep);
     result.* = BundleStep{
-        .step = std.build.Step.init(.custom, "create a html file with seizer.js bundle bundledd", b.allocator, make),
+        .step = std.Build.Step.init(.{
+            .id = .custom,
+            .name = "BundleHTML",
+            .owner = b,
+            .makeFn = make,
+        }),
         .builder = b,
         .path = opt.path,
         .js_path = opt.js_path,
@@ -41,7 +46,6 @@ pub fn create(b: *std.build.Builder, opt: struct {
         .icon_url = opt.icon_url,
         .resolution = opt.resolution,
     };
-    // result.builder.installBinFile(opt.output_name, opt.output_name);
     return result;
 }
 
@@ -58,12 +62,13 @@ const TemplateVars = struct {
     height: i16,
 };
 
-fn make(step: *std.build.Step) !void {
+fn make(step: *std.Build.Step, progress_node: *std.Progress.Node) !void {
+    _ = progress_node;
     const this = @fieldParentPtr(BundleStep, "step", step);
 
     const js_path = this.js_path.getPath(this.builder);
     const wasm_path = std.fs.path.basename(this.wasm_path.getPath(this.builder));
-    const output = this.builder.getInstallPath(.{.custom = this.path}, this.output_name);
+    const output = this.builder.getInstallPath(.{ .custom = this.path }, this.output_name);
 
     const allocator = this.builder.allocator;
     const cwd = std.fs.cwd();
