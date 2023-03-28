@@ -55,7 +55,11 @@ pub fn build(b: *Builder) !void {
 
             if (example_option != null and std.mem.eql(u8, tag_name, @tagName(example_option.?))) {
                 const run_cmd = exe.run();
-                exe.step.dependOn(&exe.step);
+                run_cmd.step.dependOn(b.getInstallStep());
+
+                if (b.args) |args| {
+                    run_cmd.addArgs(args);
+                }
 
                 const run_step = b.step("run", "Run the example specified by -Dexample");
                 run_step.dependOn(&run_cmd.step);
