@@ -12,6 +12,7 @@ builder: *std.build.Builder,
 path: []const u8,
 js_path: std.build.FileSource,
 wasm_path: std.build.FileSource,
+write_file_step: *std.Build.WriteFileStep,
 output_name: []const u8,
 title: []const u8,
 description: []const u8,
@@ -26,20 +27,27 @@ pub fn create(b: *std.build.Builder, opt: struct {
     title: []const u8 = "Seizer Example",
     description: []const u8 = "A Seizer Example Game",
     icon_url: ?[]const u8 = null,
-    resolution: @Vector(2, i16) = @Vector(2, i16){ 640, 480 },
+    resolution: [2]i16 = [2]i16{ 640, 480 },
 }) !*@This() {
     var result = try b.allocator.create(BundleStep);
+    var write_file_step = b.addWriteFiles();
+
+    result.step = std.Build.Step.init(.{
+        .id = .custom,
+        .name = "BundleHTML",
+        .owner = b,
+        .makeFn = make,
+    });
+
+    result.step.dependOn(&write_file_step.step);
+
     result.* = BundleStep{
-        .step = std.Build.Step.init(.{
-            .id = .custom,
-            .name = "BundleHTML",
-            .owner = b,
-            .makeFn = make,
-        }),
+        .step = result.step,
         .builder = b,
         .path = opt.path,
         .js_path = opt.js_path,
         .wasm_path = opt.wasm_path,
+        .write_file_step = write_file_step,
         .output_name = opt.output_name,
         .title = opt.title,
         .description = opt.description,
@@ -63,15 +71,13 @@ const TemplateVars = struct {
 };
 
 fn make(step: *std.Build.Step, progress_node: *std.Progress.Node) !void {
-    _ = progress_node;
     const this = @fieldParentPtr(BundleStep, "step", step);
-
-    const js_path = this.js_path.getPath(this.builder);
-    const wasm_path = std.fs.path.basename(this.wasm_path.getPath(this.builder));
-    const output = this.builder.getInstallPath(.{ .custom = this.path }, this.output_name);
 
     const allocator = this.builder.allocator;
     const cwd = std.fs.cwd();
+
+    const js_path = this.js_path.getPath(this.builder);
+    const wasm_path = std.fs.path.basename(this.wasm_path.getPath(this.builder));
 
     const js = js: {
         const js_file = try cwd.openFile(js_path, .{});
@@ -95,11 +101,8 @@ fn make(step: *std.Build.Step, progress_node: *std.Progress.Node) !void {
     };
 
     const renderedHTML = try std.fmt.allocPrint(allocator, template, vars);
-    defer allocator.free(renderedHTML);
 
-    cwd.makePath(this.builder.getInstallPath(.bin, "")) catch |e| switch (e) {
-        error.PathAlreadyExists => {},
-        else => return e,
-    };
-    try cwd.writeFile(output, renderedHTML);
+    this.write_file_step.add(this.output_name, renderedHTML);
+
+    progress_node.completeOne();
 }

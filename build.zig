@@ -77,7 +77,7 @@ pub fn build(b: *Builder) !void {
             exe.addModule("seizer", module);
 
             const seizerjs = std.build.FileSource{ .path = "src/web/seizer.js" };
-            // const install_seizerjs = b.addInstallFile(.{ .path = "src/web/seizer.js" }, "www/seizer.js");
+            // const seizerjs = b.addInstallFile(.{ .path = "src/web/seizer.js" }, "www/seizer.js");
 
             const web_bundle = try HTMLBundleStep.create(b, .{
                 .path = "www",
@@ -87,7 +87,13 @@ pub fn build(b: *Builder) !void {
                 .title = tag_name,
             });
 
+            web_bundle.step.dependOn(b.getInstallStep());
             web_bundle.step.dependOn(&exe.step);
+
+            const bundle_step = b.step("bundle", "Creates a static html page with scripts + assets included");
+            bundle_step.dependOn(&web_bundle.step);
+            // b.getInstallStep().dependOn(&web_bundle.step);
+            // build_examples_web.dependOn(build_web);
         }
     }
 }
