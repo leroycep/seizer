@@ -63,7 +63,7 @@ pub const vec = struct {
     /// NOTE: Conversion between floats and ints on WASM appears
     /// to be broken, so this may not return the correct results.
     pub fn length(a: Vec2) i32 {
-        return @floatToInt(i32, @sqrt(@intToFloat(f32, length_sqr(a))));
+        return @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(length_sqr(a))))));
     }
 
     /// Returns the distance between two vectors (assuming they are points).
@@ -98,14 +98,14 @@ pub const vec = struct {
     /// NOTE: Conversion between floats and ints on WASM appears
     /// to be broken, so this may not return the correct results.
     pub fn itof(vec2: Vec2) Vec2f {
-        return Vec2f{ @intToFloat(f32, vec2[0]), @intToFloat(f32, vec2[1]) };
+        return Vec2f{ @as(f32, @floatFromInt(vec2[0])), @as(f32, @floatFromInt(vec2[1])) };
     }
 
     /// Converts a f32 backed vector to an i32 backed one.
     /// NOTE: Conversion between floats and ints on WASM appears
     /// to be broken, so this may not return the correct results.
     pub fn ftoi(vec2f: Vec2f) Vec2 {
-        return Vec2{ @floatToInt(i32, @floor(vec2f[0])), @floatToInt(i32, @floor(vec2f[1])) };
+        return Vec2{ @as(i32, @intFromFloat(@floor(vec2f[0]))), @as(i32, @intFromFloat(@floor(vec2f[1]))) };
     }
 };
 
@@ -232,12 +232,12 @@ pub const rect = struct {
 
     /// Converts an i32 backed rect to a f32 backed one.
     pub fn itof(rectangle: Rect) Rectf {
-        return Rectf{ @intToFloat(f32, rectangle[0]), @intToFloat(f32, rectangle[1]), @intToFloat(f32, rectangle[2]), @intToFloat(f32, rectangle[3]) };
+        return Rectf{ @as(f32, @floatFromInt(rectangle[0])), @as(f32, @floatFromInt(rectangle[1])), @as(f32, @floatFromInt(rectangle[2])), @as(f32, @floatFromInt(rectangle[3])) };
     }
 
     /// Converts a f32 backed rect to an i32 backed one.
     pub fn ftoi(rectanglef: Rectf) Rect {
-        return Rectf{ @floatToInt(i32, rectanglef[0]), @floatToInt(i32, rectanglef[1]), @floatToInt(i32, rectanglef[2]), @floatToInt(i32, rectanglef[3]) };
+        return Rectf{ @as(i32, @intFromFloat(rectanglef[0])), @as(i32, @intFromFloat(rectanglef[1])), @as(i32, @intFromFloat(rectanglef[2])), @as(i32, @intFromFloat(rectanglef[3])) };
     }
 };
 
@@ -320,11 +320,11 @@ pub const aabb = struct {
 
     /// Converts an i32 backed aabb to a f32 backed one.
     pub fn itof(box: AABB) AABBf {
-        return AABBf{ @intToFloat(f32, box[0]), @intToFloat(f32, box[1]), @intToFloat(f32, box[2]), @intToFloat(f32, box[3]) };
+        return AABBf{ @as(f32, @floatFromInt(box[0])), @as(f32, @floatFromInt(box[1])), @as(f32, @floatFromInt(box[2])), @as(f32, @floatFromInt(box[3])) };
     }
 
     /// Converts a f32 backed aabb to an i32 backed one.
     pub fn ftoi(boxf: AABBf) AABB {
-        return AABBf{ @floatToInt(i32, boxf[0]), @floatToInt(i32, boxf[1]), @floatToInt(i32, boxf[2]), @floatToInt(i32, boxf[3]) };
+        return AABBf{ @as(i32, @intFromFloat(boxf[0])), @as(i32, @intFromFloat(boxf[1])), @as(i32, @intFromFloat(boxf[2])), @as(i32, @intFromFloat(boxf[3])) };
     }
 };

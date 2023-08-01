@@ -106,7 +106,7 @@ pub const ControllerAxisEvent = struct {
 };
 
 pub const ControllerAxis = enum(u8) {
-    INVALID = @bitCast(u8, @as(i8, -1)),
+    INVALID = @as(u8, @bitCast(@as(i8, -1))),
     LEFTX = 0,
     LEFTY,
     RIGHTX,
@@ -124,7 +124,7 @@ pub const ControllerButtonEvent = struct {
 };
 
 pub const ControllerButton = enum(u8) {
-    INVALID = @bitCast(u8, @as(i8, -1)),
+    INVALID = @as(u8, @bitCast(@as(i8, -1))),
     A = 0,
     B,
     X,

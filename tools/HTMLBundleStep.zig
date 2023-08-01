@@ -102,7 +102,7 @@ fn make(step: *std.Build.Step, progress_node: *std.Progress.Node) !void {
 
     const renderedHTML = try std.fmt.allocPrint(allocator, template, vars);
 
-    this.write_file_step.add(this.output_name, renderedHTML);
+    _ = this.write_file_step.add(this.output_name, renderedHTML);
 
     progress_node.completeOne();
 }

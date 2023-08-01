@@ -88,7 +88,7 @@ pub const Engine = struct {
 
     pub fn deinit(this: *@This()) void {
         c.SDL_CloseAudioDevice(this.device_id);
-        for (this.nodes) |*node| {
+        for (&this.nodes) |*node| {
             switch (node.*) {
                 .None, .Sound, .Biquad, .DelayInput => {},
                 .Mixer => |mixer_node| this.allocator.free(mixer_node.inputs),
@@ -104,11 +104,11 @@ pub const Engine = struct {
         fn sampleF32(this: @This(), idx: usize) f32 {
             switch (this.spec.format) {
                 c.AUDIO_S16 => {
-                    const RANGE = @intToFloat(f32, std.math.maxInt(i16));
-                    const val = @intToFloat(f32, std.mem.readIntLittle(i16, this.buffer[idx..][0..2]));
+                    const RANGE = @as(f32, @floatFromInt(std.math.maxInt(i16)));
+                    const val = @as(f32, @floatFromInt(std.mem.readIntLittle(i16, this.buffer[idx..][0..2])));
                     return val / RANGE;
                 },
-                c.AUDIO_F32 => return @bitCast(f32, this.buffer[idx..][0..4].*),
+                c.AUDIO_F32 => return @as(f32, @bitCast(this.buffer[idx..][0..4].*)),
                 else => @panic("Unsupported audio format"),
             }
         }
@@ -164,7 +164,7 @@ pub const Engine = struct {
             }
 
             slot += 1;
-            slot %= @intCast(u32, this.sounds.len);
+            slot %= @as(u32, @intCast(this.sounds.len));
 
             if (slot == starting_slot) {
                 @panic("Out of sound slots");
@@ -177,7 +177,7 @@ pub const Engine = struct {
         var file_audio_spec: c.SDL_AudioSpec = undefined;
         var audio_buf: ?[*]u8 = null;
         var audio_len: u32 = undefined;
-        if (c.SDL_LoadWAV_RW(c.SDL_RWFromConstMem(file_contents.ptr, @intCast(c_int, file_contents.len)), 0, &file_audio_spec, &audio_buf, &audio_len) == null) {
+        if (c.SDL_LoadWAV_RW(c.SDL_RWFromConstMem(file_contents.ptr, @as(c_int, @intCast(file_contents.len))), 0, &file_audio_spec, &audio_buf, &audio_len) == null) {
             // TODO: print error from SDL
             return error.InvalidFile;
         }
@@ -211,20 +211,20 @@ pub const Engine = struct {
             .allocator = allocator,
         };
 
-        this.next_sound_slot = (slot + 1) % @intCast(u32, this.sounds.len);
+        this.next_sound_slot = (slot + 1) % @as(u32, @intCast(this.sounds.len));
 
         return make_handle(generation, slot);
     }
 
     fn make_handle(generation: Generation, slot: u32) SoundHandle {
         std.debug.assert(Generation == u4);
-        const instance = @as(u32, @intCast(u28, slot));
+        const instance = @as(u32, @as(u28, @intCast(slot)));
         return .{ .id = (@as(u32, generation) << 28) | instance };
     }
 
     fn validate_handle(this: @This(), handle: SoundHandle) !u32 {
         std.debug.assert(Generation == u4);
-        const generation = @intCast(Generation, (handle.id & (0b1111 << 28)) >> 28);
+        const generation = @as(Generation, @intCast((handle.id & (0b1111 << 28)) >> 28));
         const slot = std.math.maxInt(u28) & handle.id;
         if (this.sounds[slot].generation != generation) {
             return error.InvalidHandle;
@@ -253,7 +253,7 @@ pub const Engine = struct {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
-        const freq = options.freq / @intToFloat(f32, this.spec.freq);
+        const freq = options.freq / @as(f32, @floatFromInt(this.spec.freq));
 
         const biquad = switch (options.kind) {
             .lowpass => Biquad.lopass(freq, options.q),
@@ -291,9 +291,9 @@ pub const Engine = struct {
         c.SDL_LockAudioDevice(this.device_id);
         defer c.SDL_UnlockAudioDevice(this.device_id);
 
-        const delay_samples = delaySeconds * @intToFloat(f32, this.spec.freq);
+        const delay_samples = delaySeconds * @as(f32, @floatFromInt(this.spec.freq));
 
-        const delay_buffer = try this.allocator.alloc([2]f32, @floatToInt(usize, delay_samples));
+        const delay_buffer = try this.allocator.alloc([2]f32, @as(usize, @intFromFloat(delay_samples)));
         errdefer this.allocator.free(delay_buffer);
 
         std.mem.set([2]f32, delay_buffer, .{ 0, 0 });
@@ -353,9 +353,9 @@ pub const Engine = struct {
 
     // SDL fill audio callback
     fn fill_audio(userdata: ?*anyopaque, stream_ptr: ?[*]u8, stream_len: c_int) callconv(.C) void {
-        const this = @ptrCast(*@This(), @alignCast(@alignOf(@This()), userdata.?));
-        const stream = @ptrCast([*][2]f32, @alignCast(@alignOf([2]f32), stream_ptr.?))[0..@intCast(usize, @divExact(stream_len, @sizeOf([2]f32)))];
-        const silence = @intToFloat(f32, this.spec.silence);
+        const this = @as(*@This(), @ptrCast(@alignCast(userdata.?)));
+        const stream = @as([*][2]f32, @ptrCast(@alignCast(stream_ptr.?)))[0..@as(usize, @intCast(@divExact(stream_len, @sizeOf([2]f32))))];
+        const silence = @as(f32, @floatFromInt(this.spec.silence));
         std.mem.set([2]f32, stream, [2]f32{ silence, silence });
 
         // TODO: switch to using samples buffers, instead of individual samples
@@ -369,7 +369,7 @@ pub const Engine = struct {
                 sample[1] = saturating_add(sample[1], val[1]);
             }
 
-            for (this.nodes) |*node| {
+            for (&this.nodes) |*node| {
                 switch (node.*) {
                     .None, .DelayOutput => {},
                     .Sound => |*sound_node| {
@@ -396,7 +396,7 @@ pub const Engine = struct {
                     .DelayInput => |*delay_in_node| {
                         const delay_out_node = &(this.nodes[delay_in_node.delayOutputNode].DelayOutput);
                         const input = this.nodes[delay_in_node.inputNode].getSample(this.sounds[0..]);
-                        delay_out_node.pos = (delay_out_node.pos + 1) % @intCast(u32, delay_out_node.buffer.len);
+                        delay_out_node.pos = (delay_out_node.pos + 1) % @as(u32, @intCast(delay_out_node.buffer.len));
                         delay_out_node.buffer[delay_out_node.pos] = input;
                     },
                 }

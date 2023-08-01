@@ -4,13 +4,13 @@ const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 
 fn sliceContainsPtr(container: []u8, ptr: [*]u8) bool {
-    return @ptrToInt(ptr) >= @ptrToInt(container.ptr) and
-        @ptrToInt(ptr) < (@ptrToInt(container.ptr) + container.len);
+    return @intFromPtr(ptr) >= @intFromPtr(container.ptr) and
+        @intFromPtr(ptr) < (@intFromPtr(container.ptr) + container.len);
 }
 
 fn sliceContainsSlice(container: []u8, slice: []u8) bool {
-    return @ptrToInt(slice.ptr) >= @ptrToInt(container.ptr) and
-        (@ptrToInt(slice.ptr) + slice.len) <= (@ptrToInt(container.ptr) + container.len);
+    return @intFromPtr(slice.ptr) >= @intFromPtr(container.ptr) and
+        (@intFromPtr(slice.ptr) + slice.len) <= (@intFromPtr(container.ptr) + container.len);
 }
 
 /// A modifed fixed buffer allocator that allows freeing memory as a stack.
@@ -63,9 +63,9 @@ pub const StackAllocator = struct {
         }
         std.log.info("{*}, {}, {}, {}", .{ self.buffer.ptr, self.end_index, adjust_off, @sizeOf(Header) });
         const header_index = adjusted_index - @sizeOf(Header);
-        const header = .{ .padding = @truncate(u8, header_index - self.end_index) };
+        const header = .{ .padding = @as(u8, @truncate(header_index - self.end_index)) };
         const header_buf = self.buffer[header_index..adjusted_index];
-        @ptrCast(*align(@alignOf(Header)) Header, header_buf).* = header;
+        @as(*align(@alignOf(Header)) Header, @ptrCast(header_buf)).* = header;
         const result = self.buffer[adjusted_index..new_end_index];
         self.end_index = new_end_index;
 
@@ -117,10 +117,10 @@ pub const StackAllocator = struct {
             return;
         }
 
-        const start = @ptrToInt(self.buffer.ptr);
-        const cur_addr = @ptrToInt(buf.ptr);
+        const start = @intFromPtr(self.buffer.ptr);
+        const cur_addr = @intFromPtr(buf.ptr);
 
-        const header = @intToPtr(*align(@alignOf(Header)) Header, cur_addr - @sizeOf(Header)).*;
+        const header = @as(*align(@alignOf(Header)) Header, @ptrFromInt(cur_addr - @sizeOf(Header))).*;
         const prev_offset = cur_addr - header.padding - start;
 
         self.end_index = prev_offset;

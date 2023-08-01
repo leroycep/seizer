@@ -3,7 +3,7 @@ const gl = @import("./seizer.zig").gl;
 
 /// Custom functions to make loading easier
 pub fn shaderSource(shader: gl.GLuint, source: []const u8) void {
-    gl.shaderSource(shader, 1, &source.ptr, &@intCast(c_int, source.len));
+    gl.shaderSource(shader, 1, &source.ptr, &@as(c_int, @intCast(source.len)));
 }
 
 pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, fragment_source: [:0]const u8) !gl.GLuint {
@@ -33,10 +33,10 @@ pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, 
         var info_log_length: gl.GLint = undefined;
         gl.getProgramiv(program, gl.INFO_LOG_LENGTH, &info_log_length);
 
-        const info_log = try allocator.alloc(u8, @intCast(usize, info_log_length));
+        const info_log = try allocator.alloc(u8, @as(usize, @intCast(info_log_length)));
         defer allocator.free(info_log);
 
-        gl.getProgramInfoLog(program, @intCast(c_int, info_log.len), null, info_log.ptr);
+        gl.getProgramInfoLog(program, @as(c_int, @intCast(info_log.len)), null, info_log.ptr);
 
         std.log.info("failed to compile shader:\n{s}", .{info_log});
 
@@ -53,7 +53,7 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.GLenum, 
     errdefer gl.deleteShader(shader);
 
     var sources = [_][*c]const u8{source.ptr};
-    var lengths = [_]gl.GLint{@intCast(gl.GLint, source.len)};
+    var lengths = [_]gl.GLint{@as(gl.GLint, @intCast(source.len))};
 
     gl.shaderSource(shader, 1, &sources, &lengths);
 
@@ -66,10 +66,10 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.GLenum, 
         var info_log_length: gl.GLint = undefined;
         gl.getShaderiv(shader, gl.INFO_LOG_LENGTH, &info_log_length);
 
-        const info_log = try allocator.alloc(u8, @intCast(usize, info_log_length));
+        const info_log = try allocator.alloc(u8, @as(usize, @intCast(info_log_length)));
         defer allocator.free(info_log);
 
-        gl.getShaderInfoLog(shader, @intCast(c_int, info_log.len), null, info_log.ptr);
+        gl.getShaderInfoLog(shader, @as(c_int, @intCast(info_log.len)), null, info_log.ptr);
 
         std.log.info("failed to compile shader:\n{s}", .{info_log});
 

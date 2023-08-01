@@ -63,7 +63,7 @@ pub const Stage = struct {
         for (stage.layout.nodes.items) |*node| {
             const n = node.*;
             if (stage.painter.padding.get(n.style)) |padding| {
-                node.padding = padding * @splat(4, @floatToInt(i32, stage.painter.scale));
+                node.padding = padding * @splat(4, @as(i32, @intFromFloat(stage.painter.scale)));
             }
             node.min_size = stage.size(n);
         }
@@ -125,7 +125,7 @@ pub const Painter = struct {
         if (node.data) |data| {
             const value = _store.get(data);
             const area = node.bounds + (node.padding * geom.Rect{ 1, 1, -1, -1 });
-            const top_left = .{ @intToFloat(f32, area[0]), @intToFloat(f32, area[1]) };
+            const top_left = .{ @as(f32, @floatFromInt(area[0])), @as(f32, @floatFromInt(area[1])) };
             switch (value) {
                 .Bytes => |string| {
                     painter.batch.drawBitmapText(.{

@@ -215,26 +215,26 @@ pub const Store = struct {
     pub fn new(store: *@This(), value: Value) !Ref {
         switch (value) {
             .Int => |val| {
-                const handle = @intCast(Handle, store.int.items.len);
+                const handle = @as(Handle, @intCast(store.int.items.len));
                 try store.int.append(val);
                 store.store.int = store.int.items;
                 return store.store.get_ref(value, handle);
             },
             .Float => |val| {
-                const handle = @intCast(Handle, store.float.items.len);
+                const handle = @as(Handle, @intCast(store.float.items.len));
                 try store.float.append(val);
                 store.store.float = store.float.items;
                 return store.store.get_ref(value, handle);
             },
             .Bytes => |val| {
-                const handle = @intCast(Handle, store.bytes.items.len);
+                const handle = @as(Handle, @intCast(store.bytes.items.len));
                 const new_value = try store.allocator.dupe(u8, val);
                 try store.bytes.append(new_value);
                 store.store.bytes = store.bytes.items;
                 return store.store.get_ref(value, handle);
             },
             .MutBytes => |val| {
-                const handle = @intCast(Handle, store.mutbytes.items.len);
+                const handle = @as(Handle, @intCast(store.mutbytes.items.len));
                 try store.mutbytes.append(val);
                 store.store.mutbytes = store.mutbytes.items;
                 return store.store.get_ref(value, handle);

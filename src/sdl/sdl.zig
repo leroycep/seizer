@@ -108,7 +108,7 @@ pub fn run(comptime app: App) type {
                     try app.event(event);
                 }
 
-                var delta = @intToFloat(f64, timer.lap()) / std.time.ns_per_s; // Delta in seconds
+                var delta = @as(f64, @floatFromInt(timer.lap())) / std.time.ns_per_s; // Delta in seconds
                 if (delta > MAX_DELTA) {
                     delta = MAX_DELTA; // Try to avoid spiral of death when lag hits
                 }
@@ -187,9 +187,9 @@ pub fn randomBytes(slice: []u8) void {
 
 fn MessageCallback(source: gl.GLenum, msgtype: gl.GLenum, _: gl.GLuint, severity: gl.GLenum, len: gl.GLsizei, msg: [*c]const gl.GLchar, _: ?*const anyopaque) callconv(.C) void {
     // const MessageCallback: gl.GLDEBUGPROC = {
-    const msg_slice = msg[0..@intCast(usize, len)];
-    const debug_msg_source = @intToEnum(OpenGL_DebugSource, source);
-    const debug_msg_type = @intToEnum(OpenGL_DebugType, msgtype);
+    const msg_slice = msg[0..@as(usize, @intCast(len))];
+    const debug_msg_source = @as(OpenGL_DebugSource, @enumFromInt(source));
+    const debug_msg_type = @as(OpenGL_DebugType, @enumFromInt(msgtype));
     switch (severity) {
         c.GL_DEBUG_SEVERITY_HIGH => sdllog.err("{} {} {}", .{ debug_msg_source, debug_msg_type, msg_slice }),
         c.GL_DEBUG_SEVERITY_MEDIUM => sdllog.warn("{} {} {}", .{ debug_msg_source, debug_msg_type, msg_slice }),
@@ -293,7 +293,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
                 .ControllerAxis = .{
                     .timestamp = sdlEvent.caxis.timestamp,
                     .joystickID = sdlEvent.caxis.which,
-                    .axis = @intToEnum(ControllerAxis, sdlEvent.caxis.axis),
+                    .axis = @as(ControllerAxis, @enumFromInt(sdlEvent.caxis.axis)),
                     .value = sdlEvent.caxis.value,
                 },
             };
@@ -303,7 +303,7 @@ pub fn sdlToCommonEvent(sdlEvent: c.SDL_Event) ?Event {
             const button_event = ControllerButtonEvent{
                 .timestamp = sdlEvent.cbutton.timestamp,
                 .joystickID = sdlEvent.cbutton.which,
-                .button = @intToEnum(ControllerButton, sdlEvent.cbutton.button),
+                .button = @as(ControllerButton, @enumFromInt(sdlEvent.cbutton.button)),
                 .pressed = if (sdlEvent.cbutton.state == c.SDL_PRESSED) true else false,
             };
             if (sdlEvent.type == c.SDL_CONTROLLERBUTTONUP) {

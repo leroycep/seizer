@@ -38,10 +38,10 @@ pub fn GetSceneTable(comptime T: type) SceneTable {
     return SceneTable{
         .size = @sizeOf(T),
         .alignment = std.math.log2_int(u29, @alignOf(T)),
-        .deinit = @ptrCast(*const fn (*anyopaque) void, &@field(T, "deinit")),
-        .render = @ptrCast(*const fn (*anyopaque, f64) anyerror!void, &@field(T, "render")),
-        .update = if (@hasDecl(T, "update")) @ptrCast(*const fn (*anyopaque, f64, f64) anyerror!void, &@field(T, "update")) else null,
-        .event = if (@hasDecl(T, "event")) @ptrCast(*const fn (*anyopaque, seizer.event.Event) anyerror!void, &@field(T, "event")) else null,
+        .deinit = @as(*const fn (*anyopaque) void, @ptrCast(&@field(T, "deinit"))),
+        .render = @as(*const fn (*anyopaque, f64) anyerror!void, @ptrCast(&@field(T, "render"))),
+        .update = if (@hasDecl(T, "update")) @as(*const fn (*anyopaque, f64, f64) anyerror!void, @ptrCast(&@field(T, "update"))) else null,
+        .event = if (@hasDecl(T, "event")) @as(*const fn (*anyopaque, seizer.event.Event) anyerror!void, @ptrCast(&@field(T, "event"))) else null,
     };
 }
 
@@ -97,7 +97,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         fn dispatch_deinit(this: *@This(), scene: ScenePtr) void {
             const table = scene_table[scene.which];
             table.deinit(scene.ptr);
-            const non_const_ptr = @intToPtr([*]u8, @ptrToInt(scene.ptr));
+            const non_const_ptr = @as([*]u8, @ptrFromInt(@intFromPtr(scene.ptr)));
             this.alloc.rawFree(non_const_ptr[0..table.size], table.alignment, @returnAddress());
         }
 
@@ -106,7 +106,7 @@ pub fn Manager(comptime Context: type, comptime Scenes: []const type) type {
         ////////////////////////////
 
         pub fn push(this: *@This(), comptime which: SceneEnum) anyerror!void {
-            const i = @enumToInt(which);
+            const i = @intFromEnum(which);
             const scene = try this.alloc.create(Scenes[i]);
             scene.* = try @field(Scenes[i], "init")(this.ctx);
             try this.scenes.append(.{ .which = i, .ptr = scene });

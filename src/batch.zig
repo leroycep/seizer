@@ -71,9 +71,9 @@ pub const SpriteBatch = struct {
         gl.enableVertexAttribArray(2); // UV attribute
 
         gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "pos")));
-        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "uv")));
-        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "color")));
+        gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "pos"))));
+        gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "uv"))));
+        gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "color"))));
         gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 
         return @This(){
@@ -135,8 +135,8 @@ pub const SpriteBatch = struct {
                 glyph.offset[1] * options.scale,
             };
             const texture_size = [2]f32{
-                @intToFloat(f32, page.size[0]),
-                @intToFloat(f32, page.size[1]),
+                @as(f32, @floatFromInt(page.size[0])),
+                @as(f32, @floatFromInt(page.size[1])),
             };
 
             const textAlignOffset = 0;
@@ -148,17 +148,6 @@ pub const SpriteBatch = struct {
                 glyph.size[0] * options.scale,
                 glyph.size[1] * options.scale,
             };
-
-            // const uv = [2][2]f32{
-            //     .{
-            //         glyph.pos[0] / texture_size[0],
-            //         glyph.pos[1] / texture_size[1],
-            //     },
-            //     .{
-            //         (glyph.pos[0] + glyph.size[0]) / texture_size[0],
-            //         (glyph.pos[1] + glyph.size[1]) / texture_size[1],
-            //     },
-            // };
 
             this.drawTexture(page, render_pos, .{
                 .size = render_size,
@@ -175,16 +164,6 @@ pub const SpriteBatch = struct {
                 },
             });
 
-            // try glyph_buffer.appendSlice(&.{
-            //     .{ .pos = .{ render_pos[0], render_pos[1], 0.1 }, .uv = .{ uv[0][0], uv[0][1] } },
-            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1], 0.1 }, .uv = .{ uv[1][0], uv[0][1] } },
-            //     .{ .pos = .{ render_pos[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[0][0], uv[1][1] } },
-
-            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1], 0.1 }, .uv = .{ uv[1][0], uv[0][1] } },
-            //     .{ .pos = .{ render_pos[0] + render_size[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[1][0], uv[1][1] } },
-            //     .{ .pos = .{ render_pos[0], render_pos[1] + render_size[1], 0.1 }, .uv = .{ uv[0][0], uv[1][1] } },
-            // });
-
             pos[0] += direction * xadvance;
         }
     }
@@ -200,8 +179,8 @@ pub const SpriteBatch = struct {
 
     pub fn drawTexture(this: *@This(), texture: Texture, pos: [2]f32, opts: DrawTextureOptions) void {
         const size = opts.size orelse [2]f32{
-            @intToFloat(f32, texture.size[0]),
-            @intToFloat(f32, texture.size[1]),
+            @as(f32, @floatFromInt(texture.size[0])),
+            @as(f32, @floatFromInt(texture.size[1])),
         };
         this.drawTextureRaw(
             texture.glTexture,
@@ -309,10 +288,10 @@ pub const SpriteBatch = struct {
             gl.enable(gl.SCISSOR_TEST);
             const quad = this.clips.items[this.clips.items.len - 1];
             gl.scissor(
-                @floatToInt(c_int, quad.pos[0] - 0.5),
-                @floatToInt(c_int, @floor(@intToFloat(f32, this.screenSize[1]) - quad.pos[1] - quad.size[1] - 0.5)),
-                @floatToInt(c_int, quad.size[0]),
-                @floatToInt(c_int, quad.size[1]),
+                @as(c_int, @intFromFloat(quad.pos[0] - 0.5)),
+                @as(c_int, @intFromFloat(@floor(@as(f32, @floatFromInt(this.screenSize[1])) - quad.pos[1] - quad.size[1] - 0.5))),
+                @as(c_int, @intFromFloat(quad.size[0])),
+                @as(c_int, @intFromFloat(quad.size[1])),
             );
         }
 
@@ -320,7 +299,7 @@ pub const SpriteBatch = struct {
 
         gl.bindVertexArray(this.vertex_array_object);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.vertex_buffer_object);
-        gl.bufferData(gl.ARRAY_BUFFER, @intCast(isize, this.num_vertices) * @sizeOf(Vertex), &this.draw_buffer, gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(this.num_vertices)) * @sizeOf(Vertex), &this.draw_buffer, gl.STATIC_DRAW);
         defer this.num_vertices = 0;
         gl.bindVertexArray(0);
         gl.bindBuffer(gl.ARRAY_BUFFER, 0);
@@ -346,6 +325,6 @@ pub const SpriteBatch = struct {
 
         gl.bindVertexArray(this.vertex_array_object);
         defer gl.bindVertexArray(0);
-        gl.drawArrays(gl.TRIANGLES, 0, @intCast(c_int, this.num_vertices));
+        gl.drawArrays(gl.TRIANGLES, 0, @as(c_int, @intCast(this.num_vertices)));
     }
 };

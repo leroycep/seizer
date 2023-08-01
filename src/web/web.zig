@@ -7,7 +7,7 @@ const App = seizer.App;
 pub extern fn now_f64() f64;
 
 pub fn now() i64 {
-    return @floatToInt(i64, now_f64());
+    return @as(i64, @intFromFloat(now_f64()));
 }
 
 pub extern fn getScreenW() i32;
@@ -69,7 +69,7 @@ pub fn run(comptime app: App) type {
 
         export fn onInit(promiseId: usize) void {
             app.init() catch |err| {
-                seizer_reject_promise(promiseId, @errorToInt(err));
+                seizer_reject_promise(promiseId, @intFromError(err));
                 return;
             };
             seizer_resolve_promise(promiseId, 0);
@@ -88,7 +88,7 @@ pub fn run(comptime app: App) type {
         export fn onMouseButton(x: i32, y: i32, down: i32, button_int: u8) void {
             const event = seizer.event.MouseButtonEvent{
                 .pos = .{ x, y },
-                .button = @intToEnum(seizer.event.MouseButton, button_int),
+                .button = @as(seizer.event.MouseButton, @enumFromInt(button_int)),
             };
             if (down == 0) {
                 catchError(app.event(.{ .MouseButtonUp = event }));
@@ -106,8 +106,8 @@ pub fn run(comptime app: App) type {
         export fn onKeyDown(key: u16, scancode: u16) void {
             catchError(app.event(.{
                 .KeyDown = .{
-                    .key = @intToEnum(seizer.event.Keycode, key),
-                    .scancode = @intToEnum(seizer.event.Scancode, scancode),
+                    .key = @as(seizer.event.Keycode, @enumFromInt(key)),
+                    .scancode = @as(seizer.event.Scancode, @enumFromInt(scancode)),
                 },
             }));
         }
@@ -115,8 +115,8 @@ pub fn run(comptime app: App) type {
         export fn onKeyUp(key: u16, scancode: u16) void {
             catchError(app.event(.{
                 .KeyUp = .{
-                    .key = @intToEnum(seizer.event.Keycode, key),
-                    .scancode = @intToEnum(seizer.event.Scancode, scancode),
+                    .key = @as(seizer.event.Keycode, @enumFromInt(key)),
+                    .scancode = @as(seizer.event.Scancode, @enumFromInt(scancode)),
                 },
             }));
         }
@@ -162,19 +162,19 @@ comptime {
     _ = @import("./constant_exports.zig");
 }
 
-export const KEYCODE_UNKNOWN = @enumToInt(seizer.event.Keycode.UNKNOWN);
-export const KEYCODE_BACKSPACE = @enumToInt(seizer.event.Keycode.BACKSPACE);
+export const KEYCODE_UNKNOWN = @intFromEnum(seizer.event.Keycode.UNKNOWN);
+export const KEYCODE_BACKSPACE = @intFromEnum(seizer.event.Keycode.BACKSPACE);
 
-export const MOUSE_BUTTON_LEFT = @enumToInt(seizer.event.MouseButton.Left);
-export const MOUSE_BUTTON_MIDDLE = @enumToInt(seizer.event.MouseButton.Middle);
-export const MOUSE_BUTTON_RIGHT = @enumToInt(seizer.event.MouseButton.Right);
-export const MOUSE_BUTTON_X1 = @enumToInt(seizer.event.MouseButton.X1);
-export const MOUSE_BUTTON_X2 = @enumToInt(seizer.event.MouseButton.X2);
+export const MOUSE_BUTTON_LEFT = @intFromEnum(seizer.event.MouseButton.Left);
+export const MOUSE_BUTTON_MIDDLE = @intFromEnum(seizer.event.MouseButton.Middle);
+export const MOUSE_BUTTON_RIGHT = @intFromEnum(seizer.event.MouseButton.Right);
+export const MOUSE_BUTTON_X1 = @intFromEnum(seizer.event.MouseButton.X1);
+export const MOUSE_BUTTON_X2 = @intFromEnum(seizer.event.MouseButton.X2);
 
 // Export errnos
-export const ERRNO_OUT_OF_MEMORY = @errorToInt(error.OutOfMemory);
-export const ERRNO_FILE_NOT_FOUND = @errorToInt(error.FileNotFound);
-export const ERRNO_UNKNOWN = @errorToInt(error.Unknown);
+export const ERRNO_OUT_OF_MEMORY = @intFromError(error.OutOfMemory);
+export const ERRNO_FILE_NOT_FOUND = @intFromError(error.FileNotFound);
+export const ERRNO_UNKNOWN = @intFromError(error.Unknown);
 
 fn catchError(result: anyerror!void) void {
     if (result) |_| {} else |_| {
@@ -210,11 +210,11 @@ pub fn execute(allocator: std.mem.Allocator, comptime func: anytype, args: anyty
 
 // WASM Error name
 export fn wasm_error_name_ptr(errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) [*]const u8 {
-    return @errorName(@intToError(errno)).ptr;
+    return @errorName(@errorFromInt(errno)).ptr;
 }
 
 export fn wasm_error_name_len(errno: std.meta.Int(.unsigned, @sizeOf(anyerror) * 8)) usize {
-    return @errorName(@intToError(errno)).len;
+    return @errorName(@errorFromInt(errno)).len;
 }
 
 // Random bytes

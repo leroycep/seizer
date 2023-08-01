@@ -44,21 +44,21 @@ pub const Painter = struct {
     pub fn init(ctx: *Context) @This() {
         const vec2 = seizer.math.Vec(2, i32).init;
         // const vec2f = seizer.math.Vec(2, f32).init;
-        const fs = @intCast(i32, ctx.tilemap.ninepatches[0].size);
+        const fs = @as(i32, @intCast(ctx.tilemap.ninepatches[0].size));
         const frame9p_size = vec2(fs, fs).intToFloat(f32);
         const frame9p_tl = vec2(ctx.tilemap.ninepatches[0].bounds[0], ctx.tilemap.ninepatches[0].bounds[1]);
         const frame9p_br = vec2(ctx.tilemap.ninepatches[0].bounds[2], ctx.tilemap.ninepatches[0].bounds[3]);
-        const nps = @intCast(i32, ctx.tilemap.ninepatches[1].size);
+        const nps = @as(i32, @intCast(ctx.tilemap.ninepatches[1].size));
         const nameplate9p_size = vec2(nps, nps).intToFloat(f32);
         const nameplate9p_tl = vec2(ctx.tilemap.ninepatches[1].bounds[0], ctx.tilemap.ninepatches[1].bounds[1]);
         const nameplate9p_br = vec2(ctx.tilemap.ninepatches[1].bounds[2], ctx.tilemap.ninepatches[1].bounds[3]);
-        const keysize = @intCast(i32, ctx.tilemap.ninepatches[2].size);
+        const keysize = @as(i32, @intCast(ctx.tilemap.ninepatches[2].size));
         const key_size = vec2(keysize, keysize).intToFloat(f32);
         const keyup9p_tl = vec2(ctx.tilemap.ninepatches[2].bounds[0], ctx.tilemap.ninepatches[2].bounds[1]);
         const keyup9p_br = vec2(ctx.tilemap.ninepatches[2].bounds[2], ctx.tilemap.ninepatches[2].bounds[3]);
         const keydown9p_tl = vec2(ctx.tilemap.ninepatches[3].bounds[0], ctx.tilemap.ninepatches[3].bounds[1]);
         const keydown9p_br = vec2(ctx.tilemap.ninepatches[3].bounds[2], ctx.tilemap.ninepatches[3].bounds[3]);
-        const label_size = @intCast(i32, ctx.tilemap.ninepatches[4].size);
+        const label_size = @as(i32, @intCast(ctx.tilemap.ninepatches[4].size));
         const label9p_size = vec2(label_size, label_size).intToFloat(f32);
         const label9p_tl = vec2(ctx.tilemap.ninepatches[4].bounds[0], ctx.tilemap.ninepatches[4].bounds[1]);
         const label9p_br = vec2(ctx.tilemap.ninepatches[4].bounds[2], ctx.tilemap.ninepatches[4].bounds[3]);
@@ -103,8 +103,8 @@ pub const Painter = struct {
                     const line_height = this.ctx.font.lineHeight * label.size;
                     const line_width = this.ctx.font.calcTextWidth(label.text, label.size);
                     return geom.Vec2{
-                        @floatToInt(i32, line_width),
-                        @floatToInt(i32, line_height),
+                        @as(i32, @intFromFloat(line_width)),
+                        @as(i32, @intFromFloat(line_height)),
                     };
                 },
             }
@@ -140,7 +140,7 @@ pub const Painter = struct {
         if (node.data) |data| {
             switch (data) {
                 .Label => |label| {
-                    const pos = seizer.math.Vec(2, f32).init(@intToFloat(f32, left), @intToFloat(f32, top));
+                    const pos = seizer.math.Vec(2, f32).init(@as(f32, @floatFromInt(left)), @as(f32, @floatFromInt(top)));
                     this.ctx.font.drawText(&this.ctx.flat, label.text, pos, .{ .scale = label.size, .textBaseline = .Top, .color = .{ .r = 0x00, .g = 0x00, .b = 0x00, .a = 0xFF } });
                 },
             }

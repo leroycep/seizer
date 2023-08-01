@@ -289,14 +289,14 @@ fn run_layout(this: *@This(), which_layout: LayoutData, bounds: Rect, child_inde
             return .{ .HList = .{ .left = _right - bounds[0] } };
         },
         .VDiv => {
-            const vsize = @divTrunc(geom.rect.size(bounds)[1], @intCast(i32, child_count));
-            const num = @intCast(i32, child_num);
+            const vsize = @divTrunc(geom.rect.size(bounds)[1], @as(i32, @intCast(child_count)));
+            const num = @as(i32, @intCast(child_num));
             this.nodes.items[child_index].bounds = Rect{ bounds[0], bounds[1] + vsize * num, bounds[2], bounds[1] + vsize * (num + 1) };
             return .VDiv;
         },
         .HDiv => {
-            const hsize = @divTrunc(geom.rect.size(bounds)[0], @intCast(i32, child_count));
-            const num = @intCast(i32, child_num);
+            const hsize = @divTrunc(geom.rect.size(bounds)[0], @as(i32, @intCast(child_count)));
+            const num = @as(i32, @intCast(child_num));
             this.nodes.items[child_index].bounds = Rect{ bounds[0] + hsize * num, bounds[1], bounds[0] + hsize * (num + 1), bounds[3] };
             return .HDiv;
         },

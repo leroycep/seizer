@@ -71,8 +71,8 @@ fn init() !void {
     gl.enableVertexAttribArray(1); // UV attribute
 
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "x")));
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @intToPtr(?*const anyopaque, @offsetOf(Vertex, "u")));
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "x")));
+    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
     gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 }
 
@@ -124,7 +124,7 @@ fn render(alpha: f64) !void {
     defer gl.bindVertexArray(0);
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
     defer gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-    gl.bufferData(gl.ARRAY_BUFFER, @intCast(isize, VERTS.len) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
+    gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(VERTS.len)) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 }

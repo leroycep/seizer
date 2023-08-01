@@ -57,22 +57,22 @@ const NodeStyle = enum(u16) {
     Keydown,
 
     pub fn asInt(style: NodeStyle) u16 {
-        return @enumToInt(style);
+        return @intFromEnum(style);
     }
 
     pub fn frame(style: NodeStyle) seizer.ui.Node {
-        return seizer.ui.Node{ .style = @enumToInt(style) };
+        return seizer.ui.Node{ .style = @intFromEnum(style) };
     }
 };
 
 const button_transitions = [_]Observer.Transition{
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Keyrest), .event = .enter, .end = @enumToInt(NodeStyle.Keyup) },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Keyup), .event = .exit, .end = @enumToInt(NodeStyle.Keyrest) },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Keyup), .event = .press, .end = @enumToInt(NodeStyle.Keydown) },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Keydown), .event = .exit, .end = @enumToInt(NodeStyle.Keyrest) },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Keydown), .event = .release, .end = @enumToInt(NodeStyle.Keyup), .emit = 1 },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.Input), .event = .press, .end = @enumToInt(NodeStyle.InputEdit), .emit = 2 },
-    Observer.Transition{ .begin = @enumToInt(NodeStyle.InputEdit), .event = .onblur, .end = @enumToInt(NodeStyle.Input), .emit = 3 },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Keyrest), .event = .enter, .end = @intFromEnum(NodeStyle.Keyup) },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Keyup), .event = .exit, .end = @intFromEnum(NodeStyle.Keyrest) },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Keyup), .event = .press, .end = @intFromEnum(NodeStyle.Keydown) },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Keydown), .event = .exit, .end = @intFromEnum(NodeStyle.Keyrest) },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Keydown), .event = .release, .end = @intFromEnum(NodeStyle.Keyup), .emit = 1 },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.Input), .event = .press, .end = @intFromEnum(NodeStyle.InputEdit), .emit = 2 },
+    Observer.Transition{ .begin = @intFromEnum(NodeStyle.InputEdit), .event = .onblur, .end = @intFromEnum(NodeStyle.Input), .emit = 3 },
 };
 
 fn init() !void {
@@ -95,14 +95,14 @@ fn init() !void {
     stage = try Stage.init(gpa.allocator(), &font, &batch, &button_transitions);
     stage.painter.scale = 2;
 
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Frame), NinePatch.initv(texture, .{ 0, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Nameplate), NinePatch.initv(texture, .{ 48, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Label), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Input), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.InputEdit), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Keyrest), NinePatch.initv(texture, .{ 96, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 7, 8, 9 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Keyup), NinePatch.initv(texture, .{ 120, 24, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 8, 8, 8 });
-    try stage.painter.addStyle(@enumToInt(NodeStyle.Keydown), NinePatch.initv(texture, .{ 120, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 9, 8, 7 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Frame), NinePatch.initv(texture, .{ 0, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Nameplate), NinePatch.initv(texture, .{ 48, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Label), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Input), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.InputEdit), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Keyrest), NinePatch.initv(texture, .{ 96, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 7, 8, 9 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Keyup), NinePatch.initv(texture, .{ 120, 24, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 8, 8, 8 });
+    try stage.painter.addStyle(@intFromEnum(NodeStyle.Keydown), NinePatch.initv(texture, .{ 120, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 9, 8, 7 });
 
     // Create values in the store to be used by the UI
     const name_ref = try stage.store.new(.{ .Bytes = "Hello, World!" });

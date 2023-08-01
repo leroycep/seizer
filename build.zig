@@ -33,7 +33,7 @@ pub fn build(b: *Builder) !void {
         .target = target,
         .optimize = optimize,
     });
-    library.install();
+    b.installArtifact(library);
     library.linkLibC();
     library.linkSystemLibrary("sdl2");
 
@@ -49,12 +49,12 @@ pub fn build(b: *Builder) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            exe.install();
+            b.installArtifact(exe);
             exe.linkLibrary(library);
             exe.addModule("seizer", module);
 
             if (example_option != null and std.mem.eql(u8, tag_name, @tagName(example_option.?))) {
-                const run_cmd = exe.run();
+                const run_cmd = b.addRunArtifact(exe);
                 run_cmd.step.dependOn(b.getInstallStep());
 
                 if (b.args) |args| {
@@ -72,7 +72,7 @@ pub fn build(b: *Builder) !void {
                 .target = target,
                 .optimize = optimize,
             });
-            exe.install();
+            b.installArtifact(exe);
             exe.linkLibrary(library);
             exe.addModule("seizer", module);
 

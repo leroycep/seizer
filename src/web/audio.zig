@@ -52,7 +52,7 @@ pub const Engine = struct {
 
         var sound_id: i32 = undefined;
         suspend {
-            bindings.load(@ptrToInt(@frame()), filename.ptr, filename.len, &sound_id);
+            bindings.load(@intFromPtr(@frame()), filename.ptr, filename.len, &sound_id);
         }
         return SoundHandle{ .id = try unwrapRetCode(sound_id) };
     }
@@ -70,7 +70,7 @@ pub const Engine = struct {
 
         const ret = bindings.createBiquadNode(
             inputNode.id,
-            @enumToInt(options.kind),
+            @intFromEnum(options.kind),
             options.freq,
             options.q,
             options.gain,
@@ -122,7 +122,7 @@ pub const Engine = struct {
     }
 
     fn unwrapRetCode(retCode: i32) !u32 {
-        if (retCode >= 0) return @intCast(u32, retCode);
+        if (retCode >= 0) return @as(u32, @intCast(retCode));
         switch (retCode) {
             bindings.ERROR_UNKNOWN => return error.Unknown,
             else => unreachable,
@@ -131,7 +131,7 @@ pub const Engine = struct {
 };
 
 export fn @"resume"(framePtr: usize) void {
-    const frame = @intToPtr(anyframe, framePtr);
+    const frame = @as(anyframe, @ptrFromInt(framePtr));
     resume frame;
 }
 

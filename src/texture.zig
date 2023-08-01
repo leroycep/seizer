@@ -27,8 +27,8 @@ pub const Texture = struct {
 
     pub fn pix2uv(tex: @This(), pixel: [2]i32) [2]f32 {
         return .{
-            @intToFloat(f32, pixel[0]) / @intToFloat(f32, tex.size[0]),
-            @intToFloat(f32, pixel[1]) / @intToFloat(f32, tex.size[1]),
+            @as(f32, @floatFromInt(pixel[0])) / @as(f32, @floatFromInt(tex.size[0])),
+            @as(f32, @floatFromInt(pixel[1])) / @as(f32, @floatFromInt(tex.size[1])),
         };
     }
 
@@ -48,8 +48,8 @@ pub const Texture = struct {
 
         gl.bindTexture(gl.TEXTURE_2D, this.glTexture);
         defer gl.bindTexture(gl.TEXTURE_2D, 0);
-        const width = @intCast(c_int, load_res.width);
-        const height = @intCast(c_int, load_res.height);
+        const width = @as(c_int, @intCast(load_res.width));
+        const height = @as(c_int, @intCast(load_res.height));
 
         // Convert texture to RGBA32 format
         var pixelData = try alloc.alloc(u8, load_res.width * load_res.height * 4);
