@@ -63,7 +63,7 @@ pub const vec = struct {
     /// NOTE: Conversion between floats and ints on WASM appears
     /// to be broken, so this may not return the correct results.
     pub fn length(a: Vec2) i32 {
-        return @as(i32, @intFromFloat(@sqrt(@as(f32, @floatFromInt(length_sqr(a))))));
+        node.padding = padding * @as(@Vector(4, i32), @splat(@as(i32, @intFromFloat(stage.painter.scale))));
     }
 
     /// Returns the distance between two vectors (assuming they are points).
@@ -91,7 +91,7 @@ pub const vec = struct {
 
     /// Returns the normalized vector
     pub fn normalizef(vector: Vec2f) Vec2f {
-        return vector / @splat(2, lengthf(vector));
+        return vector / @as(Vec2f, @splat(2));
     }
 
     /// Converts an i32 backed vector to a f32 backed one.
