@@ -2,11 +2,11 @@ const std = @import("std");
 const gl = @import("./seizer.zig").gl;
 
 /// Custom functions to make loading easier
-pub fn shaderSource(shader: gl.GLuint, source: []const u8) void {
+pub fn shaderSource(shader: gl.Uint, source: []const u8) void {
     gl.shaderSource(shader, 1, &source.ptr, &@as(c_int, @intCast(source.len)));
 }
 
-pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, fragment_source: [:0]const u8) !gl.GLuint {
+pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, fragment_source: [:0]const u8) !gl.Uint {
     var vertex_shader = try compilerShaderPart(allocator, gl.VERTEX_SHADER, vertex_source);
     defer gl.deleteShader(vertex_shader);
 
@@ -26,11 +26,11 @@ pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, 
 
     gl.linkProgram(program);
 
-    var link_status: gl.GLint = undefined;
+    var link_status: gl.Int = undefined;
     gl.getProgramiv(program, gl.LINK_STATUS, &link_status);
 
     if (link_status != gl.TRUE) {
-        var info_log_length: gl.GLint = undefined;
+        var info_log_length: gl.Int = undefined;
         gl.getProgramiv(program, gl.INFO_LOG_LENGTH, &info_log_length);
 
         const info_log = try allocator.alloc(u8, @as(usize, @intCast(info_log_length)));
@@ -46,24 +46,24 @@ pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, 
     return program;
 }
 
-pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.GLenum, source: [:0]const u8) !gl.GLuint {
+pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, source: [:0]const u8) !gl.Uint {
     var shader = gl.createShader(shader_type);
     if (shader == 0)
         return error.OpenGlFailure;
     errdefer gl.deleteShader(shader);
 
     var sources = [_][*c]const u8{source.ptr};
-    var lengths = [_]gl.GLint{@as(gl.GLint, @intCast(source.len))};
+    var lengths = [_]gl.Int{@as(gl.Int, @intCast(source.len))};
 
     gl.shaderSource(shader, 1, &sources, &lengths);
 
     gl.compileShader(shader);
 
-    var compile_status: gl.GLint = undefined;
+    var compile_status: gl.Int = undefined;
     gl.getShaderiv(shader, gl.COMPILE_STATUS, &compile_status);
 
     if (compile_status != gl.TRUE) {
-        var info_log_length: gl.GLint = undefined;
+        var info_log_length: gl.Int = undefined;
         gl.getShaderiv(shader, gl.INFO_LOG_LENGTH, &info_log_length);
 
         const info_log = try allocator.alloc(u8, @as(usize, @intCast(info_log_length)));

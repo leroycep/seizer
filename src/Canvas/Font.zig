@@ -4,23 +4,13 @@
 ///
 /// [AngelCode BMFont]: http://www.angelcode.com/products/bmfont/
 /// [Hiero]: https://github.com/libgdx/libgdx/wiki/Hiero
-pages: std.AutoHashMap(u32, seizer.Texture),
+pages: std.AutoHashMap(u32, []const u8),
 glyphs: std.AutoHashMap(u32, Glyph),
 lineHeight: f32,
 base: f32,
 scale: [2]f32,
 
-pub const Options = struct {
-    font_contents: []const u8,
-    pages: []const Page,
-
-    pub const Page = struct {
-        name: []const u8,
-        image: []const u8,
-    };
-};
-
-pub const Glyph = struct {
+const Glyph = struct {
     page: u32,
     pos: [2]f32,
     size: [2]f32,
@@ -28,8 +18,10 @@ pub const Glyph = struct {
     xadvance: f32,
 };
 
-pub fn init(allocator: std.mem.Allocator, options: Options) !@This() {
-    var pages = std.AutoHashMap(u32, seizer.Texture).init(allocator);
+const Font = @This();
+
+pub fn parse(allocator: std.mem.Allocator, font_contents: []const u8) !@This() {
+    var pages = std.AutoHashMap(u32, []const u8).init(allocator);
     var glyphs = std.AutoHashMap(u32, Glyph).init(allocator);
     var lineHeight: f32 = undefined;
     var base: f32 = undefined;
@@ -39,7 +31,7 @@ pub fn init(allocator: std.mem.Allocator, options: Options) !@This() {
 
     var next_page_id: u32 = 0;
 
-    var line_iter = std.mem.tokenize(u8, options.font_contents, "\n\r");
+    var line_iter = std.mem.tokenize(u8, font_contents, "\n\r");
     while (line_iter.next()) |line| {
         var pair_iter = std.mem.tokenize(u8, line, " \t");
 
@@ -141,17 +133,7 @@ pub fn init(allocator: std.mem.Allocator, options: Options) !@This() {
                 return error.NoFilenameSpecifiedForPage;
             }
 
-            const page = for (options.pages) |page| {
-                if (std.mem.eql(u8, page.name, page_filename.?)) {
-                    break page;
-                }
-            } else {
-                return error.UknownFontPageFilename;
-            };
-
-            const texture = try seizer.Texture.initFromMemory(allocator, page.image, .{});
-
-            try pages.put(id, texture);
+            try pages.put(id, page_filename.?);
             next_page_id = @max(id + 1, next_page_id + 1);
         }
     }
@@ -170,23 +152,159 @@ pub fn init(allocator: std.mem.Allocator, options: Options) !@This() {
 }
 
 pub fn deinit(this: *@This()) void {
-    var iter = this.pages.valueIterator();
-    while (iter.next()) |texture| {
-        texture.deinit();
-    }
     this.pages.deinit();
     this.glyphs.deinit();
 }
 
-pub fn calcTextWidth(this: @This(), text: []const u8, scale: f32) f32 {
-    var total_width: f32 = 0;
-    for (text) |char| {
-        if (this.glyphs.get(char)) |glyph| {
-            const xadvance = (glyph.xadvance * scale);
-            total_width += xadvance;
+const TextAlign = enum { Left, Center, Right };
+const TextBaseline = enum { Bottom, Middle, Top };
+
+pub fn textSize(this: @This(), text: []const u8, scale: f32) [2]f32 {
+    var layouter = this.textLayouter(scale);
+    layouter.writer().writeAll(text) catch {};
+    return layouter.textSize();
+}
+
+pub fn fmtTextSize(this: @This(), comptime fmt: []const u8, args: anytype, scale: f32) [2]f32 {
+    var layouter = this.textLayouter(scale);
+    layouter.writer().print(fmt, args) catch {};
+    return layouter.textSize();
+}
+
+pub fn textLayouter(this: *const @This(), scale: f32) TextLayouter {
+    return TextLayouter{
+        .font = this,
+        .scale = scale,
+    };
+}
+
+pub const TextLayouter = struct {
+    font: *const Font,
+    scale: f32,
+    pos: [2]f32 = .{ 0, 0 },
+    max_width: f32 = 0,
+
+    pub fn addCharacter(this: *@This(), character: u21) void {
+        if (character == '\n') {
+            this.pos[1] += this.font.lineHeight * this.scale;
+            this.pos[0] = 0;
+            return;
+        }
+        if (this.font.glyphs.get(character)) |glyph| {
+            const xadvance = (glyph.xadvance * this.scale);
+            this.pos[0] += xadvance;
+            this.max_width = @max(this.pos[0], this.max_width);
         }
     }
-    return total_width;
+
+    /// TODO: Support non-ascii text
+    pub fn addText(this: *@This(), text: []const u8) void {
+        for (text) |char| {
+            this.addCharacter(char);
+        }
+    }
+
+    pub fn textSize(this: @This()) [2]f32 {
+        return .{
+            this.max_width,
+            this.pos[1] + this.font.lineHeight * this.scale,
+        };
+    }
+
+    pub fn writer(this: *@This()) Writer {
+        return Writer{
+            .context = this,
+        };
+    }
+
+    pub const Writer = std.io.Writer(*@This(), error{}, write);
+
+    pub fn write(this: *@This(), bytes: []const u8) error{}!usize {
+        this.addText(bytes);
+        return bytes.len;
+    }
+};
+
+pub const GlyphLayout = struct {
+    page: u32,
+    uv1: [2]f32,
+    uv2: [2]f32,
+    pos: [2]f32,
+    size: [2]f32,
+};
+
+pub const PositionedGlyph = struct {
+    page: u32,
+    uv1: [2]f32,
+    uv2: [2]f32,
+    pos: [2]f32,
+    size: [2]f32,
+};
+
+const LayoutOptions = struct {
+    // TODO: textAlign: TextAlign = .Left,
+    // TODO: textBaseline: TextBaseline = .Bottom,
+    maxWidth: ?f32 = null,
+    scale: f32 = 1,
+};
+
+pub fn layoutText(this: @This(), allocator: std.mem.Allocator, text: []const u8, options: LayoutOptions, glyphs_out: *std.MultiArrayList(PositionedGlyph)) !void {
+    var x: f32 = 0;
+    var y: f32 = 0;
+    const direction: f32 = 1;
+
+    var width: f32 = 0;
+
+    for (text) |char| {
+        // TODO: Handle unknown glyphs
+        const glyph = this.glyphs.get(char) orelse continue;
+
+        const xadvance = (glyph.xadvance * options.scale);
+        const offset = [2]f32{
+            glyph.offset[0] * options.scale,
+            glyph.offset[1] * options.scale,
+        };
+        const texture = this.pages[glyph.page];
+        const textureSize = [2]f32{
+            @as(f32, @floatFromInt(texture.size[0])),
+            @as(f32, @floatFromInt(texture.size[1])),
+        };
+
+        if (options.maxWidth != null and x + direction * xadvance > options.maxWidth.?) {
+            x = 0;
+            y += @floor(this.lineHeight * options.scale);
+        }
+
+        const textAlignOffset = 0;
+        const renderPos = .{
+            x + offset.x + textAlignOffset,
+            y + offset.y,
+        };
+
+        try glyphs_out.append(allocator, .{
+            .texture = texture,
+            .uv1 = .{
+                glyph.pos[0] / textureSize[0],
+                glyph.pos[1] / textureSize[1],
+            },
+            .uv2 = .{
+                (glyph.pos[0] + glyph.size[0]) / textureSize[0],
+                (glyph.pos[1] + glyph.size[1]) / textureSize[1],
+            },
+            .pos = renderPos,
+            .size = .{
+                glyph.size[0] * options.scale,
+                glyph.size[1] * options.scale,
+            },
+        });
+
+        x += direction * xadvance;
+        if (x > width) {
+            width = x;
+        }
+    }
+
+    return glyphs_out;
 }
 
 const MAX_FILESIZE = 50000;
@@ -194,5 +312,4 @@ const MAX_FILESIZE = 50000;
 const std = @import("std");
 const utils = @import("utils");
 const zigimg = @import("zigimg");
-const seizer = @import("../seizer.zig");
-const gl = seizer.gl;
+const gl = @import("zgl");

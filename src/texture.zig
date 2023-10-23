@@ -5,11 +5,11 @@ const gl = seizer.gl;
 const geom = seizer.geometry;
 
 pub const Texture = struct {
-    glTexture: gl.GLuint,
+    glTexture: gl.Uint,
     size: [2]usize,
 
     pub fn init() !@This() {
-        var tex: gl.GLuint = 0;
+        var tex: gl.Uint = 0;
         gl.genTextures(1, &tex);
         if (tex == 0) {
             return error.OpenGLFailure; // Couldn't generate a GL texture handle for some reason
@@ -25,18 +25,18 @@ pub const Texture = struct {
         gl.deleteTextures(1, &this.glTexture);
     }
 
-    pub fn pix2uv(tex: @This(), pixel: [2]i32) [2]f32 {
+    pub fn pix2uv(tex: @This(), pixel: [2]f32) [2]f32 {
         return .{
-            @as(f32, @floatFromInt(pixel[0])) / @as(f32, @floatFromInt(tex.size[0])),
-            @as(f32, @floatFromInt(pixel[1])) / @as(f32, @floatFromInt(tex.size[1])),
+            pixel[0] / @as(f32, @floatFromInt(tex.size[0])),
+            pixel[1] / @as(f32, @floatFromInt(tex.size[1])),
         };
     }
 
     pub const InitFromFileOptions = struct {
-        minFilter: gl.GLint = gl.NEAREST,
-        magFilter: gl.GLint = gl.NEAREST,
-        wrapS: gl.GLint = gl.CLAMP_TO_EDGE,
-        wrapT: gl.GLint = gl.CLAMP_TO_EDGE,
+        minFilter: gl.Int = gl.NEAREST,
+        magFilter: gl.Int = gl.NEAREST,
+        wrapS: gl.Int = gl.CLAMP_TO_EDGE,
+        wrapT: gl.Int = gl.CLAMP_TO_EDGE,
     };
 
     pub fn initFromMemory(alloc: std.mem.Allocator, image_contents: []const u8, options: InitFromFileOptions) !@This() {

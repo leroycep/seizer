@@ -2,9 +2,13 @@
 	.name = "seizer",
 	.version = "0.1.0",
 	.dependencies = .{
-		.zigimg = .{
-			.url = "https://github.com/zigimg/zigimg/archive/40ddb16fd246174545b7327a12dce7f0889ada7a.tar.gz",
-			.hash = "12208c69b00540fe3f38893800fb6c89a9fe27b4a687de5d0462e498a43db4caeec0",
-		},
+        .zigimg = .{
+            .url = "https://github.com/zigimg/zigimg/archive/57827775fc3659828af7dcd1b15d65d006573651.tar.gz",
+            .hash = "12208c69b00540fe3f38893800fb6c89a9fe27b4a687de5d0462e498a43db4caeec0",
+        },
+        .glfw = .{
+            .url = "https://github.com/leroycep/glfw/archive/80254d41f0638dc0751225b92fd2b3586b7aeca5.tar.gz",
+            .hash = "12206ebe47a5a339ef7a53a7250a9920a6aba3d972812fc52503f8e83f4aca64c0b4",
+        },
 	},
 }
