@@ -1,5 +1,7 @@
 element: Element,
 text: std.ArrayListUnmanaged(u8) = .{},
+/// Minimum width of the text area in ems.
+width: f32 = 16,
 cursor_pos: usize = 0,
 selection_start: usize = 0,
 
@@ -9,6 +11,7 @@ on_enter: ?ui.Callable(fn (*@This()) void) = null,
 
 const INTERFACE = Element.Interface{
     .destroy_fn = destroy,
+    .get_min_size_fn = getMinSize,
     .layout_fn = layout,
     .render_fn = render,
     .on_hover_fn = onHover,
@@ -42,13 +45,22 @@ const MARGIN = [2]f32{
     2,
 };
 
+pub fn getMinSize(element: *Element) [2]f32 {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+
+    return .{
+        this.width * this.style.text_font.lineHeight * this.style.text_scale + this.style.padding.size()[0] + 2 * MARGIN[0],
+        this.style.text_font.lineHeight * this.style.text_scale + this.style.padding.size()[1] + 2 * MARGIN[1],
+    };
+}
+
 pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
     _ = min_size;
     const style = this.style;
     return .{
         max_size[0],
-        style.text_font.lineHeight + style.padding.size()[1] + 2 * MARGIN[1],
+        style.text_font.lineHeight * this.style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
     };
 }
 
@@ -64,27 +76,27 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
         },
         .size = [2]f32{
             this.element.rect.size[0] - 2 * MARGIN[0],
-            canvas.font.lineHeight + style.padding.size()[1],
+            canvas.font.lineHeight * style.text_scale + style.padding.size()[1],
         },
     }, .{
         .scale = 1,
         .color = style.background_color,
     });
 
-    const pre_cursor_size = style.text_font.textSize(this.text.items[0..this.cursor_pos], 1);
+    const pre_cursor_size = style.text_font.textSize(this.text.items[0..this.cursor_pos], style.text_scale);
 
     const selection_start = @min(this.cursor_pos, this.selection_start);
     const selection_end = @max(this.cursor_pos, this.selection_start);
 
-    const pre_selection_size = style.text_font.textSize(this.text.items[0..selection_start], 1);
-    const selection_size = style.text_font.textSize(this.text.items[selection_start..selection_end], 1);
+    const pre_selection_size = style.text_font.textSize(this.text.items[0..selection_start], style.text_scale);
+    const selection_size = style.text_font.textSize(this.text.items[selection_start..selection_end], style.text_scale);
 
     canvas.pushScissor(.{
         rect.pos[0] + MARGIN[0],
         rect.pos[1] + MARGIN[1],
     }, .{
         this.element.rect.size[0] - 2 * MARGIN[0],
-        style.text_font.lineHeight + style.padding.size()[1],
+        style.text_font.lineHeight * style.text_scale + style.padding.size()[1],
     });
     defer canvas.popScissor();
 
@@ -93,12 +105,13 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
         rect.pos[1] + MARGIN[1] + style.padding.min[1],
     }, this.text.items, .{
         .font = style.text_font,
+        .scale = style.text_scale,
         .color = style.text_color,
     });
     if (this.element.stage.focused_element == &this.element) {
         canvas.rect(
             .{ rect.pos[0] + MARGIN[0] + style.padding.min[0] + pre_cursor_size[0], rect.pos[1] + MARGIN[1] + style.padding.min[1] },
-            .{ 1, canvas.font.lineHeight },
+            .{ style.text_scale, canvas.font.lineHeight * style.text_scale },
             .{
                 .color = style.text_color,
             },
@@ -144,7 +157,7 @@ fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
             return &this.element;
         }
 
-        var layouter = style.text_font.textLayouter(1);
+        var layouter = style.text_font.textLayouter(style.text_scale);
         var prev_x: f32 = 0;
         for (this.text.items, 0..) |character, index| {
             layouter.addCharacter(character);
@@ -187,7 +200,7 @@ fn onClick(element: *Element, event_parent: ui.event.Click) bool {
         event.pos[1] - MARGIN[1] - style.padding.min[1],
     };
 
-    var layouter = style.text_font.textLayouter(1);
+    var layouter = style.text_font.textLayouter(style.text_scale);
     var prev_x: f32 = 0;
     for (this.text.items, 0..) |character, index| {
         layouter.addCharacter(character);

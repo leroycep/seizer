@@ -61,23 +61,33 @@ const App = struct {
         const stage = try Stage.init(gpa, seizer.ui.Style{
             .padding = .{ .min = .{ 0, 0 }, .max = .{ 0, 0 } },
             .text_font = &app.canvas.font,
-            .text_size = 2,
+            .text_scale = 2,
             .text_color = [4]u8{ 0, 0, 0, 0xFF },
             .background_image = seizer.NinePatch.initStretched(.{ .glTexture = canvas.blank_texture, .size = .{ 1, 1 } }, .{ .pos = .{ 0, 0 }, .size = .{ 1, 1 } }),
             .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
         });
         errdefer stage.destroy();
 
+        const centered = try seizer.ui.FlexBox.new(stage);
+        defer centered.element.release();
+        centered.justification = .center;
+        centered.cross_align = .center;
+        stage.setRoot(&centered.element);
+
+        const frame = try seizer.ui.Frame.new(stage);
+        defer frame.element.release();
+        frame.style = stage.default_style.with(.{
+            .padding = .{ .min = .{ 16, 16 }, .max = .{ 16, 16 } },
+            .background_image = ninepatch_frame,
+        });
+        try centered.appendChild(&frame.element);
+
         const flexbox = try seizer.ui.FlexBox.new(stage);
         defer flexbox.element.release();
-        flexbox.justification = .space_between;
+        flexbox.justification = .center;
         flexbox.cross_align = .center;
         flexbox.direction = .column;
-        flexbox.style = stage.default_style.with(.{
-            .background_image = ninepatch_frame,
-            .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
-        });
-        stage.setRoot(&flexbox.element);
+        frame.setChild(&flexbox.element);
 
         // +---------------+
         // | Hello, world! |
@@ -95,13 +105,9 @@ const App = struct {
         // +---+ +----+ +---+
         const counter_flexbox = try seizer.ui.FlexBox.new(stage);
         defer counter_flexbox.element.release();
-        // counter_flexbox.main_justification = .center;
         counter_flexbox.justification = .space_between;
         counter_flexbox.cross_align = .center;
         counter_flexbox.direction = .row;
-        counter_flexbox.style = stage.default_style.with(.{
-            .background_image = ninepatch_frame,
-        });
         try flexbox.appendChild(&counter_flexbox.element);
 
         const decrement_button = try seizer.ui.Button.new(stage, "<");
@@ -225,43 +231,6 @@ var gl_binding: gl.Binding = undefined;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-
-    // ui stuff
-
-    // stage.painter.scale = 2;
-
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Frame), NinePatch.initv(texture, .{ 0, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Nameplate), NinePatch.initv(texture, .{ 48, 0, 48, 48 }, .{ 16, 16 }), geom.Rect{ 16, 16, 16, 16 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Label), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Input), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.InputEdit), NinePatch.initv(texture, .{ 96, 24, 12, 12 }, .{ 4, 4 }), geom.Rect{ 4, 4, 4, 4 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Keyrest), NinePatch.initv(texture, .{ 96, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 7, 8, 9 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Keyup), NinePatch.initv(texture, .{ 120, 24, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 8, 8, 8 });
-    // try stage.painter.addStyle(@intFromEnum(NodeStyle.Keydown), NinePatch.initv(texture, .{ 120, 0, 24, 24 }, .{ 8, 8 }), geom.Rect{ 8, 9, 8, 7 });
-
-    // // Create values in the store to be used by the UI
-    // const name_ref = try stage.store.new(.{ .Bytes = "Hello, World!" });
-    // const counter_ref = try stage.store.new(.{ .Int = 0 });
-    // const dec_label_ref = try stage.store.new(.{ .Bytes = "<" });
-    // const inc_label_ref = try stage.store.new(.{ .Bytes = ">" });
-    // const text_ref = try stage.store.new(.{ .Bytes = "" });
-
-    // // Create the layout for the UI
-    // const center = try stage.layout.insert(null, NodeStyle.frame(.None).container(.Center));
-    // const frame = try stage.layout.insert(center, NodeStyle.frame(.Frame).container(.VList));
-    // const nameplate = try stage.layout.insert(frame, NodeStyle.frame(.Nameplate).dataValue(name_ref));
-    // _ = nameplate;
-
-    // // Counter
-    // const counter_center = try stage.layout.insert(frame, NodeStyle.frame(.None).container(.Center));
-    // const counter = try stage.layout.insert(counter_center, NodeStyle.frame(.None).container(.HList));
-    // const decrement = try stage.layout.insert(counter, NodeStyle.frame(.Keyrest).dataValue(dec_label_ref));
-    // const label_center = try stage.layout.insert(counter, NodeStyle.frame(.None).container(.Center));
-    // const counter_label = try stage.layout.insert(label_center, NodeStyle.frame(.Label).dataValue(counter_ref));
-    // const increment = try stage.layout.insert(counter, NodeStyle.frame(.Keyrest).dataValue(inc_label_ref));
-
-    // // Text input
-    // const textinput = try stage.layout.insert(frame, NodeStyle.frame(.Input).dataValue(text_ref));
 
     // GLFW setup
     try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());

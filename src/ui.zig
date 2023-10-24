@@ -1,5 +1,6 @@
 pub const Button = @import("./ui/Button.zig");
 pub const FlexBox = @import("./ui/FlexBox.zig");
+pub const Frame = @import("./ui/Frame.zig");
 pub const Label = @import("./ui/Label.zig");
 pub const TextField = @import("./ui/TextField.zig");
 
@@ -269,7 +270,8 @@ pub const Element = struct {
 
     pub const Interface = struct {
         destroy_fn: *const fn (*Element) void,
-        layout_fn: *const fn (*Element, min_size: [2]f32, max_size: [2]f32) [2]f32,
+        get_min_size_fn: *const fn (*Element) [2]f32,
+        layout_fn: *const fn (*Element, min_size: [2]f32, max_size: [2]f32) [2]f32 = layoutDefault,
         render_fn: *const fn (*Element, *Canvas, Rect) void,
         on_hover_fn: *const fn (*Element, pos: [2]f32) ?*Element = onHoverDefault,
         on_click_fn: *const fn (*Element, event.Click) bool = onClickDefault,
@@ -295,6 +297,10 @@ pub const Element = struct {
             element.stage.pointer_capture_element = null;
         }
         return element.interface.destroy_fn(element);
+    }
+
+    pub fn getMinSize(element: *Element) [2]f32 {
+        return element.interface.get_min_size_fn(element);
     }
 
     pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
@@ -330,6 +336,12 @@ pub const Element = struct {
     }
 
     // Default functions
+
+    pub fn layoutDefault(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
+        _ = min_size;
+        _ = max_size;
+        return element.getMinSize();
+    }
 
     pub fn onHoverDefault(element: *Element, pos: [2]f32) ?*Element {
         _ = pos;
@@ -373,7 +385,7 @@ pub const Element = struct {
 pub const Style = struct {
     padding: seizer.geometry.Inset(f32),
     text_font: *const Font,
-    text_size: f32,
+    text_scale: f32,
     text_color: [4]u8,
     background_image: seizer.NinePatch,
     background_color: [4]u8,
@@ -382,7 +394,7 @@ pub const Style = struct {
     pub fn with(inherited: @This(), overrides: struct {
         padding: ?seizer.geometry.Inset(f32) = null,
         text_font: ?*const Font = null,
-        text_size: ?f32 = null,
+        text_scale: ?f32 = null,
         text_color: ?[4]u8 = null,
         background_image: ?seizer.NinePatch = null,
         background_color: ?[4]u8 = null,
@@ -390,7 +402,7 @@ pub const Style = struct {
         return @This(){
             .padding = overrides.padding orelse inherited.padding,
             .text_font = overrides.text_font orelse inherited.text_font,
-            .text_size = overrides.text_size orelse inherited.text_size,
+            .text_scale = overrides.text_scale orelse inherited.text_scale,
             .text_color = overrides.text_color orelse inherited.text_color,
             .background_image = overrides.background_image orelse inherited.background_image,
             .background_color = overrides.background_color orelse inherited.background_color,

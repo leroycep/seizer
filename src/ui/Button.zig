@@ -10,7 +10,7 @@ on_click: ?ui.Callable(fn (*@This()) void) = null,
 
 const INTERFACE = Element.Interface{
     .destroy_fn = destroy,
-    .layout_fn = layout,
+    .get_min_size_fn = getMinSize,
     .render_fn = render,
     .on_click_fn = onClick,
 };
@@ -48,16 +48,13 @@ pub fn destroy(element: *Element) void {
     this.element.stage.gpa.destroy(this);
 }
 
-pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
+pub fn getMinSize(element: *Element) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
-    _ = min_size;
-    _ = max_size;
 
     const is_hovered = this.element.stage.hovered_element == &this.element;
     const style = if (this.is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
-    const text_size = style.text_font.textSize(this.text, 1);
-
+    const text_size = style.text_font.textSize(this.text, style.text_scale);
     return .{
         text_size[0] + style.padding.size()[0],
         text_size[1] + style.padding.size()[1],
@@ -79,6 +76,7 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
         rect.pos[0] + style.padding.min[0],
         rect.pos[1] + style.padding.min[1],
     }, this.text, .{
+        .scale = style.text_scale,
         .color = style.text_color,
     });
 }

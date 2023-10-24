@@ -3,10 +3,10 @@ children: std.ArrayListUnmanaged(*Element) = .{},
 direction: Direction = .column,
 justification: Justification = .start,
 cross_align: CrossAlign = .start,
-style: ui.Style,
 
 const INTERFACE = Element.Interface{
     .destroy_fn = destroy,
+    .get_min_size_fn = getMinSize,
     .layout_fn = layout,
     .render_fn = render,
     .on_hover_fn = onHover,
@@ -20,6 +20,7 @@ pub const Direction = enum {
 
 pub const Justification = enum {
     start,
+    center,
     space_between,
     end,
 };
@@ -37,7 +38,6 @@ pub fn new(stage: *ui.Stage) !*@This() {
             .stage = stage,
             .interface = &INTERFACE,
         },
-        .style = stage.default_style,
     };
     return this;
 }
@@ -55,6 +55,28 @@ pub fn appendChild(this: *@This(), child: *Element) !void {
     try this.children.append(this.element.stage.gpa, child);
     child.acquire();
     child.parent = &this.element;
+}
+
+pub fn getMinSize(element: *Element) [2]f32 {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+
+    const main_axis: usize = switch (this.direction) {
+        .row => 0,
+        .column => 1,
+    };
+    const cross_axis: usize = switch (this.direction) {
+        .row => 1,
+        .column => 0,
+    };
+
+    var min_size = [2]f32{ 0, 0 };
+    for (this.children.items) |child| {
+        const child_min = child.getMinSize();
+
+        min_size[main_axis] += child_min[main_axis];
+        min_size[cross_axis] = @max(min_size[cross_axis], child_min[cross_axis]);
+    }
+    return min_size;
 }
 
 pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
@@ -131,14 +153,16 @@ pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
 
     const space_before: f32 = switch (this.justification) {
         .start, .space_between => 0,
+        .center => (max_size[main_axis] - main_space_used) / 2,
         .end => max_size[main_axis] - main_space_used,
     };
     const space_between: f32 = switch (this.justification) {
-        .start, .end => 0,
+        .start, .center, .end => 0,
         .space_between => (max_size[main_axis] - main_space_used) / @max(num_items - 1, 1),
     };
     const space_after: f32 = switch (this.justification) {
         .start => max_size[main_axis] - main_space_used,
+        .center => (max_size[main_axis] - main_space_used) / 2,
         .space_between, .end => 0,
     };
     _ = space_after;
