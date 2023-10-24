@@ -5,7 +5,6 @@ default_style: ui.Style,
 hovered_style: ui.Style,
 clicked_style: ui.Style,
 
-is_pressed: bool = false,
 on_click: ?ui.Callable(fn (*@This()) void) = null,
 
 const INTERFACE = Element.Interface{
@@ -51,8 +50,9 @@ pub fn destroy(element: *Element) void {
 pub fn getMinSize(element: *Element) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
+    const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
     const is_hovered = this.element.stage.hovered_element == &this.element;
-    const style = if (this.is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
+    const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
     const text_size = style.text_font.textSize(this.text, style.text_scale);
     return .{
@@ -64,8 +64,9 @@ pub fn getMinSize(element: *Element) [2]f32 {
 fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
+    const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
     const is_hovered = this.element.stage.hovered_element == &this.element;
-    const style = if (this.is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
+    const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
     style.background_image.draw(canvas, rect, .{
         .scale = 1,
@@ -84,18 +85,19 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
 fn onClick(element: *Element, event: ui.event.Click) bool {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
     if (event.button == .left) {
-        this.is_pressed = event.pressed;
+        if (event.pressed) {
+            this.element.stage.capturePointer(&this.element);
+
+            if (this.on_click) |on_click| {
+                on_click.call(.{this});
+            }
+        } else {
+            this.element.stage.releasePointer(&this.element);
+        }
+        return true;
     }
 
-    if (!event.pressed or event.button != .left) return false;
-
-    this.element.stage.pointer_capture_element = &this.element;
-
-    if (this.on_click) |on_click| {
-        on_click.call(.{this});
-    }
-
-    return true;
+    return false;
 }
 
 const seizer = @import("../seizer.zig");

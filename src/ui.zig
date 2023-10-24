@@ -29,6 +29,9 @@ pub const Stage = struct {
     }
 
     pub fn destroy(this: *@This()) void {
+        if (this.pointer_capture_element) |pce| {
+            pce.release();
+        }
         if (this.root) |r| {
             r.release();
         }
@@ -192,6 +195,23 @@ pub const Stage = struct {
             }
         }
         return false;
+    }
+
+    pub fn capturePointer(this: *@This(), new_pointer_capture_element: *Element) void {
+        new_pointer_capture_element.acquire();
+        if (this.pointer_capture_element) |pce| {
+            pce.release();
+        }
+        this.pointer_capture_element = new_pointer_capture_element;
+    }
+
+    pub fn releasePointer(this: *@This(), element: *Element) void {
+        if (this.pointer_capture_element) |pce| {
+            if (pce == element) {
+                pce.release();
+                this.pointer_capture_element = null;
+            }
+        }
     }
 };
 
