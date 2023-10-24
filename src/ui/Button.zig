@@ -89,6 +89,8 @@ fn onClick(element: *Element, event: ui.event.Click) bool {
 
     if (!event.pressed or event.button != .left) return false;
 
+    this.element.stage.pointer_capture_element = &this.element;
+
     if (this.on_click) |on_click| {
         on_click.call(.{this});
     }

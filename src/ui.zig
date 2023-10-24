@@ -50,6 +50,7 @@ pub const Stage = struct {
             new_root.parent = null;
         }
         this.root = new_root_opt;
+        this.needs_layout = true;
     }
 
     pub fn addPopup(this: *@This(), popup: *Element) !void {
