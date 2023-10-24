@@ -31,7 +31,7 @@ pub fn setChild(this: *@This(), new_child_opt: ?*Element) void {
         r.release();
     }
     if (new_child_opt) |new_child| {
-        new_child.parent = null;
+        new_child.parent = &this.element;
     }
     this.child = new_child_opt;
 }
