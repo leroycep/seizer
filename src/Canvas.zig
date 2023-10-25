@@ -132,17 +132,31 @@ pub fn init(
         errdefer gl.deleteTextures(1, &page_texture);
 
         gl.bindTexture(gl.TEXTURE_2D, page_texture);
-        gl.texImage2D(
-            gl.TEXTURE_2D,
-            0,
-            gl.RGBA,
-            @as(gl.Sizei, @intCast(font_image.width)),
-            @as(gl.Sizei, @intCast(font_image.width)),
-            0,
-            gl.RGBA,
-            gl.UNSIGNED_BYTE,
-            std.mem.sliceAsBytes(font_image.pixels.rgba32).ptr,
-        );
+        switch (font_image.pixels) {
+            .rgba32 => |rgba32| gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.RGBA,
+                @as(gl.Sizei, @intCast(font_image.width)),
+                @as(gl.Sizei, @intCast(font_image.width)),
+                0,
+                gl.RGBA,
+                gl.UNSIGNED_BYTE,
+                std.mem.sliceAsBytes(rgba32).ptr,
+            ),
+            .grayscale8 => |grayscale8| gl.texImage2D(
+                gl.TEXTURE_2D,
+                0,
+                gl.ALPHA,
+                @as(gl.Sizei, @intCast(font_image.width)),
+                @as(gl.Sizei, @intCast(font_image.width)),
+                0,
+                gl.ALPHA,
+                gl.UNSIGNED_BYTE,
+                std.mem.sliceAsBytes(grayscale8).ptr,
+            ),
+            else => std.debug.panic("Font image formant {s} is unimplemented", .{@tagName(font_image.pixels)}),
+        }
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
