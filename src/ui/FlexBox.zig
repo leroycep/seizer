@@ -11,6 +11,8 @@ const INTERFACE = Element.Interface{
     .render_fn = render,
     .on_hover_fn = onHover,
     .on_click_fn = onClick,
+    .on_select_fn = onSelect,
+    .get_next_selection_fn = getNextSelection,
 };
 
 pub const Direction = enum {
@@ -233,6 +235,87 @@ fn onClick(element: *Element, event_parent: ui.event.Click) bool {
     }
 
     return false;
+}
+
+fn onSelect(element: *Element, direction: [2]f32) ?*Element {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+
+    const main_axis: usize = switch (this.direction) {
+        .row => 0,
+        .column => 1,
+    };
+
+    if (direction[main_axis] > 0) {
+        for (this.children.items) |next_child| {
+            if (next_child.onSelect(direction)) |new_selection| {
+                return new_selection;
+            }
+        }
+    } else if (direction[main_axis] < 0) {
+        var current_index = this.children.items.len;
+        while (current_index > 0) : (current_index -= 1) {
+            const next_child = this.children.items[current_index - 1];
+            if (next_child.onSelect(direction)) |new_selection| {
+                return new_selection;
+            }
+        }
+    } else if (direction[main_axis] == 0) {
+        for (this.children.items) |next_child| {
+            if (next_child.onSelect(direction)) |new_selection| {
+                return new_selection;
+            }
+        }
+    }
+
+    return null;
+}
+
+fn getNextSelection(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+
+    const main_axis: usize = switch (this.direction) {
+        .row => 0,
+        .column => 1,
+    };
+    const cross_axis: usize = switch (this.direction) {
+        .row => 1,
+        .column => 0,
+    };
+
+    if (current_selection) |selected| {
+        if (selected == &this.element) {
+            // TODO: use direction to choose first or last element
+            return this.children.items[0];
+        }
+        const selected_index = std.mem.indexOfScalar(*Element, this.children.items, selected) orelse return null;
+
+        if (direction[main_axis] > 0 and selected_index < this.children.items.len - 1) {
+            for (this.children.items[selected_index + 1 ..]) |next_child| {
+                if (next_child.onSelect(direction)) |new_selection| {
+                    return new_selection;
+                }
+            }
+        } else if (direction[main_axis] < 0 and selected_index > 0) {
+            var current_index = selected_index;
+            while (current_index > 0) : (current_index -= 1) {
+                const next_child = this.children.items[current_index - 1];
+                if (next_child.onSelect(direction)) |new_selection| {
+                    return new_selection;
+                }
+            }
+        }
+    } else if (this.children.items.len > 0) {
+        // TODO: use direction to choose first or last element
+        return this.children.items[0];
+    }
+
+    // If there is movement on the cross axis, ask the parent element to pick the next selection
+    if (direction[cross_axis] != 0) {
+        if (this.element.parent) |parent| {
+            return parent.getNextSelection(element, direction);
+        }
+    }
+    return null;
 }
 
 const seizer = @import("../seizer.zig");

@@ -9,6 +9,7 @@ const INTERFACE = Element.Interface{
     .render_fn = render,
     .on_hover_fn = onHover,
     .on_click_fn = onClick,
+    .on_select_fn = onSelect,
 };
 
 pub fn new(stage: *ui.Stage) !*@This() {
@@ -133,6 +134,16 @@ fn onClick(element: *Element, event_parent: ui.event.Click) bool {
     }
 
     return false;
+}
+
+fn onSelect(element: *Element, direction: [2]f32) ?*Element {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+
+    if (this.child) |child| {
+        return child.onSelect(direction);
+    }
+
+    return null;
 }
 
 const seizer = @import("../seizer.zig");

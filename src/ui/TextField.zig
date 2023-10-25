@@ -5,7 +5,9 @@ width: f32 = 16,
 cursor_pos: usize = 0,
 selection_start: usize = 0,
 
-style: ui.Style,
+default_style: ui.Style,
+hovered_style: ui.Style,
+focused_style: ui.Style,
 
 on_enter: ?ui.Callable(fn (*@This()) void) = null,
 
@@ -18,6 +20,7 @@ const INTERFACE = Element.Interface{
     .on_click_fn = onClick,
     .on_text_input_fn = onTextInput,
     .on_key_fn = onKey,
+    .on_select_fn = onSelect,
 };
 
 pub fn new(stage: *ui.Stage) !*@This() {
@@ -27,7 +30,9 @@ pub fn new(stage: *ui.Stage) !*@This() {
             .stage = stage,
             .interface = &INTERFACE,
         },
-        .style = stage.default_style,
+        .default_style = stage.default_style,
+        .hovered_style = stage.default_style,
+        .focused_style = stage.default_style,
     };
     return this;
 }
@@ -48,26 +53,36 @@ const MARGIN = [2]f32{
 pub fn getMinSize(element: *Element) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
+    const is_hovered = this.element.stage.hovered_element == &this.element;
+    const is_focused = this.element.stage.focused_element == &this.element;
+    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
+
     return .{
-        this.width * this.style.text_font.lineHeight * this.style.text_scale + this.style.padding.size()[0] + 2 * MARGIN[0],
-        this.style.text_font.lineHeight * this.style.text_scale + this.style.padding.size()[1] + 2 * MARGIN[1],
+        this.width * style.text_font.lineHeight * style.text_scale + style.padding.size()[0] + 2 * MARGIN[0],
+        style.text_font.lineHeight * style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
     };
 }
 
 pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
     _ = min_size;
-    const style = this.style;
+
+    const is_hovered = this.element.stage.hovered_element == &this.element;
+    const is_focused = this.element.stage.focused_element == &this.element;
+    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
+
     return .{
         max_size[0],
-        style.text_font.lineHeight * this.style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
+        style.text_font.lineHeight * style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
     };
 }
 
 fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
-    const style = this.style;
+    const is_hovered = this.element.stage.hovered_element == &this.element;
+    const is_focused = this.element.stage.focused_element == &this.element;
+    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
 
     style.background_image.draw(canvas, .{
         .pos = .{
@@ -108,7 +123,7 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
         .scale = style.text_scale,
         .color = style.text_color,
     });
-    if (this.element.stage.focused_element == &this.element) {
+    if (is_focused) {
         canvas.rect(
             .{ rect.pos[0] + MARGIN[0] + style.padding.min[0] + pre_cursor_size[0], rect.pos[1] + MARGIN[1] + style.padding.min[1] },
             .{ style.text_scale, canvas.font.lineHeight * style.text_scale },
@@ -131,7 +146,9 @@ fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
         pos_parent[1] - this.element.rect.pos[1],
     };
 
-    const style = this.style;
+    const is_hovered = this.element.stage.focused_element == &this.element;
+    const is_focused = this.element.stage.focused_element == &this.element;
+    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
 
     if (this.element.stage.pointer_capture_element == &this.element) {
         const click_pos = [2]f32{
@@ -183,7 +200,9 @@ fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
 fn onClick(element: *Element, event_parent: ui.event.Click) bool {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
-    const style = this.style;
+    const is_hovered = this.element.stage.focused_element == &this.element;
+    const is_focused = this.element.stage.focused_element == &this.element;
+    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
 
     const event = event_parent.translate(.{ -this.element.rect.pos[0], -this.element.rect.pos[1] });
 
@@ -248,6 +267,17 @@ fn onTextInput(element: *Element, event: ui.event.TextInput) bool {
 
 fn onKey(element: *Element, event: ui.event.Key) bool {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    if (this.element.stage.focused_element != &this.element) {
+        // We don't want the TextField to absorb any other key events unless it is focused
+        switch (event.key) {
+            .enter => if (event.action == .press or event.action == .repeat) {
+                this.element.stage.focused_element = &this.element;
+                return true;
+            },
+            else => {},
+        }
+        return false;
+    }
     switch (event.key) {
         .left => if (event.action == .press or event.action == .repeat) {
             this.cursor_pos = if (event.mods.control)
@@ -257,6 +287,7 @@ fn onKey(element: *Element, event: ui.event.Key) bool {
             if (!event.mods.shift) {
                 this.selection_start = this.cursor_pos;
             }
+            return true;
         },
         .right => if (event.action == .press or event.action == .repeat) {
             this.cursor_pos = if (event.mods.control)
@@ -266,6 +297,7 @@ fn onKey(element: *Element, event: ui.event.Key) bool {
             if (!event.mods.shift) {
                 this.selection_start = this.cursor_pos;
             }
+            return true;
         },
         .backspace => if (event.action == .press or event.action == .repeat) {
             const src_pos = @max(this.selection_start, this.cursor_pos);
@@ -280,6 +312,7 @@ fn onKey(element: *Element, event: ui.event.Key) bool {
 
             this.cursor_pos = overwrite_pos;
             this.selection_start = overwrite_pos;
+            return true;
         },
         .delete => if (event.action == .press or event.action == .repeat) {
             const src_pos = if (this.selection_start == this.cursor_pos)
@@ -294,11 +327,16 @@ fn onKey(element: *Element, event: ui.event.Key) bool {
 
             this.cursor_pos = overwrite_pos;
             this.selection_start = overwrite_pos;
+            return true;
         },
         .enter => if (event.action == .press or event.action == .repeat) {
             if (this.on_enter) |on_enter| {
                 on_enter.call(.{this});
             }
+            return true;
+        },
+        .escape => if (event.action == .press or event.action == .repeat) {
+            this.element.stage.focused_element = null;
         },
         else => {},
     }
@@ -323,6 +361,12 @@ fn nextRight(text: []const u8, pos: usize) usize {
         new_pos += 1;
     }
     return new_pos;
+}
+
+fn onSelect(element: *Element, direction: [2]f32) ?*Element {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    _ = direction;
+    return &this.element;
 }
 
 const seizer = @import("../seizer.zig");

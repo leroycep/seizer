@@ -194,6 +194,38 @@ pub const Stage = struct {
                 return true;
             }
         }
+
+        if (this.hovered_element) |hovered| {
+            if (hovered.onKey(e)) {
+                return true;
+            }
+        }
+
+        if (e.action != .press and e.action != .repeat) return false;
+        const direction = switch (e.key) {
+            .up => [2]f32{ 0, -1 },
+            .down => [2]f32{ 0, 1 },
+            .left => [2]f32{ -1, 0 },
+            .right => [2]f32{ 1, 0 },
+            else => return false,
+        };
+
+        // If something is already hovered, ask it for the next element
+        if (this.hovered_element) |hovered| {
+            if (hovered.getNextSelection(this.hovered_element, direction)) |next_selection| {
+                this.hovered_element = next_selection;
+                return true;
+            }
+        }
+
+        // If nothing is hovered, select the root element
+        if (this.root) |r| {
+            if (r.onSelect(direction)) |next_selection| {
+                this.hovered_element = next_selection;
+                return true;
+            }
+        }
+
         return false;
     }
 
@@ -263,6 +295,8 @@ pub const event = struct {
             enter = seizer.backend.glfw.c.GLFW_KEY_ENTER,
             backspace = seizer.backend.glfw.c.GLFW_KEY_BACKSPACE,
             delete = seizer.backend.glfw.c.GLFW_KEY_DELETE,
+            space = seizer.backend.glfw.c.GLFW_KEY_SPACE,
+            escape = seizer.backend.glfw.c.GLFW_KEY_ESCAPE,
             _,
         },
         scancode: c_int,
@@ -300,6 +334,8 @@ pub const Element = struct {
         on_text_input_fn: *const fn (*Element, event.TextInput) bool = onTextInputDefault,
         on_key_fn: *const fn (*Element, event.Key) bool = onKeyDefault,
         get_transform_fn: *const fn (*Element) [4][4]f32 = getTransformDefault,
+        on_select_fn: *const fn (*Element, direction: [2]f32) ?*Element = onSelectDefault,
+        get_next_selection_fn: *const fn (*Element, current_selection: ?*Element, direction: [2]f32) ?*Element = getNextSelectionDefault,
     };
 
     pub fn acquire(element: *Element) void {
@@ -356,6 +392,14 @@ pub const Element = struct {
         return element.interface.get_transform_fn(element);
     }
 
+    pub fn onSelect(element: *Element, direction: [2]f32) ?*Element {
+        return element.interface.on_select_fn(element, direction);
+    }
+
+    pub fn getNextSelection(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
+        return element.interface.get_next_selection_fn(element, current_selection, direction);
+    }
+
     // Default functions
 
     pub fn layoutDefault(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
@@ -399,6 +443,21 @@ pub const Element = struct {
             return seizer.geometry.mat4.mul(f32, local, parent.getTransform());
         } else {
             return local;
+        }
+    }
+
+    pub fn onSelectDefault(element: *Element, direction: [2]f32) ?*Element {
+        _ = element;
+        _ = direction;
+        return null;
+    }
+
+    pub fn getNextSelectionDefault(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
+        _ = current_selection;
+        if (element.parent) |parent| {
+            return parent.getNextSelection(element, direction);
+        } else {
+            return null;
         }
     }
 };

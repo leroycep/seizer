@@ -12,6 +12,8 @@ const INTERFACE = Element.Interface{
     .get_min_size_fn = getMinSize,
     .render_fn = render,
     .on_click_fn = onClick,
+    .on_key_fn = onKey,
+    .on_select_fn = onSelect,
 };
 
 const RECT_COLOR_DEFAULT = [4]u8{ 0x30, 0x30, 0x30, 0xFF };
@@ -98,6 +100,26 @@ fn onClick(element: *Element, event: ui.event.Click) bool {
     }
 
     return false;
+}
+
+fn onKey(element: *Element, event: ui.event.Key) bool {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    switch (event.key) {
+        .space, .enter => if (event.action == .press or event.action == .repeat) {
+            if (this.on_click) |on_click| {
+                on_click.call(.{this});
+            }
+            return true;
+        },
+        else => {},
+    }
+    return false;
+}
+
+fn onSelect(element: *Element, direction: [2]f32) ?*Element {
+    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    _ = direction;
+    return &this.element;
 }
 
 const seizer = @import("../seizer.zig");

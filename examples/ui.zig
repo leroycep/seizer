@@ -47,16 +47,13 @@ const App = struct {
         errdefer texture.deinit();
 
         // NinePatches from the above texture
-        const ninepatch_frame = seizer.NinePatch.initv(texture, .{ .pos = .{ 0, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 }); //, geom.Rect{ 16, 16, 16, 16 });
-        const ninepatch_nameplate = seizer.NinePatch.initv(texture, .{ .pos = .{ 48, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 }); //, geom.Rect{ 16, 16, 16, 16 });
-        const ninepatch_label = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 24 }, .size = .{ 12, 12 } }, .{ 4, 4 }); //, geom.Rect{ 4, 4, 4, 4 });
-        const ninepatch_input = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 24 }, .size = .{ 12, 12 } }, .{ 4, 4 }); //, geom.Rect{ 4, 4, 4, 4 });
-        const ninepatch_inputEdit = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 24 }, .size = .{ 12, 12 } }, .{ 4, 4 }); //, geom.Rect{ 4, 4, 4, 4 });
-        const ninepatch_keyrest = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 }); //, geom.Rect{ 8, 7, 8, 9 });
-        const ninepatch_keyup = seizer.NinePatch.initv(texture, .{ .pos = .{ 120, 24 }, .size = .{ 24, 24 } }, .{ 8, 8 }); //, geom.Rect{ 8, 8, 8, 8 });
-        const ninepatch_keydown = seizer.NinePatch.initv(texture, .{ .pos = .{ 120, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 }); //, geom.Rect{ 8, 9, 8, 7 });
-
-        _ = ninepatch_inputEdit;
+        const ninepatch_frame = seizer.NinePatch.initv(texture, .{ .pos = .{ 0, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 });
+        const ninepatch_nameplate = seizer.NinePatch.initv(texture, .{ .pos = .{ 48, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 });
+        const ninepatch_label = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 24 }, .size = .{ 12, 12 } }, .{ 4, 4 });
+        const ninepatch_text_field = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 24 }, .size = .{ 12, 12 } }, .{ 4, 4 });
+        const ninepatch_keyrest = seizer.NinePatch.initv(texture, .{ .pos = .{ 96, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 });
+        const ninepatch_keyup = seizer.NinePatch.initv(texture, .{ .pos = .{ 120, 24 }, .size = .{ 24, 24 } }, .{ 8, 8 });
+        const ninepatch_keydown = seizer.NinePatch.initv(texture, .{ .pos = .{ 120, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 });
 
         const stage = try Stage.init(gpa, seizer.ui.Style{
             .padding = .{ .min = .{ 0, 0 }, .max = .{ 0, 0 } },
@@ -67,6 +64,18 @@ const App = struct {
             .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
         });
         errdefer stage.destroy();
+
+        const default_text_field_style = stage.default_style.with(.{
+            .padding = .{ .min = .{ 4, 4 }, .max = .{ 4, 4 } },
+            .background_image = ninepatch_text_field,
+            .background_color = [4]u8{ 0xC0, 0xC0, 0xC0, 0xFF },
+        });
+        const hovered_text_field_style = default_text_field_style.with(.{
+            .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
+        });
+        const focused_text_field_style = hovered_text_field_style.with(.{
+            .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
+        });
 
         const centered = try seizer.ui.FlexBox.new(stage);
         defer centered.element.release();
@@ -149,11 +158,9 @@ const App = struct {
         // +--------------+
         const text_field = try seizer.ui.TextField.new(stage);
         defer text_field.element.release();
-        text_field.style = stage.default_style.with(.{
-            .padding = .{ .min = .{ 4, 4 }, .max = .{ 4, 4 } },
-            .background_image = ninepatch_input,
-            .background_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
-        });
+        text_field.default_style = default_text_field_style;
+        text_field.hovered_style = hovered_text_field_style;
+        text_field.focused_style = focused_text_field_style;
         try flexbox.appendChild(&text_field.element);
 
         // tell the counter_label that we are holding a reference to it in App
