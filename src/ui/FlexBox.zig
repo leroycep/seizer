@@ -84,6 +84,8 @@ pub fn getMinSize(element: *Element) [2]f32 {
 pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
     const this: *@This() = @fieldParentPtr(@This(), "element", element);
 
+    const content_min_size = element.getMinSize();
+
     const main_axis: usize = switch (this.direction) {
         .row => 0,
         .column => 1,
@@ -151,6 +153,8 @@ pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
         }
     }
 
+    main_space_used = @max(content_min_size[main_axis], main_space_used);
+
     const num_items: f32 = @floatFromInt(this.children.items.len);
 
     const space_before: f32 = switch (this.justification) {
@@ -169,16 +173,17 @@ pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
     };
     _ = space_after;
 
-    var main_pos: f32 = 0;
-    main_pos += space_before;
+    const cross_axis_size = @min(max_size[cross_axis], cross_min_width);
+
+    var main_pos: f32 = space_before;
 
     for (this.children.items) |child| {
         child.rect.pos[main_axis] = main_pos;
 
         child.rect.pos[cross_axis] = switch (this.cross_align) {
             .start => 0,
-            .center => cross_min_width / 2 - child.rect.size[cross_axis] / 2,
-            .end => cross_min_width - child.rect.size[cross_axis],
+            .center => (cross_axis_size - child.rect.size[cross_axis]) / 2,
+            .end => cross_axis_size - child.rect.size[cross_axis],
         };
 
         main_pos += child.rect.size[main_axis] + space_between;
@@ -186,7 +191,7 @@ pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
 
     var bounds = [2]f32{ 0, 0 };
     bounds[main_axis] = max_size[main_axis];
-    bounds[cross_axis] = cross_min_width;
+    bounds[cross_axis] = cross_axis_size;
     return bounds;
 }
 
