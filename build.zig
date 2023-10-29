@@ -7,6 +7,7 @@ const Example = enum {
     bitmap_font,
     sprite_batch,
     ui,
+    tinyvg,
 };
 
 pub fn build(b: *Builder) !void {
@@ -25,6 +26,11 @@ pub fn build(b: *Builder) !void {
         .opengl = true,
     });
 
+    const tinyvg = b.dependency("tinyvg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const gl_module = b.addModule("gl", .{
         .source_file = .{ .path = "dep/gles3v0.zig" },
     });
@@ -34,6 +40,7 @@ pub fn build(b: *Builder) !void {
         .source_file = .{ .path = "src/seizer.zig" },
         .dependencies = &.{
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
+            .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
         },
     });

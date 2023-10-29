@@ -43,7 +43,7 @@ const App = struct {
         errdefer canvas.deinit(gpa);
 
         // texture containing ui elements
-        var texture = try Texture.initFromMemory(gpa, @embedFile("assets/ui.png"), .{});
+        var texture = try Texture.initFromFileContents(gpa, @embedFile("assets/ui.png"), .{});
         errdefer texture.deinit();
 
         // NinePatches from the above texture

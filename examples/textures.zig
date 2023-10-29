@@ -73,7 +73,7 @@ pub fn main() !void {
     seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
 
     //  Open window
-    const window = seizer.backend.glfw.c.glfwCreateWindow(640, 640, "Clear - Seizer", null, null) orelse return error.GlfwCreateWindow;
+    const window = seizer.backend.glfw.c.glfwCreateWindow(640, 640, "Textures - Seizer", null, null) orelse return error.GlfwCreateWindow;
     errdefer seizer.backend.glfw.c.glfwDestroyWindow(window);
 
     seizer.backend.glfw.c.glfwMakeContextCurrent(window);
@@ -85,7 +85,7 @@ pub fn main() !void {
     _ = seizer.backend.glfw.c.glfwSetFramebufferSizeCallback(window, &glfw_framebuffer_size_callback);
 
     // Load texture
-    var player_texture = try seizer.Texture.initFromMemory(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
+    var player_texture = try seizer.Texture.initFromFileContents(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
     errdefer player_texture.deinit();
 
     std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });

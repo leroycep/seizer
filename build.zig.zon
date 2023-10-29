@@ -10,5 +10,9 @@
             .url = "https://github.com/leroycep/glfw/archive/80254d41f0638dc0751225b92fd2b3586b7aeca5.tar.gz",
             .hash = "12206ebe47a5a339ef7a53a7250a9920a6aba3d972812fc52503f8e83f4aca64c0b4",
         },
+		.tinyvg = .{
+			.url = "https://github.com/TinyVG/sdk/archive/a8e9dffec97d41b28cf750839a8e0e1f94df04ec.tar.gz",
+			.hash = "1220a7a8830fd1451916c952670cbef576ced202cbbf1c7db9dc66512228ccdd3d36",
+		},
 	},
 }
