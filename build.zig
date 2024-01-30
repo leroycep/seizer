@@ -2,12 +2,9 @@ const std = @import("std");
 const Builder = std.Build;
 
 const Example = enum {
+    hello_world,
     clear,
-    textures,
-    bitmap_font,
-    sprite_batch,
-    ui,
-    tinyvg,
+    image,
 };
 
 pub fn build(b: *Builder) !void {
@@ -53,9 +50,17 @@ pub fn build(b: *Builder) !void {
         const tag_name = tag.name;
         const exe = b.addExecutable(.{
             .name = tag_name,
+            .root_source_file = .{ .path = "src/app_runtime.zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe.root_module.addAnonymousImport("app", .{
             .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
             .target = target,
             .optimize = optimize,
+            .imports = &.{
+                .{ .name = "seizer", .module = module },
+            },
         });
         b.installArtifact(exe);
         exe.linkLibrary(glfw_dep.artifact("glfw"));
