@@ -1706,7 +1706,7 @@ pub const Binding = struct {
     fn nullTerminate(comptime string: []const u8) [:0]const u8 {
         comptime {
             var buf: [string.len + 1]u8 = undefined;
-            std.mem.copy(u8, &buf, string);
+            @memcpy(buf[0..string.len], string);
             buf[string.len] = 0;
             return buf[0..string.len :0];
         }

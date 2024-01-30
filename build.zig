@@ -1,5 +1,5 @@
 const std = @import("std");
-const Builder = std.build.Builder;
+const Builder = std.Build;
 
 const Example = enum {
     clear,
@@ -32,18 +32,19 @@ pub fn build(b: *Builder) !void {
     });
 
     const gl_module = b.addModule("gl", .{
-        .source_file = .{ .path = "dep/gles3v0.zig" },
+        .root_source_file = .{ .path = "dep/gles3v0.zig" },
     });
 
     // seizer
     const module = b.addModule("seizer", .{
-        .source_file = .{ .path = "src/seizer.zig" },
-        .dependencies = &.{
+        .root_source_file = .{ .path = "src/seizer.zig" },
+        .imports = &.{
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
         },
     });
+    module.linkLibrary(glfw_dep.artifact("glfw"));
 
     const example_option = b.option(Example, "example", "Specify which example to run/build/install");
 
@@ -58,7 +59,7 @@ pub fn build(b: *Builder) !void {
         });
         b.installArtifact(exe);
         exe.linkLibrary(glfw_dep.artifact("glfw"));
-        exe.addModule("seizer", module);
+        exe.root_module.addImport("seizer", module);
         exe.linkLibC();
 
         if (example_option != null and std.mem.eql(u8, tag_name, @tagName(example_option.?))) {

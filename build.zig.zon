@@ -1,18 +1,19 @@
 .{
 	.name = "seizer",
 	.version = "0.1.0",
+	.paths = .{ "" },
 	.dependencies = .{
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/57827775fc3659828af7dcd1b15d65d006573651.tar.gz",
-            .hash = "12208c69b00540fe3f38893800fb6c89a9fe27b4a687de5d0462e498a43db4caeec0",
+            .url = "https://github.com/leroycep/zigimg/archive/48e9842bcedef52a74ce0513e4f74684e3a4f4b0.tar.gz",
+            .hash = "122073d1985c4a5aa31b342f411363861ba2ac738dcd0de18aaa54ad45f1b2b01675",
         },
         .glfw = .{
-            .url = "https://github.com/leroycep/glfw/archive/80254d41f0638dc0751225b92fd2b3586b7aeca5.tar.gz",
-            .hash = "12206ebe47a5a339ef7a53a7250a9920a6aba3d972812fc52503f8e83f4aca64c0b4",
+            .url = "https://pkg.machengine.org/glfw/7b1a45feeacf876428bfbd924d4aca9a9a158cd9.tar.gz",
+            .hash = "122052f6e113bb8c74fceb80de8e92b6dce5792213ab703be2584bb638ec30f36edf",
         },
 		.tinyvg = .{
-			.url = "https://github.com/TinyVG/sdk/archive/a8e9dffec97d41b28cf750839a8e0e1f94df04ec.tar.gz",
-			.hash = "1220a7a8830fd1451916c952670cbef576ced202cbbf1c7db9dc66512228ccdd3d36",
+			.url = "https://github.com/leroycep/tinyvg-sdk/archive/6935fabb471133033de98e5f30c3f5370dd14262.tar.gz",
+			.hash = "12206abafed32c5e6fb8f6fe08412696abaafd66cff39a9ab5c061903b4a5ecbfa15",
 		},
 	},
 }

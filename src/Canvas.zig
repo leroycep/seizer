@@ -504,12 +504,12 @@ pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOpt
     const font = options.font orelse &this.font;
     const text_size = font.textSize(text, options.scale);
 
-    var x: f32 = switch (options.@"align") {
+    const x: f32 = switch (options.@"align") {
         .left => pos[0],
         .center => pos[0] - text_size[0] / 2,
         .right => pos[0] - text_size[0],
     };
-    var y: f32 = switch (options.baseline) {
+    const y: f32 = switch (options.baseline) {
         .top => pos[1],
         .middle => pos[1] - text_size[1] / 2,
         .bottom => pos[1] - text_size[1],

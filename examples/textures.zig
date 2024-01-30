@@ -90,7 +90,7 @@ pub fn main() !void {
 
     std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });
 
-    var shader_program = try seizer.glUtil.compileShader(gpa.allocator(), VERT_SHADER, FRAG_SHADER);
+    const shader_program = try seizer.glUtil.compileShader(gpa.allocator(), VERT_SHADER, FRAG_SHADER);
 
     // Create VBO to display texture
     var vbo: gl.Uint = 0;

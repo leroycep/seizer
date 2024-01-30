@@ -7,10 +7,10 @@ pub fn shaderSource(shader: gl.Uint, source: []const u8) void {
 }
 
 pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, fragment_source: [:0]const u8) !gl.Uint {
-    var vertex_shader = try compilerShaderPart(allocator, gl.VERTEX_SHADER, vertex_source);
+    const vertex_shader = try compilerShaderPart(allocator, gl.VERTEX_SHADER, vertex_source);
     defer gl.deleteShader(vertex_shader);
 
-    var fragment_shader = try compilerShaderPart(allocator, gl.FRAGMENT_SHADER, fragment_source);
+    const fragment_shader = try compilerShaderPart(allocator, gl.FRAGMENT_SHADER, fragment_source);
     defer gl.deleteShader(fragment_shader);
 
     const program = gl.createProgram();
@@ -47,7 +47,7 @@ pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, 
 }
 
 pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, source: [:0]const u8) !gl.Uint {
-    var shader = gl.createShader(shader_type);
+    const shader = gl.createShader(shader_type);
     if (shader == 0)
         return error.OpenGlFailure;
     errdefer gl.deleteShader(shader);
