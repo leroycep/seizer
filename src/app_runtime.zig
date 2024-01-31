@@ -162,6 +162,9 @@ pub fn main() !void {
                     }
                     pos[1] += text_size[1];
                 },
+                .canvas => |canvas_element| {
+                    try canvas_element.render(canvas_element.ptr, &canvas);
+                },
             }
         }
 

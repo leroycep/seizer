@@ -5,6 +5,7 @@ const Example = enum {
     hello,
     image,
     navigation,
+    canvas,
 };
 
 pub fn build(b: *Builder) !void {

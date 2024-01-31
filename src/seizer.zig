@@ -179,6 +179,10 @@ pub const Screen = struct {
         image: struct {
             source: []const u8,
         },
+        canvas: struct {
+            ptr: *anyopaque,
+            render: *const fn (ptr: *anyopaque, canvas: *Canvas) anyerror!void,
+        },
     };
 
     pub const Options = struct {};
