@@ -11,21 +11,15 @@ pub fn init(stage: *seizer.Stage) !void {
 pub fn index(ptr: *anyopaque, stage: *seizer.Stage, request: seizer.Request) anyerror!seizer.Response {
     _ = ptr;
     _ = stage;
-    if (std.mem.eql(u8, request.path, "assets/wedge.png")) {
-        return seizer.Response{
-            .image_data = @embedFile("assets/wedge.png"),
-        };
+    if (request.path.len == 0) {
+        return seizer.Response{ .text = "Hello, world!" };
     } else {
-        return seizer.Response{
-            .screen = &.{
-                .{ .image = .{ .source = "assets/wedge.png" } },
-            },
-        };
+        const text = try std.fmt.allocPrint(request.arena, "Hello, {s}!", .{request.path});
+        return seizer.Response{ .text = text };
     }
 }
 
-const log = std.log.scoped(.example_image);
+const log = std.log.scoped(.example_hello_world);
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");

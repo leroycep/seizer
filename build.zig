@@ -2,9 +2,9 @@ const std = @import("std");
 const Builder = std.Build;
 
 const Example = enum {
-    hello_world,
-    clear,
+    hello,
     image,
+    navigation,
 };
 
 pub fn build(b: *Builder) !void {

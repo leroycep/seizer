@@ -15,16 +15,31 @@ pub fn index(ptr: *anyopaque, stage: *seizer.Stage, request: seizer.Request) any
         return seizer.Response{
             .image_data = @embedFile("assets/wedge.png"),
         };
+    } else if (std.mem.eql(u8, request.path, "screen2")) {
+        return seizer.Response{
+            .screen = &.{
+                .{ .text = "Screen 2" },
+            },
+        };
+    } else if (std.mem.eql(u8, request.path, "image")) {
+        return seizer.Response{
+            .screen = &.{
+                .{ .text = "Image" },
+                .{ .image = .{ .source = "assets/wedge.png" } },
+            },
+        };
     } else {
         return seizer.Response{
             .screen = &.{
-                .{ .image = .{ .source = "assets/wedge.png" } },
+                .{ .text = "Index" },
+                .{ .link = .{ .text = "Link to screen 2", .href = "screen2" } },
+                .{ .link = .{ .text = "Link to image screen", .href = "image" } },
             },
         };
     }
 }
 
-const log = std.log.scoped(.example_image);
+const log = std.log.scoped(.example_navigation);
 
 const seizer = @import("seizer");
 const gl = seizer.gl;
