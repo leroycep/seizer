@@ -221,14 +221,12 @@ pub fn begin(this: *@This(), options: BeginOptions) void {
     this.window_size = options.window_size;
     this.framebuffer_size = options.framebuffer_size;
 
-    // The -0.5 here ensures that a pixel drawn at <0, 0> will be "centered" on <0, 0>. Prevents images
-    // from shifting around as much as the viewport changes.
     const projection = geometry.mat4.orthographic(
         f32,
-        -0.5,
-        (this.window_size[0] - 1.0) + 0.5,
-        (this.window_size[1] - 1.0) + 0.5,
-        -0.5,
+        0,
+        this.window_size[0],
+        this.window_size[1],
+        0,
         -1,
         1,
     );
