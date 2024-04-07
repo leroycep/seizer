@@ -1,4 +1,6 @@
-pub const c = @import("./c.zig");
+// pub const c = @import("./c.zig");
+pub const mach_glfw = @import("mach-glfw");
+pub usingnamespace mach_glfw;
 
 /// This function will pre-emptively load libraries so GLFW will detect Wayland on NixOS.
 pub fn loadDynamicLibraries(gpa: std.mem.Allocator) !void {
@@ -48,16 +50,18 @@ pub const GlBindingLoader = struct {
     const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
 
     pub fn getCommandFnPtr(command_name: [:0]const u8) ?AnyCFnPtr {
-        return c.glfwGetProcAddress(command_name);
+        return mach_glfw.getProcAddress(command_name);
+        // return c.glfwGetProcAddress(command_name);
     }
 
     pub fn extensionSupported(extension_name: [:0]const u8) bool {
-        return c.glfwExtensionSupported(extension_name);
+        return mach_glfw.ExtensionSupported(extension_name);
+        // return c.glfwExtensionSupported(extension_name);
     }
 };
 
-pub fn defaultErrorCallback(err: c_int, description: ?[*:0]const u8) callconv(.C) void {
-    std.log.scoped(.glfw).warn("0x{x}: {?s}\n", .{ err, description });
+pub fn defaultErrorCallback(err_code: mach_glfw.ErrorCode, description: [:0]const u8) void {
+    std.log.scoped(.glfw).warn("{}: {?s}\n", .{ err_code, description });
 }
 
 const std = @import("std");

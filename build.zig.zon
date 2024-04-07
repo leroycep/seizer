@@ -7,13 +7,13 @@
             .url = "https://github.com/zigimg/zigimg/archive/8873f29fc449e1b63400e9f4ad86d3c76204f962.tar.gz",
             .hash = "122019f6439545235af116d0d8eb81fde1ff05fdb070da57c723772c557f84c5bf39",
         },
-        .glfw = .{
-            .url = "https://pkg.machengine.org/glfw/8f7ca982913c0ab64df44d79d6ad2fb592e5ec39.tar.gz",
-            .hash = "122085745c053e68fea3772c7239c7c87bcc7f042fa3189592b30e0e39cbb9603d79",
-        },
         .tinyvg = .{
             .url = "https://github.com/leroycep/tinyvg-sdk/archive/e658956803588bdbcbb5de98c77380e50305c481.tar.gz",
             .hash = "12204097e887cf1a7fa09e7d7877fd8af1733f5390ba59ccfe09080e2275fb47daa9",
+        },
+        .@"mach-glfw" = .{
+            .url = "https://pkg.machengine.org/mach-glfw/1a9a03399058fd83f7fbb597f3f8304007ff6a3c.tar.gz",
+            .hash = "1220b4d58ec6cf53abfd8d7547d39afb9bffa41822d4d58f52625230466e51cc93bb",
         },
     },
 }

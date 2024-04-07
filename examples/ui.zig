@@ -12,7 +12,7 @@ const Painter = seizer.ui.Painter;
 
 const App = struct {
     gpa: std.mem.Allocator,
-    window: *seizer.backend.glfw.c.GLFWwindow,
+    window: seizer.backend.glfw.Window,
     canvas: seizer.Canvas,
     texture: seizer.Texture,
     stage: *seizer.ui.Stage,
@@ -24,16 +24,11 @@ const App = struct {
         var app = try gpa.create(App);
         errdefer gpa.destroy(app);
 
-        seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
-        seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
-        seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-        seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
-
         //  Open window
-        const window = seizer.backend.glfw.c.glfwCreateWindow(320, 240, "UI - Seizer", null, null) orelse return error.GlfwCreateWindow;
-        errdefer seizer.backend.glfw.c.glfwDestroyWindow(window);
+        const window = seizer.backend.glfw.Window.create(320, 240, "UI - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
+        errdefer window.destroy();
 
-        seizer.backend.glfw.c.glfwMakeContextCurrent(window);
+        seizer.backend.glfw.makeContextCurrent(window);
 
         gl_binding.init(seizer.backend.glfw.GlBindingLoader);
         gl.makeBindingCurrent(&gl_binding);
@@ -177,15 +172,15 @@ const App = struct {
         };
 
         // Set up input callbacks
-        seizer.backend.glfw.c.glfwSetWindowUserPointer(window, app);
+        window.setUserPointer(app);
 
-        _ = seizer.backend.glfw.c.glfwSetKeyCallback(window, &glfw_key_callback);
-        _ = seizer.backend.glfw.c.glfwSetMouseButtonCallback(window, &glfw_mousebutton_callback);
-        _ = seizer.backend.glfw.c.glfwSetCursorPosCallback(window, &glfw_cursor_pos_callback);
-        _ = seizer.backend.glfw.c.glfwSetCharCallback(window, &glfw_char_callback);
-        _ = seizer.backend.glfw.c.glfwSetScrollCallback(window, &glfw_scroll_callback);
-        _ = seizer.backend.glfw.c.glfwSetWindowSizeCallback(window, &glfw_window_size_callback);
-        _ = seizer.backend.glfw.c.glfwSetFramebufferSizeCallback(window, &glfw_framebuffer_size_callback);
+        window.setKeyCallback(glfw_key_callback);
+        window.setMouseButtonCallback(glfw_mousebutton_callback);
+        window.setCursorPosCallback(glfw_cursor_pos_callback);
+        window.setCharCallback(glfw_char_callback);
+        window.setScrollCallback(glfw_scroll_callback);
+        window.setSizeCallback(glfw_window_size_callback);
+        window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
 
         app.stage.needs_layout = true;
 
@@ -200,7 +195,7 @@ const App = struct {
 
         app.texture.deinit();
         app.canvas.deinit(app.gpa);
-        seizer.backend.glfw.c.glfwDestroyWindow(app.window);
+        app.window.destroy();
         app.gpa.destroy(app);
     }
 
@@ -242,64 +237,56 @@ pub fn main() !void {
     // GLFW setup
     try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
 
-    _ = seizer.backend.glfw.c.glfwSetErrorCallback(&seizer.backend.glfw.defaultErrorCallback);
+    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
 
-    const glfw_init_res = seizer.backend.glfw.c.glfwInit();
-    if (glfw_init_res != 1) {
-        std.debug.print("glfw init error: {}\n", .{glfw_init_res});
+    if (!seizer.backend.glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
         std.process.exit(1);
     }
-    defer seizer.backend.glfw.c.glfwTerminate();
+    defer seizer.backend.glfw.terminate();
 
     const app = try App.new(gpa.allocator());
     defer app.destroy();
 
-    while (seizer.backend.glfw.c.glfwWindowShouldClose(app.window) != seizer.backend.glfw.c.GLFW_TRUE) {
-        seizer.backend.glfw.c.glfwPollEvents();
+    while (!app.window.shouldClose()) {
+        seizer.backend.glfw.pollEvents();
 
         gl.clearColor(0.7, 0.5, 0.5, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        var window_size: [2]c_int = undefined;
-        seizer.backend.glfw.c.glfwGetWindowSize(app.window, &window_size[0], &window_size[1]);
-
-        var framebuffer_size: [2]c_int = undefined;
-        seizer.backend.glfw.c.glfwGetFramebufferSize(app.window, &framebuffer_size[0], &framebuffer_size[1]);
-
+        const window_size = app.window.getSize();
+        const framebuffer_size = app.window.getFramebufferSize();
         app.canvas.begin(.{
             .window_size = [2]f32{
-                @floatFromInt(window_size[0]),
-                @floatFromInt(window_size[1]),
+                @floatFromInt(window_size.width),
+                @floatFromInt(window_size.height),
             },
             .framebuffer_size = [2]f32{
-                @floatFromInt(framebuffer_size[0]),
-                @floatFromInt(framebuffer_size[1]),
+                @floatFromInt(framebuffer_size.width),
+                @floatFromInt(framebuffer_size.height),
             },
         });
-        app.stage.render(&app.canvas, [2]f32{
-            @floatFromInt(window_size[0]),
-            @floatFromInt(window_size[1]),
-        });
+        app.stage.render(&app.canvas, app.canvas.window_size);
         app.canvas.end();
 
-        seizer.backend.glfw.c.glfwSwapBuffers(app.window);
+        app.window.swapBuffers();
     }
 }
 
-fn glfw_key_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, key: c_int, scancode: c_int, action: c_int, mods: c_int) callconv(.C) void {
-    const app = @as(*App, @ptrCast(@alignCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+fn glfw_key_callback(window: seizer.backend.glfw.Window, key: seizer.backend.glfw.Key, scancode: i32, action: seizer.backend.glfw.Action, mods: seizer.backend.glfw.Mods) void {
+    const app = window.getUserPointer(App).?;
 
     const key_event = seizer.ui.event.Key{
-        .key = @enumFromInt(key),
+        .key = @enumFromInt(@intFromEnum(key)),
         .scancode = scancode,
-        .action = @enumFromInt(action),
+        .action = @enumFromInt(@intFromEnum(action)),
         .mods = .{
-            .shift = seizer.backend.glfw.c.GLFW_MOD_SHIFT == seizer.backend.glfw.c.GLFW_MOD_SHIFT & mods,
-            .control = seizer.backend.glfw.c.GLFW_MOD_CONTROL == seizer.backend.glfw.c.GLFW_MOD_CONTROL & mods,
-            .alt = seizer.backend.glfw.c.GLFW_MOD_ALT == seizer.backend.glfw.c.GLFW_MOD_ALT & mods,
-            .super = seizer.backend.glfw.c.GLFW_MOD_SUPER == seizer.backend.glfw.c.GLFW_MOD_SUPER & mods,
-            .caps_lock = seizer.backend.glfw.c.GLFW_MOD_CAPS_LOCK == seizer.backend.glfw.c.GLFW_MOD_CAPS_LOCK & mods,
-            .num_lock = seizer.backend.glfw.c.GLFW_MOD_NUM_LOCK == seizer.backend.glfw.c.GLFW_MOD_NUM_LOCK & mods,
+            .shift = mods.shift,
+            .control = mods.control,
+            .alt = mods.alt,
+            .super = mods.super,
+            .caps_lock = mods.caps_lock,
+            .num_lock = mods.num_lock,
         },
     };
 
@@ -308,27 +295,26 @@ fn glfw_key_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, key: c_int, sca
     }
 }
 
-fn glfw_mousebutton_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, button: c_int, action: c_int, mods: c_int) callconv(.C) void {
+fn glfw_mousebutton_callback(window: seizer.backend.glfw.Window, button: seizer.backend.glfw.MouseButton, action: seizer.backend.glfw.Action, mods: seizer.backend.glfw.Mods) void {
     _ = mods;
-    const app = @as(*App, @ptrCast(@alignCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+    const app = window.getUserPointer(App).?;
 
     check_ui: {
-        var mouse_pos_f64: [2]f64 = undefined;
-        seizer.backend.glfw.c.glfwGetCursorPos(window, &mouse_pos_f64[0], &mouse_pos_f64[1]);
+        const mouse_pos_f64 = window.getCursorPos();
         const mouse_pos = [2]f32{
-            @floatCast(mouse_pos_f64[0]),
-            @floatCast(mouse_pos_f64[1]),
+            @floatCast(mouse_pos_f64.xpos),
+            @floatCast(mouse_pos_f64.ypos),
         };
 
         const click_event = seizer.ui.event.Click{
             .pos = mouse_pos,
             .button = switch (button) {
-                seizer.backend.glfw.c.GLFW_MOUSE_BUTTON_LEFT => .left,
-                seizer.backend.glfw.c.GLFW_MOUSE_BUTTON_RIGHT => .right,
-                seizer.backend.glfw.c.GLFW_MOUSE_BUTTON_MIDDLE => .middle,
+                .left => .left,
+                .right => .right,
+                .middle => .middle,
                 else => break :check_ui,
             },
-            .pressed = action == seizer.backend.glfw.c.GLFW_PRESS,
+            .pressed = action == .press,
         };
 
         if (app.stage.onClick(click_event)) {
@@ -337,8 +323,8 @@ fn glfw_mousebutton_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, button:
     }
 }
 
-fn glfw_cursor_pos_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, xpos: f64, ypos: f64) callconv(.C) void {
-    const app = @as(*App, @ptrCast(@alignCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+fn glfw_cursor_pos_callback(window: seizer.backend.glfw.Window, xpos: f64, ypos: f64) void {
+    const app = window.getUserPointer(App).?;
 
     const mouse_pos = [2]f32{ @floatCast(xpos), @floatCast(ypos) };
 
@@ -347,8 +333,8 @@ fn glfw_cursor_pos_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, xpos: f6
     }
 }
 
-fn glfw_scroll_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, xoffset: f64, yoffset: f64) callconv(.C) void {
-    const app = @as(*App, @ptrCast(@alignCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+fn glfw_scroll_callback(window: seizer.backend.glfw.Window, xoffset: f64, yoffset: f64) void {
+    const app = window.getUserPointer(App).?;
 
     const scroll_event = seizer.ui.event.Scroll{
         .offset = [2]f32{
@@ -362,8 +348,8 @@ fn glfw_scroll_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, xoffset: f64
     }
 }
 
-fn glfw_char_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, codepoint: c_uint) callconv(.C) void {
-    const app = @as(*App, @alignCast(@ptrCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+fn glfw_char_callback(window: seizer.backend.glfw.Window, codepoint: u21) void {
+    const app = window.getUserPointer(App).?;
 
     var text_input_event = seizer.ui.event.TextInput{ .text = .{} };
     const codepoint_len = std.unicode.utf8Encode(@as(u21, @intCast(codepoint)), &text_input_event.text.buffer) catch return;
@@ -374,14 +360,14 @@ fn glfw_char_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, codepoint: c_u
     }
 }
 
-fn glfw_window_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
-    const app = @as(*App, @alignCast(@ptrCast(seizer.backend.glfw.c.glfwGetWindowUserPointer(window))));
+fn glfw_window_size_callback(window: seizer.backend.glfw.Window, width: c_int, height: c_int) void {
+    const app = window.getUserPointer(App).?;
     _ = width;
     _ = height;
     app.stage.needs_layout = true;
 }
 
-fn glfw_framebuffer_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
     _ = window;
     gl.viewport(
         0,

@@ -7,31 +7,25 @@ pub fn main() !void {
     // GLFW setup
     try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
 
-    _ = seizer.backend.glfw.c.glfwSetErrorCallback(&seizer.backend.glfw.defaultErrorCallback);
+    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
 
-    const glfw_init_res = seizer.backend.glfw.c.glfwInit();
-    if (glfw_init_res != 1) {
-        std.debug.print("glfw init error: {}\n", .{glfw_init_res});
+    if (!seizer.backend.glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
         std.process.exit(1);
     }
-    defer seizer.backend.glfw.c.glfwTerminate();
-
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
+    defer seizer.backend.glfw.terminate();
 
     //  Open window
-    const window = seizer.backend.glfw.c.glfwCreateWindow(640, 640, "Bitmap Font - Seizer", null, null) orelse return error.GlfwCreateWindow;
-    errdefer seizer.backend.glfw.c.glfwDestroyWindow(window);
+    const window = seizer.backend.glfw.Window.create(640, 640, "TinyVG - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
+    defer window.destroy();
 
-    seizer.backend.glfw.c.glfwMakeContextCurrent(window);
+    seizer.backend.glfw.makeContextCurrent(window);
 
     gl_binding.init(seizer.backend.glfw.GlBindingLoader);
     gl.makeBindingCurrent(&gl_binding);
 
     // Set up input callbacks
-    _ = seizer.backend.glfw.c.glfwSetFramebufferSizeCallback(window, &glfw_framebuffer_size_callback);
+    window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
 
     var canvas = try seizer.Canvas.init(gpa.allocator(), .{});
     defer canvas.deinit(gpa.allocator());
@@ -40,32 +34,28 @@ pub fn main() !void {
     var shield_texture = try seizer.Texture.initFromTVG(gpa.allocator(), &shield_icon_tvg, .{});
     defer shield_texture.deinit();
 
-    while (seizer.backend.glfw.c.glfwWindowShouldClose(window) != seizer.backend.glfw.c.GLFW_TRUE) {
-        seizer.backend.glfw.c.glfwPollEvents();
+    while (!window.shouldClose()) {
+        seizer.backend.glfw.pollEvents();
 
         gl.clearColor(0.7, 0.5, 0.5, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        var window_size: [2]c_int = undefined;
-        seizer.backend.glfw.c.glfwGetWindowSize(window, &window_size[0], &window_size[1]);
-
-        var framebuffer_size: [2]c_int = undefined;
-        seizer.backend.glfw.c.glfwGetFramebufferSize(window, &framebuffer_size[0], &framebuffer_size[1]);
-
+        const window_size = window.getSize();
+        const framebuffer_size = window.getFramebufferSize();
         canvas.begin(.{
             .window_size = [2]f32{
-                @floatFromInt(window_size[0]),
-                @floatFromInt(window_size[1]),
+                @floatFromInt(window_size.width),
+                @floatFromInt(window_size.height),
             },
             .framebuffer_size = [2]f32{
-                @floatFromInt(framebuffer_size[0]),
-                @floatFromInt(framebuffer_size[1]),
+                @floatFromInt(framebuffer_size.width),
+                @floatFromInt(framebuffer_size.height),
             },
         });
         canvas.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
         canvas.end();
 
-        seizer.backend.glfw.c.glfwSwapBuffers(window);
+        window.swapBuffers();
     }
 }
 
@@ -82,7 +72,7 @@ const shield_icon_tvg = [_]u8{
     0x27, 0x24, 0x20, 0x03, 0x24, 0x1a, 0x29, 0x14, 0x30, 0x14, 0x00,
 };
 
-fn glfw_framebuffer_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
     _ = window;
     gl.viewport(
         0,

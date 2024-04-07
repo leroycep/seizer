@@ -58,31 +58,30 @@ pub fn main() !void {
     // GLFW setup
     try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
 
-    _ = seizer.backend.glfw.c.glfwSetErrorCallback(&seizer.backend.glfw.defaultErrorCallback);
+    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
 
-    const glfw_init_res = seizer.backend.glfw.c.glfwInit();
-    if (glfw_init_res != 1) {
-        std.debug.print("glfw init error: {}\n", .{glfw_init_res});
+    if (!seizer.backend.glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
         std.process.exit(1);
     }
-    defer seizer.backend.glfw.c.glfwTerminate();
+    defer seizer.backend.glfw.terminate();
 
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
+    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
+    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
+    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
+    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
 
     //  Open window
-    const window = seizer.backend.glfw.c.glfwCreateWindow(640, 640, "Textures - Seizer", null, null) orelse return error.GlfwCreateWindow;
-    errdefer seizer.backend.glfw.c.glfwDestroyWindow(window);
+    const window = seizer.backend.glfw.Window.create(640, 640, "Textures - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
+    defer window.destroy();
 
-    seizer.backend.glfw.c.glfwMakeContextCurrent(window);
+    seizer.backend.glfw.makeContextCurrent(window);
 
     gl_binding.init(seizer.backend.glfw.GlBindingLoader);
     gl.makeBindingCurrent(&gl_binding);
 
     // Set up input callbacks
-    _ = seizer.backend.glfw.c.glfwSetFramebufferSizeCallback(window, &glfw_framebuffer_size_callback);
+    window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
 
     // Load texture
     var player_texture = try seizer.Texture.initFromFileContents(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
@@ -114,8 +113,8 @@ pub fn main() !void {
     gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
     gl.bindBuffer(gl.ARRAY_BUFFER, 0);
 
-    while (seizer.backend.glfw.c.glfwWindowShouldClose(window) != seizer.backend.glfw.c.GLFW_TRUE) {
-        seizer.backend.glfw.c.glfwPollEvents();
+    while (!window.shouldClose()) {
+        seizer.backend.glfw.pollEvents();
 
         gl.clearColor(0.7, 0.5, 0.5, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
@@ -135,11 +134,11 @@ pub fn main() !void {
 
         gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-        seizer.backend.glfw.c.glfwSwapBuffers(window);
+        window.swapBuffers();
     }
 }
 
-fn glfw_framebuffer_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
     _ = window;
     gl.viewport(
         0,
@@ -147,22 +146,6 @@ fn glfw_framebuffer_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, wi
         @intCast(width),
         @intCast(height),
     );
-}
-
-const GlBindingLoader = struct {
-    const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
-
-    pub fn getCommandFnPtr(command_name: [:0]const u8) ?AnyCFnPtr {
-        return seizer.backend.glfw.c.glfwGetProcAddress(command_name);
-    }
-
-    pub fn extensionSupported(extension_name: [:0]const u8) bool {
-        return seizer.backend.glfw.c.glfwExtensionSupported(extension_name);
-    }
-};
-
-fn error_callback_for_glfw(err: c_int, description: ?[*:0]const u8) callconv(.C) void {
-    std.debug.print("Error 0x{x}: {?s}\n", .{ err, description });
 }
 
 const seizer = @import("seizer");

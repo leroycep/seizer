@@ -7,43 +7,42 @@ pub fn main() !void {
     // GLFW setup
     try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
 
-    _ = seizer.backend.glfw.c.glfwSetErrorCallback(&seizer.backend.glfw.defaultErrorCallback);
+    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
 
-    const glfw_init_res = seizer.backend.glfw.c.glfwInit();
-    if (glfw_init_res != 1) {
-        std.debug.print("glfw init error: {}\n", .{glfw_init_res});
+    if (!seizer.backend.glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
         std.process.exit(1);
     }
-    defer seizer.backend.glfw.c.glfwTerminate();
+    defer seizer.backend.glfw.terminate();
 
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
+    // seizer.backend.glfw.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
+    // seizer.backend.glfw.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
+    // seizer.backend.glfw.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
+    // seizer.backend.glfw.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
 
     //  Open window
-    const window = seizer.backend.glfw.c.glfwCreateWindow(640, 640, "Clear - Seizer", null, null) orelse return error.GlfwCreateWindow;
-    errdefer seizer.backend.glfw.c.glfwDestroyWindow(window);
+    const window = seizer.backend.glfw.Window.create(640, 640, "Clear - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
+    defer window.destroy();
 
-    seizer.backend.glfw.c.glfwMakeContextCurrent(window);
+    seizer.backend.glfw.makeContextCurrent(window);
 
     gl_binding.init(seizer.backend.glfw.GlBindingLoader);
     gl.makeBindingCurrent(&gl_binding);
 
     // Set up input callbacks
-    _ = seizer.backend.glfw.c.glfwSetFramebufferSizeCallback(window, &glfw_framebuffer_size_callback);
+    window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
 
-    while (seizer.backend.glfw.c.glfwWindowShouldClose(window) != seizer.backend.glfw.c.GLFW_TRUE) {
-        seizer.backend.glfw.c.glfwPollEvents();
+    while (!window.shouldClose()) {
+        seizer.backend.glfw.pollEvents();
 
         gl.clearColor(0.7, 0.5, 0.5, 1.0);
         gl.clear(gl.COLOR_BUFFER_BIT);
 
-        seizer.backend.glfw.c.glfwSwapBuffers(window);
+        window.swapBuffers();
     }
 }
 
-fn glfw_framebuffer_size_callback(window: ?*seizer.backend.glfw.c.GLFWwindow, width: c_int, height: c_int) callconv(.C) void {
+fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
     _ = window;
     gl.viewport(
         0,

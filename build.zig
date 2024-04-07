@@ -20,10 +20,11 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
-    const glfw_dep = b.dependency("glfw", .{
+    const glfw_dep = b.dependency("mach-glfw", .{
         .target = target,
         .optimize = optimize,
-        .opengl = true,
+        // .opengl = true,
+        // .x11 = false,
     });
 
     const tinyvg = b.dependency("tinyvg", .{
@@ -44,9 +45,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "gl", .module = gl_module },
         },
     });
-    module.linkLibrary(glfw_dep.artifact("glfw"));
-
-    const example_option = b.option(Example, "example", "Specify which example to run/build/install");
+    module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
 
     const example_fields = @typeInfo(Example).Enum.fields;
     inline for (example_fields) |tag| {
@@ -58,20 +57,18 @@ pub fn build(b: *Builder) !void {
             .optimize = optimize,
         });
         b.installArtifact(exe);
-        exe.linkLibrary(glfw_dep.artifact("glfw"));
         exe.root_module.addImport("seizer", module);
-        exe.linkLibC();
 
-        if (example_option != null and std.mem.eql(u8, tag_name, @tagName(example_option.?))) {
-            const run_cmd = b.addRunArtifact(exe);
-            run_cmd.step.dependOn(b.getInstallStep());
+        // build
+        const build_step = b.step("example-" ++ tag_name, "Build the " ++ tag_name ++ " example");
+        build_step.dependOn(&exe.step);
 
-            if (b.args) |args| {
-                run_cmd.addArgs(args);
-            }
-
-            const run_step = b.step("run", "Run the example specified by -Dexample");
-            run_step.dependOn(&run_cmd.step);
+        // run
+        const run_cmd = b.addRunArtifact(exe);
+        if (b.args) |args| {
+            run_cmd.addArgs(args);
         }
+        const run_step = b.step("example-" ++ tag_name ++ "-run", "Run the " ++ tag_name ++ " example");
+        run_step.dependOn(&run_cmd.step);
     }
 }
