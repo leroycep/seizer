@@ -1,62 +1,38 @@
-var gl_binding: gl.Binding = undefined;
+pub const main = seizer.main;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+var canvas: seizer.Canvas = undefined;
+var shield_texture: seizer.Texture = undefined;
 
-    // GLFW setup
-    try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
+pub fn init(context: *seizer.Context) !void {
+    _ = try context.createWindow(.{
+        .title = "TinyVG - Seizer Example",
+        .on_render = render,
+        .on_destroy = deinit,
+    });
 
-    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
+    canvas = try seizer.Canvas.init(context.gpa, .{});
+    errdefer canvas.deinit();
 
-    if (!seizer.backend.glfw.init(.{})) {
-        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
-        std.process.exit(1);
-    }
-    defer seizer.backend.glfw.terminate();
+    shield_texture = try seizer.Texture.initFromTVG(context.gpa, &shield_icon_tvg, .{});
+    errdefer shield_texture.deinit();
+}
 
-    //  Open window
-    const window = seizer.backend.glfw.Window.create(640, 640, "TinyVG - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
-    defer window.destroy();
+pub fn deinit(window: *seizer.Window) void {
+    _ = window;
+    canvas.deinit();
+    shield_texture.deinit();
+}
 
-    seizer.backend.glfw.makeContextCurrent(window);
+fn render(window: *seizer.Window) !void {
+    gl.clearColor(0.7, 0.5, 0.5, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
-    gl_binding.init(seizer.backend.glfw.GlBindingLoader);
-    gl.makeBindingCurrent(&gl_binding);
-
-    // Set up input callbacks
-    window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
-
-    var canvas = try seizer.Canvas.init(gpa.allocator(), .{});
-    defer canvas.deinit(gpa.allocator());
-
-    // render shield icon into a bitmap
-    var shield_texture = try seizer.Texture.initFromTVG(gpa.allocator(), &shield_icon_tvg, .{});
-    defer shield_texture.deinit();
-
-    while (!window.shouldClose()) {
-        seizer.backend.glfw.pollEvents();
-
-        gl.clearColor(0.7, 0.5, 0.5, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-
-        const window_size = window.getSize();
-        const framebuffer_size = window.getFramebufferSize();
-        canvas.begin(.{
-            .window_size = [2]f32{
-                @floatFromInt(window_size.width),
-                @floatFromInt(window_size.height),
-            },
-            .framebuffer_size = [2]f32{
-                @floatFromInt(framebuffer_size.width),
-                @floatFromInt(framebuffer_size.height),
-            },
-        });
-        canvas.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
-        canvas.end();
-
-        window.swapBuffers();
-    }
+    canvas.begin(.{
+        .window_size = window.getSize(),
+        .framebuffer_size = window.getFramebufferSize(),
+    });
+    canvas.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
+    canvas.end();
 }
 
 const shield_icon_tvg = [_]u8{
@@ -72,17 +48,6 @@ const shield_icon_tvg = [_]u8{
     0x27, 0x24, 0x20, 0x03, 0x24, 0x1a, 0x29, 0x14, 0x30, 0x14, 0x00,
 };
 
-fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
-    _ = window;
-    gl.viewport(
-        0,
-        0,
-        @intCast(width),
-        @intCast(height),
-    );
-}
-
 const seizer = @import("seizer");
 const gl = seizer.gl;
-const tvg = seizer.tvg;
 const std = @import("std");

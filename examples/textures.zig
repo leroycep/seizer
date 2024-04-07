@@ -49,55 +49,29 @@ const VERTS = [_]Vertex{
     .{ .x = -0.5, .y = -0.5, .u = 0.0, .v = 1.0 },
 };
 
-var gl_binding: gl.Binding = undefined;
+pub const main = seizer.main;
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
+var player_texture: seizer.Texture = undefined;
+var shader_program: gl.Uint = undefined;
+var vbo: gl.Uint = undefined;
+var vao: gl.Uint = undefined;
 
-    // GLFW setup
-    try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
+pub fn init(context: *seizer.Context) !void {
+    _ = try context.createWindow(.{
+        .title = "Textures - Seizer Example",
+        .render = render,
+    });
 
-    _ = seizer.backend.glfw.setErrorCallback(seizer.backend.glfw.defaultErrorCallback);
-
-    if (!seizer.backend.glfw.init(.{})) {
-        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
-        std.process.exit(1);
-    }
-    defer seizer.backend.glfw.terminate();
-
-    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_OPENGL_DEBUG_CONTEXT, seizer.backend.glfw.c.GLFW_TRUE);
-    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CLIENT_API, seizer.backend.glfw.c.GLFW_OPENGL_ES_API);
-    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MAJOR, 3);
-    // seizer.backend.glfw.c.glfwWindowHint(seizer.backend.glfw.c.GLFW_CONTEXT_VERSION_MINOR, 0);
-
-    //  Open window
-    const window = seizer.backend.glfw.Window.create(640, 640, "Textures - Seizer", null, null, .{}) orelse return error.GlfwCreateWindow;
-    defer window.destroy();
-
-    seizer.backend.glfw.makeContextCurrent(window);
-
-    gl_binding.init(seizer.backend.glfw.GlBindingLoader);
-    gl.makeBindingCurrent(&gl_binding);
-
-    // Set up input callbacks
-    window.setFramebufferSizeCallback(glfw_framebuffer_size_callback);
-
-    // Load texture
-    var player_texture = try seizer.Texture.initFromFileContents(gpa.allocator(), @embedFile("assets/wedge.png"), .{});
-    errdefer player_texture.deinit();
-
+    player_texture = try seizer.Texture.initFromFileContents(context.gpa, @embedFile("assets/wedge.png"), .{});
     std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });
 
-    const shader_program = try seizer.glUtil.compileShader(gpa.allocator(), VERT_SHADER, FRAG_SHADER);
+    shader_program = try seizer.glUtil.compileShader(context.gpa, VERT_SHADER, FRAG_SHADER);
 
     // Create VBO to display texture
-    var vbo: gl.Uint = 0;
     gl.genBuffers(1, &vbo);
     if (vbo == 0)
         return error.OpenGlFailure;
 
-    var vao: gl.Uint = 0;
     gl.genVertexArrays(1, &vao);
     if (vao == 0)
         return error.OpenGlFailure;
@@ -112,40 +86,27 @@ pub fn main() !void {
     gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "x")));
     gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
     gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-
-    while (!window.shouldClose()) {
-        seizer.backend.glfw.pollEvents();
-
-        gl.clearColor(0.7, 0.5, 0.5, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT);
-
-        // Draw VBO to screen
-        gl.useProgram(shader_program);
-        defer gl.useProgram(0);
-
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, player_texture.glTexture);
-
-        gl.bindVertexArray(vao);
-        defer gl.bindVertexArray(0);
-        gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-        defer gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-        gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(VERTS.len)) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
-
-        gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-        window.swapBuffers();
-    }
 }
 
-fn glfw_framebuffer_size_callback(window: seizer.backend.glfw.Window, width: u32, height: u32) void {
+fn render(window: *seizer.Window) !void {
     _ = window;
-    gl.viewport(
-        0,
-        0,
-        @intCast(width),
-        @intCast(height),
-    );
+    gl.clearColor(0.7, 0.5, 0.5, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
+    // Draw VBO to screen
+    gl.useProgram(shader_program);
+    defer gl.useProgram(0);
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, player_texture.glTexture);
+
+    gl.bindVertexArray(vao);
+    defer gl.bindVertexArray(0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+    defer gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+    gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(VERTS.len)) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
 }
 
 const seizer = @import("seizer");

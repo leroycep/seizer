@@ -1,6 +1,45 @@
-// pub const c = @import("./c.zig");
 pub const mach_glfw = @import("mach-glfw");
 pub usingnamespace mach_glfw;
+
+pub fn main() !void {
+    const seizer = @import("../seizer.zig");
+    const gl = seizer.gl;
+    const root = @import("root");
+
+    if (!@hasDecl(root, "init")) {
+        @compileError("root module must contain init function");
+    }
+
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    // GLFW setup
+    try seizer.backend.glfw.loadDynamicLibraries(gpa.allocator());
+
+    _ = seizer.backend.glfw.setErrorCallback(defaultErrorCallback);
+
+    if (!seizer.backend.glfw.init(.{})) {
+        std.log.err("failed to initialize GLFW: {?s}\n", .{seizer.backend.glfw.getErrorString()});
+        std.process.exit(1);
+    }
+    defer seizer.backend.glfw.terminate();
+
+    // Make a context object
+    var context = seizer.Context{ .gpa = gpa.allocator() };
+    defer context.deinit();
+
+    // Call root module's `init()` function
+    try root.init(&context);
+
+    while (context.anyWindowsOpen()) {
+        mach_glfw.pollEvents();
+        for (context.windows.items) |window| {
+            gl.makeBindingCurrent(&window.gl_binding);
+            try window.on_render(window);
+            window.glfw_window.swapBuffers();
+        }
+    }
+}
 
 /// This function will pre-emptively load libraries so GLFW will detect Wayland on NixOS.
 pub fn loadDynamicLibraries(gpa: std.mem.Allocator) !void {
@@ -51,12 +90,10 @@ pub const GlBindingLoader = struct {
 
     pub fn getCommandFnPtr(command_name: [:0]const u8) ?AnyCFnPtr {
         return mach_glfw.getProcAddress(command_name);
-        // return c.glfwGetProcAddress(command_name);
     }
 
     pub fn extensionSupported(extension_name: [:0]const u8) bool {
         return mach_glfw.ExtensionSupported(extension_name);
-        // return c.glfwExtensionSupported(extension_name);
     }
 };
 

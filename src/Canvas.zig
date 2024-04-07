@@ -1,5 +1,6 @@
 pub const Font = @import("./Canvas/Font.zig");
 
+allocator: std.mem.Allocator,
 program: gl.Uint,
 uniforms: UniformLocations,
 current_texture: ?gl.Uint,
@@ -178,6 +179,7 @@ pub fn init(
     const texture = gl.getUniformLocation(program, "texture_handle");
 
     return .{
+        .allocator = allocator,
         .program = program,
         .uniforms = .{
             .projection = projection,
@@ -196,18 +198,18 @@ pub fn init(
     };
 }
 
-pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
+pub fn deinit(this: *@This()) void {
     gl.deleteProgram(this.program);
-    this.vertices.deinit(allocator);
-    this.transform_stack.deinit(allocator);
-    this.scissor_stack.deinit(allocator);
+    this.vertices.deinit(this.allocator);
+    this.transform_stack.deinit(this.allocator);
+    this.scissor_stack.deinit(this.allocator);
     this.font.deinit();
 
     var page_name_iter = this.font_pages.iterator();
     while (page_name_iter.next()) |entry| {
         gl.deleteTextures(1, &entry.value_ptr.*.texture);
     }
-    this.font_pages.deinit(allocator);
+    this.font_pages.deinit(this.allocator);
 
     gl.deleteBuffers(1, &this.vbo);
 }
