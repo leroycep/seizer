@@ -12,8 +12,8 @@
             .hash = "122085745c053e68fea3772c7239c7c87bcc7f042fa3189592b30e0e39cbb9603d79",
         },
         .tinyvg = .{
-            .url = "https://github.com/leroycep/tinyvg-sdk/archive/6935fabb471133033de98e5f30c3f5370dd14262.tar.gz",
-            .hash = "12206abafed32c5e6fb8f6fe08412696abaafd66cff39a9ab5c061903b4a5ecbfa15",
+            .url = "https://github.com/leroycep/tinyvg-sdk/archive/e658956803588bdbcbb5de98c77380e50305c481.tar.gz",
+            .hash = "12204097e887cf1a7fa09e7d7877fd8af1733f5390ba59ccfe09080e2275fb47daa9",
         },
     },
 }
