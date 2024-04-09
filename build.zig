@@ -20,14 +20,17 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
-    const glfw_dep = b.dependency("mach-glfw", .{
+    const mach_glfw = b.dependency("mach-glfw", .{
         .target = target,
         .optimize = optimize,
-        // .opengl = true,
-        // .x11 = false,
     });
 
     const tinyvg = b.dependency("tinyvg", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const zflecs = b.dependency("zflecs", .{
         .target = target,
         .optimize = optimize,
     });
@@ -43,9 +46,10 @@ pub fn build(b: *Builder) !void {
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
+            .{ .name = "zflecs", .module = zflecs.module("zflecs") },
+            .{ .name = "mach-glfw", .module = mach_glfw.module("mach-glfw") },
         },
     });
-    module.addImport("mach-glfw", glfw_dep.module("mach-glfw"));
 
     const example_fields = @typeInfo(Example).Enum.fields;
     inline for (example_fields) |tag| {

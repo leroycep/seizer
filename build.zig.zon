@@ -15,5 +15,8 @@
             .url = "https://pkg.machengine.org/mach-glfw/1a9a03399058fd83f7fbb597f3f8304007ff6a3c.tar.gz",
             .hash = "1220b4d58ec6cf53abfd8d7547d39afb9bffa41822d4d58f52625230466e51cc93bb",
         },
+        .@"zflecs" = .{
+            .path = "dep/zflecs",
+        },
     },
 }

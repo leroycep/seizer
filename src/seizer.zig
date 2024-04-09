@@ -6,6 +6,7 @@ pub const mem = @import("./mem.zig");
 pub const tvg = @import("tvg");
 pub const ui = @import("./ui.zig");
 pub const zigimg = @import("zigimg");
+pub const flecs = @import("zflecs");
 
 pub const Context = @import("./Context.zig");
 pub const Canvas = @import("./Canvas.zig");
