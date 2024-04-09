@@ -366,9 +366,9 @@ pub const RectOptions = struct {
 };
 
 pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-    if (this.vertices.unusedCapacitySlice().len < 6) {
+    this.vertices.ensureUnusedCapacity(this.allocator, 6) catch {
         this.flush();
-    }
+    };
     if (!std.meta.eql(options.texture, this.current_texture)) {
         this.flush();
         this.current_texture = options.texture;
@@ -447,9 +447,9 @@ pub const TriangleOptions = struct {
 };
 
 pub fn triangle(this: *@This(), options: TriangleOptions) void {
-    if (this.vertices.unusedCapacitySlice().len < 3) {
+    this.vertices.ensureUnusedCapacity(this.allocator, 3) catch {
         this.flush();
-    }
+    };
     if (!std.meta.eql(options.texture, this.current_texture)) {
         this.flush();
         this.current_texture = options.texture;
@@ -658,7 +658,10 @@ pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: struct {
     width: f32 = 1,
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
 }) void {
-    if (this.vertices.unusedCapacitySlice().len < 6 or this.current_texture != null) {
+    this.vertices.ensureUnusedCapacity(this.allocator, 6) catch {
+        this.flush();
+    };
+    if (this.current_texture != null) {
         this.flush();
         this.current_texture = null;
     }
