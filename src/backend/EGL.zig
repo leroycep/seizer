@@ -1,0 +1,245 @@
+dyn_lib: std.DynLib,
+functions: Functions,
+
+const EGL = @This();
+
+pub fn loadUsingPrefixes(prefixes: []const []const u8) !@This() {
+    var dyn_lib = try seizer.backend.tryLoadDynamicLibraryFromPrefixes(prefixes, "libEGL.so");
+    const functions = try Functions.fromDynLib(&dyn_lib);
+    return @This(){
+        .dyn_lib = dyn_lib,
+        .functions = functions,
+    };
+}
+
+pub const Functions = struct {
+    eglGetDisplay: *const fn (native_display_type: ?*anyopaque) ?*Display.Handle,
+    eglGetError: *const fn () ErrorCode,
+    eglBindAPI: *const fn (Api) Boolean,
+    eglInitialize: *const fn (*Display.Handle, major: ?*Int, minor: ?*Int) Boolean,
+    eglChooseConfig: *const fn (*Display.Handle, attrib_list: [*]Int, configs_out: ?[*]*Config.Handle, config_size: Int, num_config_out: *Int) Boolean,
+    eglCreatePbufferSurface: *const fn (*Display.Handle, config: *Config.Handle, attrib_list: ?[*]const Int) ?*Surface.Handle,
+    eglCreateContext: *const fn (*Display.Handle, config: *Config.Handle, share_context: ?*Context, attrib_list: ?[*]const Int) ?*Context.Handle,
+    eglMakeCurrent: *const fn (*Display.Handle, draw: *Surface.Handle, read: *Surface.Handle, ctx: *Context.Handle) Boolean,
+    eglGetProcAddress: *const fn ([*:0]const u8) ?*align(@alignOf(fn () callconv(.C) void)) const anyopaque,
+    eglSwapBuffers: *const fn (*Display.Handle, draw: *Surface.Handle) Boolean,
+    eglGetConfigAttrib: *const fn (*Display.Handle, config: *Config.Handle, attribute: Attrib, value_out: *Int) Boolean,
+
+    pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
+        var this: @This() = undefined;
+
+        const fields = std.meta.fields(@This());
+        inline for (fields) |field| {
+            @field(this, field.name) = dyn_lib.lookup(field.type, field.name) orelse {
+                std.log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+                return error.FunctionNotFound;
+            };
+        }
+
+        return this;
+    }
+};
+
+pub fn getDisplay(this: *const @This(), native_display_type: ?*anyopaque) ?Display {
+    const ptr = this.functions.eglGetDisplay(native_display_type) orelse return null;
+    return Display{
+        .egl = this,
+        .ptr = ptr,
+    };
+}
+
+pub fn bindAPI(egl: *const @This(), api: Api) !void {
+    switch (egl.functions.eglBindAPI(api)) {
+        .true => {},
+        .false => return egl.functions.eglGetError().toZigError(),
+    }
+}
+
+pub const Int = i32;
+pub const Boolean = enum(c_uint) {
+    false = 0,
+    true = 1,
+};
+pub const Display = struct {
+    egl: *const EGL,
+    ptr: *Handle,
+
+    const Handle = opaque {};
+
+    const Version = struct { major: Int, minor: Int };
+    pub fn initialize(this: *const @This()) Error!Version {
+        var version: Version = undefined;
+
+        switch (this.egl.functions.eglInitialize(this.ptr, &version.major, &version.minor)) {
+            .true => return version,
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+
+    pub fn chooseConfig(this: *const @This(), attrib_list: [*:@intFromEnum(Attrib.none)]Int, configs_out: ?[]*Config.Handle) Error!usize {
+        const configs_ptr = if (configs_out) |c| c.ptr else null;
+        const configs_len = if (configs_out) |c| c.len else 0;
+        var num_configs: Int = undefined;
+        switch (this.egl.functions.eglChooseConfig(this.ptr, attrib_list, configs_ptr, @intCast(configs_len), &num_configs)) {
+            .true => return @intCast(num_configs),
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+
+    pub fn createPbufferSurface(this: *const @This(), config: *Config.Handle, attrib_list: ?[*:@intFromEnum(Attrib.none)]const Int) Error!Surface {
+        const handle = this.egl.functions.eglCreatePbufferSurface(this.ptr, config, attrib_list) orelse {
+            return this.egl.functions.eglGetError().toZigError();
+        };
+        return Surface{
+            .egl = this.egl,
+            .ptr = handle,
+        };
+    }
+
+    pub fn createContext(this: *const @This(), config: *Config.Handle, share_context: ?*Context, attrib_list: ?[*:@intFromEnum(Attrib.none)]const Int) Error!Context {
+        const handle = this.egl.functions.eglCreateContext(this.ptr, config, share_context, attrib_list) orelse {
+            return this.egl.functions.eglGetError().toZigError();
+        };
+        return Context{
+            .egl = this.egl,
+            .ptr = handle,
+        };
+    }
+
+    pub fn makeCurrent(this: *const @This(), draw: Surface, read: Surface, ctx: Context) Error!void {
+        switch (this.egl.functions.eglMakeCurrent(this.ptr, draw.ptr, read.ptr, ctx.ptr)) {
+            .true => {},
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+
+    pub fn swapBuffers(this: *const @This(), surface: Surface) Error!void {
+        switch (this.egl.functions.eglSwapBuffers(this.ptr, surface.ptr)) {
+            .true => {},
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+
+    pub fn getConfigAttrib(this: *const @This(), config: Config, attrib: Attrib) Error!Int {
+        var value: Int = undefined;
+        switch (this.egl.functions.eglGetConfigAttrib(this.ptr, config.ptr, attrib, &value)) {
+            .true => return value,
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+};
+pub const Config = struct {
+    egl: *const EGL,
+    ptr: *Handle,
+
+    pub const Handle = opaque {};
+};
+pub const Surface = struct {
+    egl: *const EGL,
+    ptr: *Handle,
+
+    pub const Handle = opaque {};
+};
+pub const Context = struct {
+    egl: *const EGL,
+    ptr: *Handle,
+
+    pub const Handle = opaque {};
+};
+pub const Attrib = enum(Int) {
+    config_id = 0x3028,
+    buffer_size = 0x3020,
+    alpha_size = 0x3021,
+    blue_size = 0x3022,
+    green_size = 0x3023,
+    red_size = 0x3024,
+    level = 0x3029,
+    max_pbuffer_height = 0x302A,
+    max_pbuffer_pixels = 0x302B,
+    max_pbuffer_width = 0x302C,
+    native_renderable = 0x302D,
+    none = 0x3038,
+    surface_type = 0x3033,
+    renderable_type = 0x3040,
+    height = 0x3056,
+    width = 0x3057,
+    _,
+};
+pub const PBUFFER_BIT = 0x0001;
+pub const WINDOW_BIT = 0x0004;
+pub const OPENGL_ES2_BIT = 0x0004;
+pub const RenderableType = packed struct(Int) {
+    opengl_es: bool,
+    openvg: bool,
+    opengl_es2: bool,
+    opengl: bool,
+    _padding2: u2 = 0,
+    opengl_es3: bool,
+    _padding1: u25 = 0,
+};
+
+pub const Api = enum(c_uint) {
+    opengl_es = 0x30A0,
+    openvg = 0x30A1,
+    opengl = 0x30A2,
+};
+
+pub const ErrorCode = enum(Int) {
+    success = 0x3000,
+    not_initialized = 0x3001,
+    bad_access = 0x3002,
+    bad_alloc = 0x3003,
+    bad_attribute = 0x3004,
+    bad_config = 0x3005,
+    bad_context = 0x3006,
+    bad_current_surface = 0x3007,
+    bad_display = 0x3008,
+    bad_match = 0x3009,
+    bad_native_pixmap = 0x300A,
+    bad_native_window = 0x300B,
+    bad_parameter = 0x300C,
+    bad_surface = 0x300D,
+    non_conformant_config = 0x3051,
+    _,
+
+    fn toZigError(this: @This()) Error {
+        switch (this) {
+            .success => unreachable,
+            .not_initialized => return Error.NotInitialized,
+            .bad_access => return Error.BadAccess,
+            .bad_alloc => return Error.BadAlloc,
+            .bad_attribute => return Error.BadAttribute,
+            .bad_config => return Error.BadConfig,
+            .bad_context => return Error.BadContext,
+            .bad_current_surface => return Error.BadCurrentSurface,
+            .bad_display => return Error.BadDisplay,
+            .bad_match => return Error.BadMatch,
+            .bad_native_pixmap => return Error.BadNativePixmap,
+            .bad_native_window => return Error.BadNativeWindow,
+            .bad_parameter => return Error.BadParameter,
+            .bad_surface => return Error.BadSurface,
+            .non_conformant_config => return Error.NonConformantConfig,
+            else => unreachable,
+        }
+    }
+};
+
+pub const Error = error{
+    NotInitialized,
+    BadAccess,
+    BadAlloc,
+    BadAttribute,
+    BadConfig,
+    BadContext,
+    BadCurrentSurface,
+    BadDisplay,
+    BadMatch,
+    BadNativePixmap,
+    BadNativeWindow,
+    BadParameter,
+    BadSurface,
+    NonConformantConfig,
+};
+
+const seizer = @import("../seizer.zig");
+const std = @import("std");

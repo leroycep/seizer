@@ -3,7 +3,7 @@ pub const main = seizer.main;
 pub fn init(context: *seizer.Context) !void {
     _ = try context.createWindow(.{
         .title = "Clear - Seizer Example",
-        .render = render,
+        .on_render = render,
     });
 }
 

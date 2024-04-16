@@ -14,4 +14,4 @@ pub const NinePatch = @import("./NinePatch.zig");
 pub const Texture = @import("./Texture.zig");
 pub const Window = @import("./Window.zig");
 
-pub const main = backend.glfw.main;
+pub const main = backend.main;

@@ -1,7 +1,10 @@
 pub const mach_glfw = @import("mach-glfw");
 pub usingnamespace mach_glfw;
 
-pub fn main() !void {
+pub const SEIZER_BACKEND = @import("../seizer.zig").backend.Backend{
+    .main = seizer_backend_main(),
+};
+pub fn seizer_backend_main() !void {
     const seizer = @import("../seizer.zig");
     const gl = seizer.gl;
     const root = @import("root");
@@ -39,6 +42,47 @@ pub fn main() !void {
             window.glfw_window.swapBuffers();
         }
     }
+}
+
+pub fn seizer_context_createWindow(context: *@import("../seizer.zig").Context, options: @import("../seizer.zig").Context.CreateWindowOptions) anyerror!*@import("../seizer.zig").Window {
+    const seizer = @import("../seizer.zig");
+    const gl = seizer.gl;
+
+    try context.windows.ensureUnusedCapacity(context.gpa, 1);
+
+    const window = try context.gpa.create(seizer.Window);
+    errdefer context.gpa.destroy(window);
+
+    const glfw_window = seizer.backend.glfw.Window.create(options.size[0], options.size[1], options.title, null, null, .{}) orelse return error.GlfwCreateWindow;
+    errdefer glfw_window.destroy();
+
+    seizer.backend.glfw.makeContextCurrent(glfw_window);
+
+    window.* = .{
+        .glfw_window = glfw_window,
+        .gl_binding = undefined,
+        .on_render = options.on_render,
+        .on_destroy = options.on_destroy,
+    };
+    window.gl_binding.init(seizer.backend.glfw.GlBindingLoader);
+    gl.makeBindingCurrent(&window.gl_binding);
+
+    context.windows.appendAssumeCapacity(window);
+
+    const callbacks = struct {
+        fn framebuffer_size(_: mach_glfw.Window, width: u32, height: u32) void {
+            gl.viewport(
+                0,
+                0,
+                @intCast(width),
+                @intCast(height),
+            );
+        }
+    };
+    // Set up input callbacks
+    glfw_window.setFramebufferSizeCallback(callbacks.framebuffer_size);
+
+    return window;
 }
 
 /// This function will pre-emptively load libraries so GLFW will detect Wayland on NixOS.
