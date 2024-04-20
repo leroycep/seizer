@@ -185,6 +185,7 @@ const Window = struct {
     pub const INTERFACE = seizer.Window.Interface{
         .destroy = destroy,
         .getSize = getSize,
+        .getFramebufferSize = getSize,
         .swapBuffers = swapBuffers,
     };
 

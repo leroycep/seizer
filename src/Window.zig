@@ -12,6 +12,7 @@ const Window = @This();
 pub const Interface = struct {
     destroy: *const fn (?*anyopaque) void,
     getSize: *const fn (?*anyopaque) [2]f32,
+    getFramebufferSize: *const fn (?*anyopaque) [2]f32,
     swapBuffers: *const fn (?*anyopaque) void,
 };
 
@@ -24,14 +25,10 @@ pub fn getSize(this: @This()) [2]f32 {
     return this.interface.getSize(this.pointer);
 }
 
+pub fn getFramebufferSize(this: @This()) [2]f32 {
+    return this.interface.getFramebufferSize(this.pointer);
+}
+
 pub fn swapBuffers(this: @This()) void {
     return this.interface.swapBuffers(this.pointer);
 }
-
-// pub fn getFramebufferSize(this: @This()) [2]f32 {
-//     const framebuffer_size = this.glfw_window.getFramebufferSize();
-//     return [2]f32{
-//         @floatFromInt(framebuffer_size.width),
-//         @floatFromInt(framebuffer_size.height),
-//     };
-// }
