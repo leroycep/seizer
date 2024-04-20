@@ -99,30 +99,32 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
 
     const configs_len = try display.chooseConfig(&attrib_list, configs_buffer);
     const configs = configs_buffer[0..configs_len];
-    // for (configs) |cfg| {
-    //     std.log.debug("config {}:", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .config_id)});
-    //     std.log.debug("\t.renderable_type = {}", .{@as(EGL.RenderableType, @bitCast(try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .renderable_type)))});
-    //     std.log.debug("\t.level = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .level)});
-    //     std.log.debug("\t.max_pbuffer_pixels = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .max_pbuffer_pixels)});
-    //     std.log.debug("\t.max pbuffer dimensions = {}x{}", .{ try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .max_pbuffer_width), try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .max_pbuffer_height) });
-    //     std.log.debug("\t.buffer_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .buffer_size)});
-    //     std.log.debug("\t.red_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .red_size)});
-    //     std.log.debug("\t.blue_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .blue_size)});
-    //     std.log.debug("\t.green_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .green_size)});
-    //     std.log.debug("\t.alpha_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .alpha_size)});
-    // }
+    for (configs) |cfg| {
+        std.log.debug("config {}:", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .config_id)});
+        const renderable_type: EGL.RenderableType = @bitCast(try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .renderable_type));
+        std.log.debug("\t.renderable_type.opengl_es = {}", .{renderable_type.opengl_es});
+        std.log.debug("\t.renderable_type.opengl = {}", .{renderable_type.opengl});
+        std.log.debug("\t.renderable_type.opengl_es2 = {}", .{renderable_type.opengl_es2});
+        std.log.debug("\t.renderable_type.opengl_es3 = {}", .{renderable_type.opengl_es3});
+        // std.log.debug("\t.level = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .level)});
+        // std.log.debug("\t.buffer_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .buffer_size)});
+        // std.log.debug("\t.red_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .red_size)});
+        // std.log.debug("\t.blue_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .blue_size)});
+        // std.log.debug("\t.green_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .green_size)});
+        // std.log.debug("\t.alpha_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .alpha_size)});
+    }
 
     std.log.debug("num configs = {}", .{configs.len});
 
-    var surface_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-        // @intFromEnum(EGL.Attrib.width),  if (options.size) |s| @intCast(s[0]) else 640,
-        // @intFromEnum(EGL.Attrib.height), if (options.size) |s| @intCast(s[1]) else 480,
-        @intFromEnum(EGL.Attrib.none),
-    };
-    const surface = try display.createWindowSurface(configs[0], null, &surface_attrib_list);
+    const surface = try display.createWindowSurface(configs[0], null, null);
 
     try this.egl.bindAPI(.opengl_es);
-    const egl_context = try display.createContext(configs[0], null, null);
+    var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
+        @intFromEnum(EGL.Attrib.context_major_version), 2,
+        @intFromEnum(EGL.Attrib.context_minor_version), 0,
+        @intFromEnum(EGL.Attrib.none),
+    };
+    const egl_context = try display.createContext(configs[0], null, &context_attrib_list);
 
     try display.makeCurrent(surface, surface, egl_context);
 

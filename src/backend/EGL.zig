@@ -245,6 +245,9 @@ pub const Attrib = enum(Int) {
     height = 0x3056,
     width = 0x3057,
 
+    context_major_version = 0x3098,
+    context_minor_version = 0x30FB,
+
     bad_device_ext = 0x322B,
     _,
 };

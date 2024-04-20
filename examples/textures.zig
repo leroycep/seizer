@@ -59,7 +59,7 @@ var vao: gl.Uint = undefined;
 pub fn init(context: *seizer.Context) !void {
     _ = try context.createWindow(.{
         .title = "Textures - Seizer Example",
-        .render = render,
+        .on_render = render,
     });
 
     player_texture = try seizer.Texture.initFromFileContents(context.gpa, @embedFile("assets/wedge.png"), .{});
