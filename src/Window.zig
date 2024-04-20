@@ -10,13 +10,14 @@ on_destroy: ?*const fn (*seizer.Window) void,
 const Window = @This();
 
 pub const Interface = struct {
+    destroy: *const fn (?*anyopaque) void,
     getSize: *const fn (?*anyopaque) [2]f32,
     swapBuffers: *const fn (?*anyopaque) void,
 };
 
 pub fn destroy(this: *@This()) void {
     if (this.on_destroy) |on_destroy| on_destroy(this);
-    // this.glfw_window.destroy();
+    this.interface.destroy(this.pointer);
 }
 
 pub fn getSize(this: @This()) [2]f32 {

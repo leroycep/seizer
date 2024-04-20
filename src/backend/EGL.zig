@@ -19,11 +19,17 @@ pub const Functions = struct {
     eglInitialize: *const fn (*Display.Handle, major: ?*Int, minor: ?*Int) Boolean,
     eglChooseConfig: *const fn (*Display.Handle, attrib_list: [*]Int, configs_out: ?[*]*Config.Handle, config_size: Int, num_config_out: *Int) Boolean,
     eglCreatePbufferSurface: *const fn (*Display.Handle, config: *Config.Handle, attrib_list: ?[*]const Int) ?*Surface.Handle,
+    eglCreateWindowSurface: *const fn (*Display.Handle, config: *Config.Handle, NativeWindowType, attrib_list: ?[*]const Int) ?*Surface.Handle,
     eglCreateContext: *const fn (*Display.Handle, config: *Config.Handle, share_context: ?*Context, attrib_list: ?[*]const Int) ?*Context.Handle,
     eglMakeCurrent: *const fn (*Display.Handle, draw: *Surface.Handle, read: *Surface.Handle, ctx: *Context.Handle) Boolean,
     eglGetProcAddress: *const fn ([*:0]const u8) ?*align(@alignOf(fn () callconv(.C) void)) const anyopaque,
     eglSwapBuffers: *const fn (*Display.Handle, draw: *Surface.Handle) Boolean,
     eglGetConfigAttrib: *const fn (*Display.Handle, config: *Config.Handle, attribute: Attrib, value_out: *Int) Boolean,
+    eglQueryString: *const fn (*Display.Handle, name: Display.QueryStringName) ?[*:0]const u8,
+    eglTerminate: *const fn (*Display.Handle) Boolean,
+    eglReleaseThread: *const fn () Boolean,
+    eglDestroySurface: *const fn (*Display.Handle, *Surface.Handle) Boolean,
+    eglQuerySurface: *const fn (*Display.Handle, *Surface.Handle, Attrib, value_out: *Int) Boolean,
 
     pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
         var this: @This() = undefined;
@@ -39,6 +45,37 @@ pub const Functions = struct {
         return this;
     }
 };
+
+pub const EXT = struct {
+    pub const DeviceBase = struct {
+        pub const DEVICE = 0x322C;
+        pub const Device = opaque {};
+        eglQueryDevicesEXT: *const fn (max_devices: Int, devices_out: [*]*Device, num_devices_out: *Int) Boolean,
+        eglQueryDeviceStringEXT: *const fn (*Device, name: Int) ?[*:0]const u8,
+        // typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYDEVICEATTRIBEXTPROC) (EGLDeviceEXT device, EGLint attribute, EGLAttrib *value);
+        // typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYDISPLAYATTRIBEXTPROC) (EGLDisplay dpy, EGLint attribute, EGLAttrib *value);
+    };
+
+    pub fn load(comptime Extension: type, functions: Functions) !Extension {
+        var ext: Extension = undefined;
+
+        const fields = std.meta.fields(Extension);
+        inline for (fields) |field| {
+            @field(ext, field.name) = @ptrCast(functions.eglGetProcAddress(field.name) orelse {
+                std.log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+                return error.FunctionNotFound;
+            });
+        }
+
+        return ext;
+    }
+};
+
+pub fn deinit(this: *@This()) void {
+    _ = this.functions.eglReleaseThread();
+    this.dyn_lib.close();
+    this.* = undefined;
+}
 
 pub fn getDisplay(this: *const @This(), native_display_type: ?*anyopaque) ?Display {
     const ptr = this.functions.eglGetDisplay(native_display_type) orelse return null;
@@ -60,6 +97,8 @@ pub const Boolean = enum(c_uint) {
     false = 0,
     true = 1,
 };
+pub const NativeWindowType = ?*opaque {};
+
 pub const Display = struct {
     egl: *const EGL,
     ptr: *Handle,
@@ -76,6 +115,22 @@ pub const Display = struct {
         }
     }
 
+    pub fn terminate(this: *const @This()) void {
+        _ = this.egl.functions.eglTerminate(this.ptr);
+    }
+
+    pub fn destroySurface(this: *const @This(), surface: Surface) void {
+        _ = this.egl.functions.eglDestroySurface(this.ptr, surface.ptr);
+    }
+
+    pub fn querySurface(this: *const @This(), surface: Surface, attribute: Attrib) Error!Int {
+        var value: Int = undefined;
+        switch (this.egl.functions.eglQuerySurface(this.ptr, surface.ptr, attribute, &value)) {
+            .true => return value,
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
+    }
+
     pub fn chooseConfig(this: *const @This(), attrib_list: [*:@intFromEnum(Attrib.none)]Int, configs_out: ?[]*Config.Handle) Error!usize {
         const configs_ptr = if (configs_out) |c| c.ptr else null;
         const configs_len = if (configs_out) |c| c.len else 0;
@@ -88,6 +143,16 @@ pub const Display = struct {
 
     pub fn createPbufferSurface(this: *const @This(), config: *Config.Handle, attrib_list: ?[*:@intFromEnum(Attrib.none)]const Int) Error!Surface {
         const handle = this.egl.functions.eglCreatePbufferSurface(this.ptr, config, attrib_list) orelse {
+            return this.egl.functions.eglGetError().toZigError();
+        };
+        return Surface{
+            .egl = this.egl,
+            .ptr = handle,
+        };
+    }
+
+    pub fn createWindowSurface(this: *const @This(), config: *Config.Handle, window: NativeWindowType, attrib_list: ?[*:@intFromEnum(Attrib.none)]const Int) Error!Surface {
+        const handle = this.egl.functions.eglCreateWindowSurface(this.ptr, config, window, attrib_list) orelse {
             return this.egl.functions.eglGetError().toZigError();
         };
         return Surface{
@@ -127,6 +192,22 @@ pub const Display = struct {
             .false => return this.egl.functions.eglGetError().toZigError(),
         }
     }
+
+    pub const QueryStringName = enum(Int) {
+        vendor = 0x3053,
+        version = 0x3054,
+        extensions = 0x3055,
+        client_apis = 0x308D,
+        _,
+    };
+
+    pub fn queryString(this: *const @This(), name: QueryStringName) Error![*:0]const u8 {
+        if (this.egl.functions.eglQueryString(this.ptr, name)) |str_ptr| {
+            return str_ptr;
+        } else {
+            return this.egl.functions.eglGetError().toZigError();
+        }
+    }
 };
 pub const Config = struct {
     egl: *const EGL,
@@ -163,6 +244,8 @@ pub const Attrib = enum(Int) {
     renderable_type = 0x3040,
     height = 0x3056,
     width = 0x3057,
+
+    bad_device_ext = 0x322B,
     _,
 };
 pub const PBUFFER_BIT = 0x0001;
@@ -202,7 +285,7 @@ pub const ErrorCode = enum(Int) {
     non_conformant_config = 0x3051,
     _,
 
-    fn toZigError(this: @This()) Error {
+    pub fn toZigError(this: @This()) Error {
         switch (this) {
             .success => unreachable,
             .not_initialized => return Error.NotInitialized,
