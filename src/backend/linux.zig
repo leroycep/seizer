@@ -1,4 +1,5 @@
 egl: EGL,
+display: EGL.Display,
 
 const Linux = @This();
 
@@ -37,6 +38,16 @@ pub fn main() bool {
         this.egl.deinit();
     }
 
+    this.display = this.egl.getDisplay(null) orelse {
+        std.log.warn("Failed to get EGL display", .{});
+        return true;
+    };
+    _ = this.display.initialize() catch |err| {
+        std.log.warn("Failed to initialize EGL display: {}", .{err});
+        return true;
+    };
+    defer this.display.terminate();
+
     var seizer_context = seizer.Context{
         .gpa = gpa.allocator(),
         .backend_userdata = this,
@@ -72,14 +83,6 @@ pub fn main() bool {
 pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!*seizer.Window {
     const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
 
-    const display = this.egl.getDisplay(null) orelse return error.NoDisplay;
-    _ = try display.initialize();
-
-    std.log.debug("egl vendor = {s}", .{try display.queryString(.vendor)});
-    std.log.debug("egl version = {s}", .{try display.queryString(.version)});
-    std.log.debug("egl client apis = {s}", .{try display.queryString(.client_apis)});
-    std.log.debug("egl extensions = {s}", .{try display.queryString(.extensions)});
-
     var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
         @intFromEnum(EGL.Attrib.surface_type),    EGL.WINDOW_BIT,
         @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
@@ -88,7 +91,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         @intFromEnum(EGL.Attrib.green_size),      8,
         @intFromEnum(EGL.Attrib.none),
     };
-    const num_configs = try display.chooseConfig(&attrib_list, null);
+    const num_configs = try this.display.chooseConfig(&attrib_list, null);
 
     if (num_configs == 0) {
         return error.NoSuitableConfigs;
@@ -97,26 +100,10 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     const configs_buffer = try context.gpa.alloc(*EGL.Config.Handle, @intCast(num_configs));
     defer context.gpa.free(configs_buffer);
 
-    const configs_len = try display.chooseConfig(&attrib_list, configs_buffer);
+    const configs_len = try this.display.chooseConfig(&attrib_list, configs_buffer);
     const configs = configs_buffer[0..configs_len];
-    for (configs) |cfg| {
-        std.log.debug("config {}:", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .config_id)});
-        const renderable_type: EGL.RenderableType = @bitCast(try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .renderable_type));
-        std.log.debug("\t.renderable_type.opengl_es = {}", .{renderable_type.opengl_es});
-        std.log.debug("\t.renderable_type.opengl = {}", .{renderable_type.opengl});
-        std.log.debug("\t.renderable_type.opengl_es2 = {}", .{renderable_type.opengl_es2});
-        std.log.debug("\t.renderable_type.opengl_es3 = {}", .{renderable_type.opengl_es3});
-        // std.log.debug("\t.level = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .level)});
-        // std.log.debug("\t.buffer_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .buffer_size)});
-        // std.log.debug("\t.red_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .red_size)});
-        // std.log.debug("\t.blue_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .blue_size)});
-        // std.log.debug("\t.green_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .green_size)});
-        // std.log.debug("\t.alpha_size = {}", .{try display.getConfigAttrib(.{ .egl = &this.egl, .ptr = cfg }, .alpha_size)});
-    }
 
-    std.log.debug("num configs = {}", .{configs.len});
-
-    const surface = try display.createWindowSurface(configs[0], null, null);
+    const surface = try this.display.createWindowSurface(configs[0], null, null);
 
     try this.egl.bindAPI(.opengl_es);
     var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
@@ -124,9 +111,9 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         @intFromEnum(EGL.Attrib.context_minor_version), 0,
         @intFromEnum(EGL.Attrib.none),
     };
-    const egl_context = try display.createContext(configs[0], null, &context_attrib_list);
+    const egl_context = try this.display.createContext(configs[0], null, &context_attrib_list);
 
-    try display.makeCurrent(surface, surface, egl_context);
+    try this.display.makeCurrent(surface, surface, egl_context);
 
     const window = try context.gpa.create(seizer.Window);
     errdefer context.gpa.destroy(window);
@@ -135,7 +122,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     errdefer context.gpa.destroy(linux_window);
 
     linux_window.* = .{
-        .display = display,
+        .display = this.display,
         .surface = surface,
         .egl_context = egl_context,
     };
@@ -150,10 +137,6 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     const loader = GlBindingLoader{ .egl = this.egl };
     window.gl_binding.init(loader);
     gl.makeBindingCurrent(&window.gl_binding);
-
-    std.log.debug("gl vendor = {s}", .{gl.getString(gl.VENDOR)});
-    std.log.debug("gl renderer = {s}", .{gl.getString(gl.RENDERER)});
-    std.log.debug("gl version = {s}", .{gl.getString(gl.VERSION)});
 
     gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
 

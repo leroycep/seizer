@@ -12,15 +12,18 @@ pub fn loadUsingPrefixes(prefixes: []const []const u8) !@This() {
         @memcpy(path_buffer[prefix.len + 1 ..][0..library_name.len], library_name);
         const path = path_buffer[0 .. prefix.len + 1 + library_name.len];
 
-        log.debug("trying to load library at \"{}\"", .{std.zig.fmtEscapes(path)});
         const lib = std.DynLib.open(path) catch |err| switch (err) {
-            error.FileNotFound => {
-                continue;
-            },
+            error.FileNotFound => continue,
             else => |e| return e,
         };
         break :load_lib lib;
-    } else return error.NotFound;
+    } else {
+        log.warn("could not load \"{s}\", searched paths:", .{library_name});
+        for (prefixes) |prefix| {
+            log.warn("\t{s}", .{prefix});
+        }
+        return error.NotFound;
+    };
 
     const functions = try Functions.fromDynLib(&dyn_lib);
     return @This(){
