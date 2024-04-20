@@ -60,12 +60,14 @@ pub fn build(b: *Builder) !void {
             .target = target,
             .optimize = optimize,
         });
-        b.installArtifact(exe);
         exe.root_module.addImport("seizer", module);
+
+        const install_exe = b.addInstallArtifact(exe, .{});
+        b.getInstallStep().dependOn(&install_exe.step);
 
         // build
         const build_step = b.step("example-" ++ tag_name, "Build the " ++ tag_name ++ " example");
-        build_step.dependOn(&exe.step);
+        build_step.dependOn(&install_exe.step);
 
         // run
         const run_cmd = b.addRunArtifact(exe);
