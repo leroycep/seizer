@@ -212,6 +212,6 @@ const Window = struct {
 };
 
 const gl = seizer.gl;
-const EGL = @import("./EGL.zig");
+const EGL = @import("EGL");
 const seizer = @import("../seizer.zig");
 const std = @import("std");

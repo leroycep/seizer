@@ -4,7 +4,24 @@ functions: Functions,
 const EGL = @This();
 
 pub fn loadUsingPrefixes(prefixes: []const []const u8) !@This() {
-    var dyn_lib = try seizer.backend.tryLoadDynamicLibraryFromPrefixes(prefixes, "libEGL.so");
+    const library_name = "libEGL.so";
+    var dyn_lib = load_lib: for (prefixes) |prefix| {
+        var path_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+        @memcpy(path_buffer[0..prefix.len], prefix);
+        path_buffer[prefix.len] = '/';
+        @memcpy(path_buffer[prefix.len + 1 ..][0..library_name.len], library_name);
+        const path = path_buffer[0 .. prefix.len + 1 + library_name.len];
+
+        log.debug("trying to load library at \"{}\"", .{std.zig.fmtEscapes(path)});
+        const lib = std.DynLib.open(path) catch |err| switch (err) {
+            error.FileNotFound => {
+                continue;
+            },
+            else => |e| return e,
+        };
+        break :load_lib lib;
+    } else return error.NotFound;
+
     const functions = try Functions.fromDynLib(&dyn_lib);
     return @This(){
         .dyn_lib = dyn_lib,
@@ -37,7 +54,7 @@ pub const Functions = struct {
         const fields = std.meta.fields(@This());
         inline for (fields) |field| {
             @field(this, field.name) = dyn_lib.lookup(field.type, field.name) orelse {
-                std.log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+                log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
                 return error.FunctionNotFound;
             };
         }
@@ -62,7 +79,7 @@ pub const EXT = struct {
         const fields = std.meta.fields(Extension);
         inline for (fields) |field| {
             @field(ext, field.name) = @ptrCast(functions.eglGetProcAddress(field.name) orelse {
-                std.log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+                log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
                 return error.FunctionNotFound;
             });
         }
@@ -327,5 +344,6 @@ pub const Error = error{
     NonConformantConfig,
 };
 
-const seizer = @import("../seizer.zig");
+const log = std.log.scoped(.EGL);
+
 const std = @import("std");

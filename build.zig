@@ -39,6 +39,10 @@ pub fn build(b: *Builder) !void {
         .root_source_file = .{ .path = "dep/gles3v0.zig" },
     });
 
+    const egl_module = b.addModule("EGL", .{
+        .root_source_file = .{ .path = "dep/EGL.zig" },
+    });
+
     // seizer
     const module = b.addModule("seizer", .{
         .root_source_file = .{ .path = "src/seizer.zig" },
@@ -46,6 +50,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
+            .{ .name = "EGL", .module = egl_module },
             .{ .name = "zflecs", .module = zflecs.module("zflecs") },
             .{ .name = "mach-glfw", .module = mach_glfw.module("mach-glfw") },
         },
