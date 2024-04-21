@@ -14,6 +14,7 @@ pub const Interface = struct {
     getSize: *const fn (?*anyopaque) [2]f32,
     getFramebufferSize: *const fn (?*anyopaque) [2]f32,
     swapBuffers: *const fn (?*anyopaque) void,
+    setShouldClose: *const fn (?*anyopaque, should_close: bool) void,
 };
 
 pub fn destroy(this: *@This()) void {
@@ -31,4 +32,8 @@ pub fn getFramebufferSize(this: @This()) [2]f32 {
 
 pub fn swapBuffers(this: @This()) void {
     return this.interface.swapBuffers(this.pointer);
+}
+
+pub fn setShouldClose(this: @This(), should_close: bool) void {
+    return this.interface.setShouldClose(this.pointer, should_close);
 }

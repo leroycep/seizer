@@ -114,8 +114,8 @@ pub fn main() bool {
             event_device.button_mapping.put(gpa.allocator(), 308, .btn_tl2) catch unreachable;
             event_device.button_mapping.put(gpa.allocator(), 309, .btn_tr2) catch unreachable;
 
-            event_device.button_mapping.put(gpa.allocator(), 310, .btn_start) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 311, .btn_select) catch unreachable;
+            event_device.button_mapping.put(gpa.allocator(), 310, .btn_select) catch unreachable;
+            event_device.button_mapping.put(gpa.allocator(), 311, .btn_start) catch unreachable;
 
             event_device.axis_mapping.put(gpa.allocator(), 2, .x) catch unreachable;
             event_device.axis_mapping.put(gpa.allocator(), 3, .y) catch unreachable;
@@ -145,7 +145,7 @@ pub fn main() bool {
         }
         return false;
     };
-    while (true) {
+    while (seizer_context.windows.items.len > 0) {
         this.updateEventDevices() catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
@@ -153,6 +153,17 @@ pub fn main() bool {
             }
             return false;
         };
+        {
+            var i: usize = seizer_context.windows.items.len;
+            while (i > 0) : (i -= 1) {
+                const window = seizer_context.windows.items[i - 1];
+                const linux_window: *Window = @ptrCast(@alignCast(window.pointer.?));
+                if (linux_window.should_close) {
+                    _ = seizer_context.windows.swapRemove(i - 1);
+                    window.destroy();
+                }
+            }
+        }
         for (seizer_context.windows.items) |window| {
             gl.makeBindingCurrent(&window.gl_binding);
             window.on_render(window) catch |err| {
@@ -214,6 +225,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .display = this.display,
         .surface = surface,
         .egl_context = egl_context,
+        .should_close = false,
     };
 
     window.* = .{
@@ -253,12 +265,14 @@ const Window = struct {
     display: EGL.Display,
     surface: EGL.Surface,
     egl_context: EGL.Context,
+    should_close: bool,
 
     pub const INTERFACE = seizer.Window.Interface{
         .destroy = destroy,
         .getSize = getSize,
         .getFramebufferSize = getSize,
         .swapBuffers = swapBuffers,
+        .setShouldClose = setShouldClose,
     };
 
     pub fn destroy(userdata: ?*anyopaque) void {
@@ -280,6 +294,11 @@ const Window = struct {
         this.display.swapBuffers(this.surface) catch |err| {
             std.log.warn("failed to swap buffers: {}", .{err});
         };
+    }
+
+    pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        this.should_close = should_close;
     }
 };
 
