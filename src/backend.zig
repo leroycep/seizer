@@ -6,6 +6,7 @@ pub const Backend = struct {
     /// should return true if the next backend should be tried
     main: *const fn () bool,
     createWindow: *const fn (this: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!*seizer.Window,
+    addButtonInput: *const fn (this: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void,
 };
 
 pub fn main() !void {
