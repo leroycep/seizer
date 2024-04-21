@@ -15,8 +15,6 @@ pub const BACKEND = seizer.backend.Backend{
 };
 
 pub fn main() bool {
-    // const seizer = @import("../seizer.zig");
-    // const gl = seizer.gl;
     const root = @import("root");
 
     if (!@hasDecl(root, "init")) {
@@ -92,6 +90,7 @@ pub fn main() bool {
                 .name = undefined,
                 .id = undefined,
                 .button_mapping = .{},
+                .axis_mapping = .{},
             };
             _ = std.os.linux.getErrno(std.os.linux.ioctl(fd, @bitCast(EV_IOC_GID), @intFromPtr(&event_device.id)));
 
@@ -118,10 +117,10 @@ pub fn main() bool {
             event_device.button_mapping.put(gpa.allocator(), 310, .btn_start) catch unreachable;
             event_device.button_mapping.put(gpa.allocator(), 311, .btn_select) catch unreachable;
 
-            // try controller_axis_mapping.put(context.gpa, 2, .x);
-            // try controller_axis_mapping.put(context.gpa, 3, .y);
-            // try controller_axis_mapping.put(context.gpa, 4, .rx);
-            // try controller_axis_mapping.put(context.gpa, 5, .ry);
+            event_device.axis_mapping.put(gpa.allocator(), 2, .x) catch unreachable;
+            event_device.axis_mapping.put(gpa.allocator(), 3, .y) catch unreachable;
+            event_device.axis_mapping.put(gpa.allocator(), 4, .rx) catch unreachable;
+            event_device.axis_mapping.put(gpa.allocator(), 5, .ry) catch unreachable;
 
             this.event_devices.append(gpa.allocator(), event_device) catch return false;
         }
@@ -289,6 +288,7 @@ const EventDevice = struct {
     name: [256]u8,
     id: InputId,
     button_mapping: std.AutoHashMapUnmanaged(u16, InputEvent.KeyCode),
+    axis_mapping: std.AutoHashMapUnmanaged(u16, InputEvent.Axis),
 };
 
 // TODO: varies based on architecture. Though I think x86_64 and arm use the same generic layout.
@@ -459,15 +459,47 @@ pub fn updateEventDevices(this: *@This()) !void {
                             }
                         }
                     },
-                    // .abs => switch (controller_axis_mapping.get(input_event.code) orelse @as(InputEvent.Axis, @enumFromInt(input_event.code))) {
-                    //     .x => gamepad.left_joystick[0] = @as(f32, @floatFromInt(input_event.value)) / 4096,
-                    //     .y => gamepad.left_joystick[1] = @as(f32, @floatFromInt(input_event.value)) / 4096,
-                    //     .rx => gamepad.right_joystick[0] = @as(f32, @floatFromInt(input_event.value)) / 4096,
-                    //     .ry => gamepad.right_joystick[1] = @as(f32, @floatFromInt(input_event.value)) / 4096,
-                    //     .hat0x => gamepad.dpad[0] = @as(f32, @floatFromInt(input_event.value)),
-                    //     .hat0y => gamepad.dpad[1] = @as(f32, @floatFromInt(input_event.value)),
-                    //     else => {},
-                    // },
+                    .abs => switch (dev.axis_mapping.get(input_event.code) orelse @as(InputEvent.Axis, @enumFromInt(input_event.code))) {
+                        .hat0x => {
+                            const code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_right else .dpad_left;
+                            const anti_code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_left else .dpad_right;
+
+                            const value = input_event.value != 0;
+                            const anti_value = input_event.value != 0 and !value;
+
+                            if (this.button_bindings.get(code)) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(value);
+                                }
+                            }
+
+                            if (this.button_bindings.get(anti_code)) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(anti_value);
+                                }
+                            }
+                        },
+                        .hat0y => {
+                            const code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_down else .dpad_up;
+                            const anti_code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_up else .dpad_down;
+
+                            const value = input_event.value != 0;
+                            const anti_value = input_event.value != 0 and !value;
+
+                            if (this.button_bindings.get(code)) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(value);
+                                }
+                            }
+
+                            if (this.button_bindings.get(anti_code)) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(anti_value);
+                                }
+                            }
+                        },
+                        else => {},
+                    },
                     else => {},
                 }
             }
