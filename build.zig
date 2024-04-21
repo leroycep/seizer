@@ -8,6 +8,7 @@ const Example = enum {
     sprite_batch,
     ui,
     tinyvg,
+    gamepad,
 };
 
 pub fn build(b: *Builder) !void {
