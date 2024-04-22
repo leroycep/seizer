@@ -83,4 +83,17 @@ pub fn build(b: *Builder) !void {
         const run_step = b.step("example-" ++ tag_name ++ "-run", "Run the " ++ tag_name ++ " example");
         run_step.dependOn(&run_cmd.step);
     }
+
+    const test_all = b.step("test-all", "run all tests");
+
+    const test_gamepad_exe = b.addTest(.{
+        .root_source_file = .{ .path = "src/Gamepad.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    const test_gamepad_run_exe = b.addRunArtifact(test_gamepad_exe);
+    const test_gamepad = b.step("test-gamepad", "Run gamepad tests");
+    test_gamepad.dependOn(&test_gamepad_run_exe.step);
+
+    test_all.dependOn(test_gamepad);
 }

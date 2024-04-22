@@ -10,6 +10,7 @@ pub const flecs = @import("zflecs");
 
 pub const Context = @import("./Context.zig");
 pub const Canvas = @import("./Canvas.zig");
+pub const Gamepad = @import("./Gamepad.zig");
 pub const NinePatch = @import("./NinePatch.zig");
 pub const Texture = @import("./Texture.zig");
 pub const Window = @import("./Window.zig");

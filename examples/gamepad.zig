@@ -2,11 +2,14 @@ pub const main = seizer.main;
 
 var canvas: seizer.Canvas = undefined;
 
+var leftshoulder_input: bool = false;
 var perform_action_input: bool = false;
 var cancel_input: bool = false;
 
+var window_global: *seizer.Window = undefined;
+
 pub fn init(context: *seizer.Context) !void {
-    _ = try context.createWindow(.{
+    window_global = try context.createWindow(.{
         .title = "Gamepad - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
@@ -26,6 +29,18 @@ pub fn init(context: *seizer.Context) !void {
         .on_event = onCancel,
         .default_bindings = &.{.b},
     });
+
+    try context.addButtonInput(.{
+        .title = "leftshoulder",
+        .on_event = onLeftShoulder,
+        .default_bindings = &.{.leftshoulder},
+    });
+
+    try context.addButtonInput(.{
+        .title = "quit",
+        .on_event = onQuit,
+        .default_bindings = &.{.back},
+    });
 }
 
 pub fn deinit(window: *seizer.Window) void {
@@ -39,6 +54,15 @@ fn onPerformAction(pressed: bool) !void {
 
 fn onCancel(pressed: bool) !void {
     cancel_input = pressed;
+}
+
+fn onLeftShoulder(pressed: bool) !void {
+    leftshoulder_input = pressed;
+}
+
+fn onQuit(pressed: bool) !void {
+    if (!pressed) return;
+    window_global.setShouldClose(true);
 }
 
 fn render(window: *seizer.Window) !void {
@@ -55,6 +79,7 @@ fn render(window: *seizer.Window) !void {
     try console.print("Buttons\n", .{});
     try console.print("perform_action = {}\n", .{perform_action_input});
     try console.print("cancel = {}\n", .{cancel_input});
+    try console.print("leftshoulder = {}\n", .{leftshoulder_input});
 
     canvas.end();
 }

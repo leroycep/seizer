@@ -3,7 +3,8 @@ display: EGL.Display,
 event_devices: std.ArrayListUnmanaged(EventDevice),
 event_device_pollfds: std.ArrayListUnmanaged(std.posix.pollfd),
 button_inputs: std.SegmentedList(seizer.Context.AddButtonInputOptions, 16),
-button_bindings: std.AutoHashMapUnmanaged(seizer.Context.AddButtonInputOptions.ButtonCode, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)),
+button_bindings: std.AutoHashMapUnmanaged(seizer.Gamepad.Button, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)),
+gamepad_mapping_db: seizer.Gamepad.DB,
 
 const Linux = @This();
 
@@ -51,6 +52,9 @@ pub fn main() bool {
     };
     defer this.display.terminate();
 
+    this.gamepad_mapping_db = seizer.Gamepad.DB.init(gpa.allocator(), .{}) catch return false;
+    defer this.gamepad_mapping_db.deinit();
+
     {
         this.event_devices = .{};
         // TODO: listen for input devices being plugged in or unplugged
@@ -89,8 +93,7 @@ pub fn main() bool {
                 .fd = fd,
                 .name = undefined,
                 .id = undefined,
-                .button_mapping = .{},
-                .axis_mapping = .{},
+                .mapping = null,
             };
             _ = std.os.linux.getErrno(std.os.linux.ioctl(fd, @bitCast(EV_IOC_GID), @intFromPtr(&event_device.id)));
 
@@ -100,27 +103,18 @@ pub fn main() bool {
                 continue;
             }
             const controller_name = event_device.name[0..controller_name_len -| 1];
+            _ = controller_name;
 
-            std.log.debug("\"{}\" (/dev/input/{s}) is a joystick", .{ std.zig.fmtEscapes(controller_name), dev.name });
+            var guid: u128 = 0;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, event_device.id.bustype) else @byteSwap(@as(u32, event_device.id.bustype));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, event_device.id.vendor) else @byteSwap(@as(u32, event_device.id.vendor));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, event_device.id.product) else @byteSwap(@as(u32, event_device.id.product));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, event_device.id.version) else @byteSwap(@as(u32, event_device.id.version));
 
-            // TODO: load mappings from sdl controller mapping files
-            event_device.button_mapping.put(gpa.allocator(), 304, .btn_a) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 305, .btn_b) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 307, .btn_x) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 306, .btn_y) catch unreachable;
-
-            event_device.button_mapping.put(gpa.allocator(), 314, .btn_tl) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 315, .btn_tr) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 308, .btn_tl2) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 309, .btn_tr2) catch unreachable;
-
-            event_device.button_mapping.put(gpa.allocator(), 310, .btn_select) catch unreachable;
-            event_device.button_mapping.put(gpa.allocator(), 311, .btn_start) catch unreachable;
-
-            event_device.axis_mapping.put(gpa.allocator(), 2, .x) catch unreachable;
-            event_device.axis_mapping.put(gpa.allocator(), 3, .y) catch unreachable;
-            event_device.axis_mapping.put(gpa.allocator(), 4, .rx) catch unreachable;
-            event_device.axis_mapping.put(gpa.allocator(), 5, .ry) catch unreachable;
+            event_device.mapping = this.gamepad_mapping_db.mappings.get(guid);
 
             this.event_devices.append(gpa.allocator(), event_device) catch return false;
         }
@@ -306,8 +300,7 @@ const EventDevice = struct {
     fd: std.posix.fd_t,
     name: [256]u8,
     id: InputId,
-    button_mapping: std.AutoHashMapUnmanaged(u16, InputEvent.KeyCode),
-    axis_mapping: std.AutoHashMapUnmanaged(u16, InputEvent.Axis),
+    mapping: ?seizer.Gamepad.Mapping,
 };
 
 // TODO: varies based on architecture. Though I think x86_64 and arm use the same generic layout.
@@ -449,77 +442,45 @@ pub fn updateEventDevices(this: *@This()) !void {
                     continue;
                 }
 
-                switch (input_event.type) {
-                    .key => {
-                        const button_code: seizer.Context.AddButtonInputOptions.ButtonCode = switch (dev.button_mapping.get(input_event.code) orelse @as(InputEvent.KeyCode, @enumFromInt(0))) {
-                            .btn_a => .a,
-                            .btn_b => .b,
-                            .btn_x => .x,
-                            .btn_y => .y,
-
-                            .btn_dpad_up => .dpad_up,
-                            .btn_dpad_down => .dpad_down,
-                            .btn_dpad_left => .dpad_left,
-                            .btn_dpad_right => .dpad_right,
-
-                            .btn_tl => .l1,
-                            .btn_tl2 => .l2,
-                            .btn_tr => .r1,
-                            .btn_tr2 => .r2,
-
-                            .btn_start => .start,
-                            .btn_select => .select,
-
-                            else => continue,
-                        };
-                        if (this.button_bindings.get(button_code)) |actions| {
-                            for (actions.items) |action| {
-                                try action.on_event(input_event.value > 0);
-                            }
+                if (dev.mapping) |mapping| {
+                    for (mapping.elements.slice()) |element| {
+                        switch (input_event.type) {
+                            .key => if (element.input != .button) continue,
+                            .abs => if (element.input != .axis and element.input != .hat) continue,
+                            else => break,
                         }
-                    },
-                    .abs => switch (dev.axis_mapping.get(input_event.code) orelse @as(InputEvent.Axis, @enumFromInt(input_event.code))) {
-                        .hat0x => {
-                            const code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_right else .dpad_left;
-                            const anti_code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_left else .dpad_right;
+                        switch (element.input) {
+                            .button => |btn_index_offset| {
+                                const btn_index = @intFromEnum(InputEvent.KeyCode.btn_a) + btn_index_offset;
+                                if (btn_index != input_event.code) continue;
 
-                            const value = input_event.value != 0;
-                            const anti_value = input_event.value != 0 and !value;
-
-                            if (this.button_bindings.get(code)) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(value);
+                                switch (element.output) {
+                                    .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                        for (actions.items) |action| {
+                                            try action.on_event(input_event.value > 0);
+                                        }
+                                    },
+                                    .axis => {},
                                 }
-                            }
+                            },
+                            .axis => |axis| {
+                                if (axis.index != input_event.code) continue;
 
-                            if (this.button_bindings.get(anti_code)) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(anti_value);
+                                const midpoint = @divFloor((axis.min + axis.max), 2);
+                                const high = midpoint >= @min(axis.max, midpoint) and midpoint <= @max(axis.max, midpoint);
+
+                                switch (element.output) {
+                                    .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                        for (actions.items) |action| {
+                                            try action.on_event(high);
+                                        }
+                                    },
+                                    .axis => {},
                                 }
-                            }
-                        },
-                        .hat0y => {
-                            const code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_down else .dpad_up;
-                            const anti_code: seizer.Context.AddButtonInputOptions.ButtonCode = if (input_event.value > 0) .dpad_up else .dpad_down;
-
-                            const value = input_event.value != 0;
-                            const anti_value = input_event.value != 0 and !value;
-
-                            if (this.button_bindings.get(code)) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(value);
-                                }
-                            }
-
-                            if (this.button_bindings.get(anti_code)) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(anti_value);
-                                }
-                            }
-                        },
-                        else => {},
-                    },
-                    else => {},
+                            },
+                            .hat => continue,
+                        }
+                    }
                 }
             }
         }
@@ -529,4 +490,5 @@ pub fn updateEventDevices(this: *@This()) !void {
 const gl = seizer.gl;
 const EGL = @import("EGL");
 const seizer = @import("../seizer.zig");
+const builtin = @import("builtin");
 const std = @import("std");
