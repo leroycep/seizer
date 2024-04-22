@@ -55,8 +55,18 @@ pub fn main() bool {
     this.gamepad_mapping_db = seizer.Gamepad.DB.init(gpa.allocator(), .{}) catch return false;
     defer this.gamepad_mapping_db.deinit();
 
+    this.event_devices = .{};
+    this.event_device_pollfds = .{};
+    this.button_inputs = .{};
+    this.button_bindings = .{};
+    defer {
+        this.event_devices.deinit(gpa.allocator());
+        this.event_device_pollfds.deinit(gpa.allocator());
+        this.button_inputs.deinit(gpa.allocator());
+        this.button_bindings.deinit(gpa.allocator());
+    }
+
     {
-        this.event_devices = .{};
         // TODO: listen for input devices being plugged in or unplugged
         var input_device_dir = std.fs.cwd().openDir("/dev/input/", .{ .iterate = true }) catch |e| {
             std.log.warn("Failed to open /dev/input/: {}", .{e});
@@ -80,7 +90,7 @@ pub fn main() bool {
 
             const fd = std_file.handle;
             var ev_bits: [(0x1f + 7) / 8]u8 = undefined;
-            _ = std.os.linux.getErrno(std.os.linux.ioctl(fd, @bitCast(EV_IOC_GBIT(0, ev_bits.len)), @intFromPtr(&ev_bits)));
+            _ = std.os.linux.ioctl(fd, EV_IOC_GBIT(0, ev_bits.len), @intFromPtr(&ev_bits));
 
             const ev_abs_byte_index = 0;
             const ev_abs_bit_index = 3;
@@ -95,13 +105,13 @@ pub fn main() bool {
                 .id = undefined,
                 .mapping = null,
             };
-            _ = std.os.linux.getErrno(std.os.linux.ioctl(fd, @bitCast(EV_IOC_GID), @intFromPtr(&event_device.id)));
+            _ = std.os.linux.ioctl(fd, EV_IOC_GID, @intFromPtr(&event_device.id));
 
-            const controller_name_len = std.os.linux.ioctl(fd, @bitCast(EV_IOC_GNAME(event_device.name.len)), @intFromPtr(&event_device.name));
-            if (std.os.linux.getErrno(controller_name_len) != .SUCCESS) {
-                std.log.warn("Failed to get controller name: {}", .{std.os.linux.getErrno(controller_name_len)});
-                continue;
-            }
+            const controller_name_len = std.os.linux.ioctl(fd, EV_IOC_GNAME(@sizeOf(EventDevice.Name)), @intFromPtr(&event_device.name));
+            // if (std.os.linux.getErrno(controller_name_len) != .SUCCESS) {
+            //     std.log.warn("Failed to get controller name: {}", .{std.os.linux.getErrno(controller_name_len)});
+            //     continue;
+            // }
             const controller_name = event_device.name[0..controller_name_len -| 1];
             _ = controller_name;
 
@@ -118,10 +128,7 @@ pub fn main() bool {
 
             this.event_devices.append(gpa.allocator(), event_device) catch return false;
         }
-        this.event_device_pollfds = .{};
         this.event_device_pollfds.ensureUnusedCapacity(gpa.allocator(), this.event_devices.items.len) catch return false;
-        this.button_inputs = .{};
-        this.button_bindings = .{};
     }
 
     var seizer_context = seizer.Context{
@@ -298,19 +305,11 @@ const Window = struct {
 
 const EventDevice = struct {
     fd: std.posix.fd_t,
-    name: [256]u8,
+    name: Name,
     id: InputId,
     mapping: ?seizer.Gamepad.Mapping,
-};
 
-// TODO: varies based on architecture. Though I think x86_64 and arm use the same generic layout.
-const IOC = packed struct(u32) {
-    nr: u8,
-    type: u8,
-    size: u13,
-    none: bool,
-    write: bool,
-    read: bool,
+    const Name = [256]u8;
 };
 
 const InputId = extern struct {
@@ -320,35 +319,14 @@ const InputId = extern struct {
     version: u16,
 };
 
-pub const EV_IOC_GID = IOC{
-    .type = 'E',
-    .nr = 0x02,
-    .size = @sizeOf(InputId),
-    .none = false,
-    .read = true,
-    .write = false,
-};
+pub const EV_IOC_GID = std.os.linux.IOCTL.IOR('E', 0x02, InputId);
 
-pub fn EV_IOC_GNAME(len: u13) IOC {
-    return IOC{
-        .type = 'E',
-        .nr = 0x06,
-        .size = len,
-        .none = false,
-        .read = true,
-        .write = false,
-    };
+pub fn EV_IOC_GNAME(comptime len: u13) u32 {
+    return @bitCast(std.os.linux.IOCTL.IOR('E', 0x06, [len]u8));
 }
 
-pub fn EV_IOC_GBIT(ev: u8, len: u13) IOC {
-    return IOC{
-        .type = 'E',
-        .nr = 0x20 + ev,
-        .size = len,
-        .none = false,
-        .write = false,
-        .read = true,
-    };
+pub fn EV_IOC_GBIT(ev: u8, comptime len: u13) u32 {
+    return @bitCast(std.os.linux.IOCTL.IOR('E', 0x20 + ev, [len]u8));
 }
 
 const InputEvent = extern struct {
@@ -437,7 +415,7 @@ pub fn updateEventDevices(this: *@This()) !void {
         for (this.event_device_pollfds.items, this.event_devices.items) |pollfd, dev| {
             if (pollfd.revents & std.posix.POLL.IN == std.posix.POLL.IN) {
                 var input_event: InputEvent = undefined;
-                const bytes_read = try std.os.read(pollfd.fd, std.mem.asBytes(&input_event));
+                const bytes_read = try std.posix.read(pollfd.fd, std.mem.asBytes(&input_event));
                 if (bytes_read != @sizeOf(InputEvent)) {
                     continue;
                 }

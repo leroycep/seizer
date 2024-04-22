@@ -1,4 +1,3 @@
-pub const glfw = @import("glfw/glfw.zig");
 pub const linux = @import("backend/linux.zig");
 
 pub const Backend = struct {
@@ -13,7 +12,6 @@ pub fn main() !void {
     // build a list of backends and try running each one
     var backends = std.BoundedArray(*const Backend, 5){};
     try backends.append(&linux.BACKEND);
-    // try backends.append(.{ .name = "glfw", .main = glfw.main });
 
     for (backends.slice()) |backend| {
         if (!backend.main()) {

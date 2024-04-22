@@ -1448,7 +1448,7 @@ pub const Binding = struct {
             const feature_name = comptime nullTerminate(field_info.name);
             switch (@typeInfo(field_info.type)) {
                 .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
-                    .Fn => self.loadCommand(loader, feature_name),
+                    .Fn => self.loadCommand(loader, &feature_name),
                     else => comptime unreachable,
                 },
                 else => comptime unreachable,
@@ -1703,12 +1703,11 @@ pub const Binding = struct {
     glViewport: *const @TypeOf(viewport),
     glWaitSync: *const @TypeOf(waitSync),
 
-    fn nullTerminate(comptime string: []const u8) [:0]const u8 {
+    fn nullTerminate(comptime string: []const u8) [string.len:0]u8 {
         comptime {
-            var buf: [string.len + 1]u8 = undefined;
+            var buf: [string.len:0]u8 = undefined;
             @memcpy(buf[0..string.len], string);
-            buf[string.len] = 0;
-            return buf[0..string.len :0];
+            return buf;
         }
     }
 

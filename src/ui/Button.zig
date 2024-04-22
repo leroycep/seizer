@@ -45,12 +45,12 @@ pub fn new(stage: *ui.Stage, text: []const u8) !*@This() {
 }
 
 pub fn destroy(element: *Element) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     this.element.stage.gpa.destroy(this);
 }
 
 pub fn getMinSize(element: *Element) [2]f32 {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
     const is_hovered = this.element.stage.hovered_element == &this.element;
@@ -64,7 +64,7 @@ pub fn getMinSize(element: *Element) [2]f32 {
 }
 
 fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
     const is_hovered = this.element.stage.hovered_element == &this.element;
@@ -85,7 +85,7 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
 }
 
 fn onClick(element: *Element, event: ui.event.Click) bool {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     if (event.button == .left) {
         if (event.pressed) {
             this.element.stage.capturePointer(&this.element);
@@ -103,7 +103,7 @@ fn onClick(element: *Element, event: ui.event.Click) bool {
 }
 
 fn onKey(element: *Element, event: ui.event.Key) bool {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     switch (event.key) {
         .space, .enter => if (event.action == .press or event.action == .repeat) {
             if (this.on_click) |on_click| {
@@ -117,7 +117,7 @@ fn onKey(element: *Element, event: ui.event.Key) bool {
 }
 
 fn onSelect(element: *Element, direction: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     _ = direction;
     return &this.element;
 }

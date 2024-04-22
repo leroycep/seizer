@@ -23,12 +23,12 @@ pub fn new(stage: *ui.Stage, text: []const u8) !*@This() {
 }
 
 pub fn destroy(element: *Element) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     this.element.stage.gpa.destroy(this);
 }
 
 pub fn getMinSize(element: *Element) [2]f32 {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const text_size = this.style.text_font.textSize(this.text, this.style.text_scale);
     return .{
@@ -38,7 +38,7 @@ pub fn getMinSize(element: *Element) [2]f32 {
 }
 
 fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     this.style.background_image.draw(canvas, rect, .{
         .scale = 1,

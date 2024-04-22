@@ -45,7 +45,7 @@ pub fn new(stage: *ui.Stage) !*@This() {
 }
 
 pub fn destroy(element: *Element) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     for (this.children.items) |child| {
         child.release();
     }
@@ -60,7 +60,7 @@ pub fn appendChild(this: *@This(), child: *Element) !void {
 }
 
 pub fn getMinSize(element: *Element) [2]f32 {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const main_axis: usize = switch (this.direction) {
         .row => 0,
@@ -82,7 +82,7 @@ pub fn getMinSize(element: *Element) [2]f32 {
 }
 
 pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const content_min_size = element.getMinSize();
 
@@ -196,7 +196,7 @@ pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
 }
 
 fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     for (this.children.items) |child| {
         child.render(canvas, .{
@@ -210,7 +210,7 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
 }
 
 fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
     const pos = .{
         pos_parent[0] - this.element.rect.pos[0],
         pos_parent[1] - this.element.rect.pos[1],
@@ -227,7 +227,7 @@ fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
 }
 
 fn onClick(element: *Element, event_parent: ui.event.Click) bool {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const event = event_parent.translate(.{ -this.element.rect.pos[0], -this.element.rect.pos[1] });
 
@@ -243,7 +243,7 @@ fn onClick(element: *Element, event_parent: ui.event.Click) bool {
 }
 
 fn onSelect(element: *Element, direction: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const main_axis: usize = switch (this.direction) {
         .row => 0,
@@ -276,7 +276,7 @@ fn onSelect(element: *Element, direction: [2]f32) ?*Element {
 }
 
 fn getNextSelection(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr(@This(), "element", element);
+    const this: *@This() = @fieldParentPtr("element", element);
 
     const main_axis: usize = switch (this.direction) {
         .row => 0,

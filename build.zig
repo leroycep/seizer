@@ -6,7 +6,6 @@ const Example = enum {
     textures,
     bitmap_font,
     sprite_batch,
-    ui,
     tinyvg,
     gamepad,
 };
@@ -17,11 +16,6 @@ pub fn build(b: *Builder) !void {
 
     // Dependencies
     const zigimg_dep = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const mach_glfw = b.dependency("mach-glfw", .{
         .target = target,
         .optimize = optimize,
     });
@@ -53,7 +47,6 @@ pub fn build(b: *Builder) !void {
             .{ .name = "gl", .module = gl_module },
             .{ .name = "EGL", .module = egl_module },
             .{ .name = "zflecs", .module = zflecs.module("zflecs") },
-            .{ .name = "mach-glfw", .module = mach_glfw.module("mach-glfw") },
         },
     });
 
