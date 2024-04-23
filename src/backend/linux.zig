@@ -63,6 +63,11 @@ pub fn main() bool {
         this.event_devices.deinit(gpa.allocator());
         this.event_device_pollfds.deinit(gpa.allocator());
         this.button_inputs.deinit(gpa.allocator());
+
+        var binding_iter = this.button_bindings.valueIterator();
+        while (binding_iter.next()) |actions| {
+            actions.deinit(gpa.allocator());
+        }
         this.button_bindings.deinit(gpa.allocator());
     }
 
@@ -90,7 +95,7 @@ pub fn main() bool {
 
             const fd = std_file.handle;
             var ev_bits: [(0x1f + 7) / 8]u8 = undefined;
-            _ = std.os.linux.ioctl(fd, EV_IOC_GBIT(0, ev_bits.len), @intFromPtr(&ev_bits));
+            _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0, ev_bits.len), @intFromPtr(&ev_bits));
 
             const ev_abs_byte_index = 0;
             const ev_abs_bit_index = 3;
@@ -104,6 +109,7 @@ pub fn main() bool {
                 .name = undefined,
                 .id = undefined,
                 .mapping = null,
+                .button_code_to_index = .{},
             };
             _ = std.os.linux.ioctl(fd, EV_IOC_GID, @intFromPtr(&event_device.id));
 
@@ -114,6 +120,26 @@ pub fn main() bool {
             // }
             const controller_name = event_device.name[0..controller_name_len -| 1];
             _ = controller_name;
+
+            const KEY_MAX = 0x2ff;
+            const ABS_MAX = 0x3f;
+
+            const KeyBits = std.bit_set.ArrayBitSet(u8, KEY_MAX);
+            const AbsBits = std.bit_set.ArrayBitSet(u8, ABS_MAX);
+
+            var key_bits = KeyBits.initEmpty();
+            var abs_bits = AbsBits.initEmpty();
+
+            _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0x01, @sizeOf(std.meta.FieldType(KeyBits, .masks))), @intFromPtr(&key_bits.masks));
+            _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0x03, @sizeOf(std.meta.FieldType(AbsBits, .masks))), @intFromPtr(&abs_bits.masks));
+
+            for (1..KEY_MAX) |code| {
+                if (key_bits.isSet(code)) {
+                    const button_index = event_device.button_code_to_index.count();
+                    event_device.button_code_to_index.putNoClobber(gpa.allocator(), @intCast(code), @intCast(button_index)) catch return false;
+                    std.log.debug("joystick button[{}] = {}", .{ button_index, code });
+                }
+            }
 
             var guid: u128 = 0;
             guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, event_device.id.bustype) else @byteSwap(@as(u32, event_device.id.bustype));
@@ -308,6 +334,7 @@ const EventDevice = struct {
     name: Name,
     id: InputId,
     mapping: ?seizer.Gamepad.Mapping,
+    button_code_to_index: std.AutoHashMapUnmanaged(u16, u16),
 
     const Name = [256]u8;
 };
@@ -325,9 +352,49 @@ pub fn EV_IOC_GNAME(comptime len: u13) u32 {
     return @bitCast(std.os.linux.IOCTL.IOR('E', 0x06, [len]u8));
 }
 
-pub fn EV_IOC_GBIT(ev: u8, comptime len: u13) u32 {
+pub fn EV_IOCTL_GET_EV_BITS(ev: u8, comptime len: u13) u32 {
     return @bitCast(std.os.linux.IOCTL.IOR('E', 0x20 + ev, [len]u8));
 }
+
+pub const EvBits = packed struct(u32) {
+    syn: bool,
+    key: bool,
+    rel: bool,
+    abs: bool,
+    msc: bool,
+    sw: bool,
+    _padding1: u11 = undefined,
+    led: bool,
+    snd: bool,
+    _padding2: u1 = undefined,
+    rep: bool,
+    ff: bool,
+    pwr: bool,
+    ff_status: bool,
+};
+// #define EV_SYN			0x00
+// #define EV_KEY			0x01
+// #define EV_REL			0x02
+// #define EV_ABS			0x03
+// #define EV_MSC			0x04
+// #define EV_SW			0x05
+// #define EV_LED			0x11
+// #define EV_SND			0x12
+// #define EV_REP			0x14
+// #define EV_FF			0x15
+// #define EV_PWR			0x16
+// #define EV_FF_STATUS		0x17
+// #define EV_MAX			0x1f
+// #define EV_CNT			(EV_MAX+1)
+
+pub const InputABSInfo = extern struct {
+    value: i32,
+    minimum: i32,
+    maximum: i32,
+    fuzz: i32,
+    flat: i32,
+    resolution: i32,
+};
 
 const InputEvent = extern struct {
     time: std.posix.timeval,
@@ -343,6 +410,12 @@ const InputEvent = extern struct {
     };
 
     const KeyCode = enum(u16) {
+        // misc buttons
+        btn_0 = 0x100,
+
+        // joystick buttons
+        btn_trigger = 0x120,
+
         // gamepad buttons
         btn_a = 0x130,
         btn_b = 0x131,
@@ -421,43 +494,20 @@ pub fn updateEventDevices(this: *@This()) !void {
                 }
 
                 if (dev.mapping) |mapping| {
-                    for (mapping.elements.slice()) |element| {
-                        switch (input_event.type) {
-                            .key => if (element.input != .button) continue,
-                            .abs => if (element.input != .axis and element.input != .hat) continue,
-                            else => break,
-                        }
-                        switch (element.input) {
-                            .button => |btn_index_offset| {
-                                const btn_index = @intFromEnum(InputEvent.KeyCode.btn_a) + btn_index_offset;
-                                if (btn_index != input_event.code) continue;
-
-                                switch (element.output) {
-                                    .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
-                                        for (actions.items) |action| {
-                                            try action.on_event(input_event.value > 0);
-                                        }
-                                    },
-                                    .axis => {},
-                                }
-                            },
-                            .axis => |axis| {
-                                if (axis.index != input_event.code) continue;
-
-                                const midpoint = @divFloor((axis.min + axis.max), 2);
-                                const high = midpoint >= @min(axis.max, midpoint) and midpoint <= @max(axis.max, midpoint);
-
-                                switch (element.output) {
-                                    .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
-                                        for (actions.items) |action| {
-                                            try action.on_event(high);
-                                        }
-                                    },
-                                    .axis => {},
-                                }
-                            },
-                            .hat => continue,
-                        }
+                    switch (input_event.type) {
+                        .key => if (dev.button_code_to_index.get(input_event.code)) |btn_index| do_output: {
+                            const output = mapping.buttons[btn_index] orelse break :do_output;
+                            switch (output) {
+                                .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                    for (actions.items) |action| {
+                                        try action.on_event(input_event.value > 0);
+                                    }
+                                },
+                                .axis => {},
+                            }
+                        },
+                        .abs => {},
+                        else => break,
                     }
                 }
             }

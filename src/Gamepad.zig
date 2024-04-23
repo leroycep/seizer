@@ -50,7 +50,8 @@ pub const Mapping = struct {
     name_buffer: [128]u8,
     platform: Platform,
     // platform_buffer: [32]u8,
-    elements: std.BoundedArray(Element, 32),
+    buttons: [32]?Output = [_]?Output{null} ** 32,
+    axes: [6]?AxisElement = [_]?AxisElement{null} ** 6,
 
     pub fn name(this: *const @This()) []const u8 {
         const sentinel_index = std.mem.indexOfScalar(u8, this.name_buffer[0..], 0) orelse this.name_buffer.len;
@@ -62,106 +63,108 @@ pub const Mapping = struct {
         return this.platform_buffer[0..sentinel_index];
     }
 
-    pub const Element = struct {
-        input: Input,
+    pub const AxisElement = struct {
+        min: i16,
+        max: i16,
         output: Output,
+    };
 
-        pub const Input = union(Tag) {
-            button: u8,
-            axis: struct { index: u8, min: i16, max: i16 },
-            hat: struct { index: u8, mask: u16 },
+    pub const Input = union(Tag) {
+        button: u8,
+        axis: struct { index: u8, min: i16, max: i16 },
+        hat: struct { index: u8, mask: u16 },
 
-            pub const Tag = enum(u8) {
-                button = 'b',
-                axis = 'a',
-                hat = 'h',
-            };
+        pub const Tag = enum(u8) {
+            button = 'b',
+            axis = 'a',
+            hat = 'h',
+        };
 
-            pub fn parse(element_str: []const u8) !Input {
-                var minimum: i16 = std.math.minInt(i16);
-                var maximum: i16 = std.math.maxInt(i16);
+        pub fn parse(element_str: []const u8) !Input {
+            var minimum: i16 = std.math.minInt(i16);
+            var maximum: i16 = std.math.maxInt(i16);
 
-                var current_str = element_str;
-                if (current_str[0] == '+') {
-                    minimum = 0;
-                    current_str = current_str[1..];
-                } else if (current_str[0] == '-') {
-                    maximum = 0;
-                    current_str = current_str[1..];
-                }
-
-                const in_type = try std.meta.intToEnum(Tag, current_str[0]);
+            var current_str = element_str;
+            if (current_str[0] == '+') {
+                minimum = 0;
                 current_str = current_str[1..];
-                switch (in_type) {
-                    .button => {
-                        const index = try std.fmt.parseInt(u8, current_str, 10);
-
-                        return Input{ .button = index };
-                    },
-                    .axis => {
-                        const inverted = current_str[current_str.len - 1] == '~';
-                        if (inverted) {
-                            current_str = current_str[0 .. current_str.len - 1];
-                        }
-                        const index = try std.fmt.parseInt(u8, current_str, 10);
-
-                        return Input{ .axis = .{
-                            .index = index,
-                            .min = if (inverted) maximum else minimum,
-                            .max = if (inverted) minimum else maximum,
-                        } };
-                    },
-                    .hat => {
-                        const index_of_period = std.mem.indexOfScalar(u8, current_str, '.') orelse return error.InvalidFormat;
-
-                        const hat_index_str = current_str[0..index_of_period];
-                        const hat_bit_str = current_str[index_of_period + 1 ..];
-
-                        const hat_index = try std.fmt.parseInt(u4, hat_index_str, 10);
-                        const hat_bit = try std.fmt.parseInt(u4, hat_bit_str, 10);
-
-                        return Input{ .hat = .{
-                            .index = hat_index,
-                            .mask = hat_bit,
-                        } };
-                    },
-                }
+            } else if (current_str[0] == '-') {
+                maximum = 0;
+                current_str = current_str[1..];
             }
-        };
-        pub const Output = union(enum) {
-            button: Button,
-            axis: struct { axis: Axis, min: i16, max: i16 },
 
-            pub fn parse(output_str: []const u8) !Output {
-                var minimum: i16 = std.math.minInt(i16);
-                var maximum: i16 = std.math.maxInt(i16);
+            const in_type = try std.meta.intToEnum(Tag, current_str[0]);
+            current_str = current_str[1..];
+            switch (in_type) {
+                .button => {
+                    const index = try std.fmt.parseInt(u8, current_str, 10);
 
-                var current_str = output_str;
-                if (current_str[0] == '+') {
-                    minimum = 0;
-                    current_str = current_str[1..];
-                } else if (current_str[0] == '-') {
-                    maximum = 0;
-                    current_str = current_str[1..];
-                }
-
-                if (std.meta.stringToEnum(Button, current_str)) |btn| {
-                    return Output{ .button = btn };
-                } else if (std.meta.stringToEnum(Axis, current_str)) |axis| {
-                    switch (axis) {
-                        .lefttrigger, .righttrigger => return Output{ .axis = .{ .axis = axis, .min = 0, .max = std.math.maxInt(i16) } },
-                        else => return Output{ .axis = .{ .axis = axis, .min = minimum, .max = maximum } },
+                    return Input{ .button = index };
+                },
+                .axis => {
+                    const inverted = current_str[current_str.len - 1] == '~';
+                    if (inverted) {
+                        current_str = current_str[0 .. current_str.len - 1];
                     }
-                } else {
-                    return error.UnknownOutput;
-                }
+                    const index = try std.fmt.parseInt(u8, current_str, 10);
+
+                    return Input{ .axis = .{
+                        .index = index,
+                        .min = if (inverted) maximum else minimum,
+                        .max = if (inverted) minimum else maximum,
+                    } };
+                },
+                .hat => {
+                    const index_of_period = std.mem.indexOfScalar(u8, current_str, '.') orelse return error.InvalidFormat;
+
+                    const hat_index_str = current_str[0..index_of_period];
+                    const hat_bit_str = current_str[index_of_period + 1 ..];
+
+                    const hat_index = try std.fmt.parseInt(u4, hat_index_str, 10);
+                    const hat_bit = try std.fmt.parseInt(u4, hat_bit_str, 10);
+
+                    return Input{ .hat = .{
+                        .index = hat_index,
+                        .mask = hat_bit,
+                    } };
+                },
             }
-        };
+        }
+    };
+    pub const Output = union(enum) {
+        button: Button,
+        axis: struct { axis: Axis, min: i16, max: i16 },
+
+        pub fn parse(output_str: []const u8) !Output {
+            var minimum: i16 = std.math.minInt(i16);
+            var maximum: i16 = std.math.maxInt(i16);
+
+            var current_str = output_str;
+            if (current_str[0] == '+') {
+                minimum = 0;
+                current_str = current_str[1..];
+            } else if (current_str[0] == '-') {
+                maximum = 0;
+                current_str = current_str[1..];
+            }
+
+            if (std.meta.stringToEnum(Button, current_str)) |btn| {
+                return Output{ .button = btn };
+            } else if (std.meta.stringToEnum(Axis, current_str)) |axis| {
+                switch (axis) {
+                    .lefttrigger, .righttrigger => return Output{ .axis = .{ .axis = axis, .min = 0, .max = std.math.maxInt(i16) } },
+                    else => return Output{ .axis = .{ .axis = axis, .min = minimum, .max = maximum } },
+                }
+            } else {
+                return error.UnknownOutput;
+            }
+        }
     };
 
     pub fn parse(mapping_str: []const u8) !Mapping {
         var mapping: Mapping = undefined;
-        mapping.elements = .{};
+        @memset(&mapping.buttons, null);
+        @memset(&mapping.axes, null);
 
         var csv_iter = std.mem.splitScalar(u8, mapping_str, ',');
 
@@ -194,17 +197,25 @@ pub const Mapping = struct {
                 continue;
             }
 
-            const output = Element.Output.parse(key) catch |err| {
+            const output = Output.parse(key) catch |err| {
                 switch (err) {
                     error.UnknownOutput => continue,
                     else => return err,
                 }
             };
-            const input = try Element.Input.parse(value);
-            try mapping.elements.append(.{
-                .input = input,
-                .output = output,
-            });
+            const input = try Input.parse(value);
+
+            switch (input) {
+                .button => |i| if (i < mapping.buttons.len) {
+                    mapping.buttons[i] = output;
+                },
+                .axis => |axis| if (axis.index < mapping.axes.len) {
+                    mapping.axes[axis.index] = .{ .min = axis.min, .max = axis.max, .output = output };
+                },
+                .hat => {
+                    // TODO
+                },
+            }
         }
 
         return mapping;
