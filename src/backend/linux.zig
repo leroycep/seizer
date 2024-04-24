@@ -5,6 +5,7 @@ event_device_pollfds: std.ArrayListUnmanaged(std.posix.pollfd),
 button_inputs: std.SegmentedList(seizer.Context.AddButtonInputOptions, 16),
 button_bindings: std.AutoHashMapUnmanaged(seizer.Gamepad.Button, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)),
 gamepad_mapping_db: seizer.Gamepad.DB,
+windows: std.ArrayListUnmanaged(*Window),
 
 const Linux = @This();
 
@@ -60,6 +61,11 @@ pub fn main() bool {
     this.button_inputs = .{};
     this.button_bindings = .{};
     defer {
+        for (this.event_devices.items) |*dev| {
+            std.posix.close(dev.fd);
+            dev.button_code_to_index.deinit(gpa.allocator());
+            dev.abs_to_index.deinit(gpa.allocator());
+        }
         this.event_devices.deinit(gpa.allocator());
         this.event_device_pollfds.deinit(gpa.allocator());
         this.button_inputs.deinit(gpa.allocator());
@@ -187,12 +193,14 @@ pub fn main() bool {
         this.event_device_pollfds.ensureUnusedCapacity(gpa.allocator(), this.event_devices.items.len) catch return false;
     }
 
+    this.windows = .{};
+    defer this.windows.deinit(gpa.allocator());
+
     var seizer_context = seizer.Context{
         .gpa = gpa.allocator(),
         .backend_userdata = this,
         .backend = &BACKEND,
     };
-    defer seizer_context.deinit();
 
     // Call root module's `init()` function
     root.init(&seizer_context) catch |err| {
@@ -202,7 +210,7 @@ pub fn main() bool {
         }
         return false;
     };
-    while (seizer_context.windows.items.len > 0) {
+    while (this.windows.items.len > 0) {
         this.updateEventDevices() catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
@@ -211,19 +219,18 @@ pub fn main() bool {
             return false;
         };
         {
-            var i: usize = seizer_context.windows.items.len;
+            var i: usize = this.windows.items.len;
             while (i > 0) : (i -= 1) {
-                const window = seizer_context.windows.items[i - 1];
-                const linux_window: *Window = @ptrCast(@alignCast(window.pointer.?));
-                if (linux_window.should_close) {
-                    _ = seizer_context.windows.swapRemove(i - 1);
+                const window = this.windows.items[i - 1];
+                if (window.should_close) {
+                    _ = this.windows.swapRemove(i - 1);
                     window.destroy();
                 }
             }
         }
-        for (seizer_context.windows.items) |window| {
+        for (this.windows.items) |window| {
             gl.makeBindingCurrent(&window.gl_binding);
-            window.on_render(window) catch |err| {
+            window.on_render(window.window()) catch |err| {
                 std.debug.print("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -237,7 +244,7 @@ pub fn main() bool {
     return false;
 }
 
-pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!*seizer.Window {
+pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
     const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
 
     var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
@@ -272,35 +279,30 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
 
     try this.display.makeCurrent(surface, surface, egl_context);
 
-    const window = try context.gpa.create(seizer.Window);
-    errdefer context.gpa.destroy(window);
-
     const linux_window = try context.gpa.create(Window);
     errdefer context.gpa.destroy(linux_window);
 
     linux_window.* = .{
+        .allocator = context.gpa,
         .display = this.display,
         .surface = surface,
         .egl_context = egl_context,
         .should_close = false,
-    };
 
-    window.* = .{
-        .pointer = linux_window,
-        .interface = &Window.INTERFACE,
         .gl_binding = undefined,
         .on_render = options.on_render,
         .on_destroy = options.on_destroy,
     };
+
     const loader = GlBindingLoader{ .egl = this.egl };
-    window.gl_binding.init(loader);
-    gl.makeBindingCurrent(&window.gl_binding);
+    linux_window.gl_binding.init(loader);
+    gl.makeBindingCurrent(&linux_window.gl_binding);
 
     gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
 
-    try context.windows.append(context.gpa, window);
+    try this.windows.append(context.gpa, linux_window);
 
-    return window;
+    return linux_window.window();
 }
 
 pub const GlBindingLoader = struct {
@@ -319,22 +321,35 @@ pub const GlBindingLoader = struct {
 };
 
 const Window = struct {
+    allocator: std.mem.Allocator,
     display: EGL.Display,
     surface: EGL.Surface,
     egl_context: EGL.Context,
     should_close: bool,
 
+    gl_binding: gl.Binding,
+    on_render: *const fn (seizer.Window) anyerror!void,
+    on_destroy: ?*const fn (seizer.Window) void,
+
     pub const INTERFACE = seizer.Window.Interface{
-        .destroy = destroy,
         .getSize = getSize,
         .getFramebufferSize = getSize,
-        .swapBuffers = swapBuffers,
         .setShouldClose = setShouldClose,
     };
 
-    pub fn destroy(userdata: ?*anyopaque) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    pub fn destroy(this: *@This()) void {
+        if (this.on_destroy) |on_destroy| {
+            on_destroy(this.window());
+        }
         this.display.destroySurface(this.surface);
+        this.allocator.destroy(this);
+    }
+
+    pub fn window(this: *@This()) seizer.Window {
+        return seizer.Window{
+            .pointer = this,
+            .interface = &INTERFACE,
+        };
     }
 
     pub fn getSize(userdata: ?*anyopaque) [2]f32 {
@@ -346,8 +361,7 @@ const Window = struct {
         return .{ @floatFromInt(width), @floatFromInt(height) };
     }
 
-    pub fn swapBuffers(userdata: ?*anyopaque) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    pub fn swapBuffers(this: *@This()) void {
         this.display.swapBuffers(this.surface) catch |err| {
             std.log.warn("failed to swap buffers: {}", .{err});
         };
@@ -552,7 +566,6 @@ pub fn updateEventDevices(this: *@This()) !void {
                             }
                         },
                         .abs => if (dev.abs_to_index.get(input_event.code)) |abs_index| {
-                            std.log.debug("abs_index = {}", .{abs_index});
                             switch (abs_index) {
                                 .axis => {
                                     // TODO: implement

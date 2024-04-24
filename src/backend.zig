@@ -4,7 +4,7 @@ pub const Backend = struct {
     name: []const u8,
     /// should return true if the next backend should be tried
     main: *const fn () bool,
-    createWindow: *const fn (this: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!*seizer.Window,
+    createWindow: *const fn (this: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window,
     addButtonInput: *const fn (this: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void,
 };
 

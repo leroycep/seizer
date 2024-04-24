@@ -78,13 +78,13 @@ pub fn init(context: *seizer.Context) !void {
     prng = std.rand.DefaultPrng.init(1337);
 }
 
-pub fn deinit(window: *seizer.Window) void {
+pub fn deinit(window: seizer.Window) void {
     _ = window;
     _ = ecs.fini(world);
     canvas.deinit();
 }
 
-fn render(window: *seizer.Window) !void {
+fn render(window: seizer.Window) !void {
     const frame_start = std.time.nanoTimestamp();
     defer {
         const frame_end = std.time.nanoTimestamp();

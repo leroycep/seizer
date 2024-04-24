@@ -6,7 +6,7 @@ var leftshoulder_input: bool = false;
 var perform_action_input: bool = false;
 var cancel_input: bool = false;
 
-var window_global: *seizer.Window = undefined;
+var window_global: seizer.Window = undefined;
 
 pub fn init(context: *seizer.Context) !void {
     window_global = try context.createWindow(.{
@@ -64,7 +64,7 @@ pub fn init(context: *seizer.Context) !void {
     });
 }
 
-pub fn deinit(window: *seizer.Window) void {
+pub fn deinit(window: seizer.Window) void {
     _ = window;
     canvas.deinit();
 }
@@ -103,7 +103,7 @@ fn onDPadDown(pressed: bool) !void {
     dpad_down = pressed;
 }
 
-fn render(window: *seizer.Window) !void {
+fn render(window: seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
