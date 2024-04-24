@@ -37,6 +37,27 @@ pub fn init(context: *seizer.Context) !void {
     });
 
     try context.addButtonInput(.{
+        .title = "dpleft",
+        .on_event = onDPadLeft,
+        .default_bindings = &.{.dpleft},
+    });
+    try context.addButtonInput(.{
+        .title = "dpright",
+        .on_event = onDPadRight,
+        .default_bindings = &.{.dpright},
+    });
+    try context.addButtonInput(.{
+        .title = "dpup",
+        .on_event = onDPadUp,
+        .default_bindings = &.{.dpup},
+    });
+    try context.addButtonInput(.{
+        .title = "dpdown",
+        .on_event = onDPadDown,
+        .default_bindings = &.{.dpdown},
+    });
+
+    try context.addButtonInput(.{
         .title = "quit",
         .on_event = onQuit,
         .default_bindings = &.{.back},
@@ -65,6 +86,23 @@ fn onQuit(pressed: bool) !void {
     window_global.setShouldClose(true);
 }
 
+var dpad_left = false;
+var dpad_right = false;
+var dpad_up = false;
+var dpad_down = false;
+fn onDPadLeft(pressed: bool) !void {
+    dpad_left = pressed;
+}
+fn onDPadRight(pressed: bool) !void {
+    dpad_right = pressed;
+}
+fn onDPadUp(pressed: bool) !void {
+    dpad_up = pressed;
+}
+fn onDPadDown(pressed: bool) !void {
+    dpad_down = pressed;
+}
+
 fn render(window: *seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -80,6 +118,12 @@ fn render(window: *seizer.Window) !void {
     try console.print("perform_action = {}\n", .{perform_action_input});
     try console.print("cancel = {}\n", .{cancel_input});
     try console.print("leftshoulder = {}\n", .{leftshoulder_input});
+
+    try console.print("\nDPad\n", .{});
+    try console.print("dpup = {}\n", .{dpad_up});
+    try console.print("dpright = {}\n", .{dpad_right});
+    try console.print("dpdown = {}\n", .{dpad_down});
+    try console.print("dpleft = {}\n", .{dpad_left});
 
     canvas.end();
 }

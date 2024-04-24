@@ -52,6 +52,7 @@ pub const Mapping = struct {
     // platform_buffer: [32]u8,
     buttons: [32]?Output = [_]?Output{null} ** 32,
     axes: [6]?AxisElement = [_]?AxisElement{null} ** 6,
+    hats: [6][4]?Output = [1][4]?Output{[1]?Output{null} ** 4} ** 6,
 
     pub fn name(this: *const @This()) []const u8 {
         const sentinel_index = std.mem.indexOfScalar(u8, this.name_buffer[0..], 0) orelse this.name_buffer.len;
@@ -212,8 +213,14 @@ pub const Mapping = struct {
                 .axis => |axis| if (axis.index < mapping.axes.len) {
                     mapping.axes[axis.index] = .{ .min = axis.min, .max = axis.max, .output = output };
                 },
-                .hat => {
-                    // TODO
+                .hat => |hat| if (hat.index < mapping.axes.len) {
+                    switch (hat.mask) {
+                        1 => mapping.hats[hat.index][0] = output,
+                        2 => mapping.hats[hat.index][1] = output,
+                        4 => mapping.hats[hat.index][2] = output,
+                        8 => mapping.hats[hat.index][3] = output,
+                        else => return error.Unimplemented,
+                    }
                 },
             }
         }

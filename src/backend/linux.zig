@@ -110,6 +110,9 @@ pub fn main() bool {
                 .id = undefined,
                 .mapping = null,
                 .button_code_to_index = .{},
+                .abs_to_index = .{},
+                .hat_count = 0,
+                .axis_count = 0,
             };
             _ = std.os.linux.ioctl(fd, EV_IOC_GID, @intFromPtr(&event_device.id));
 
@@ -122,22 +125,49 @@ pub fn main() bool {
             _ = controller_name;
 
             const KEY_MAX = 0x2ff;
-            const ABS_MAX = 0x3f;
 
             const KeyBits = std.bit_set.ArrayBitSet(u8, KEY_MAX);
-            const AbsBits = std.bit_set.ArrayBitSet(u8, ABS_MAX);
-
             var key_bits = KeyBits.initEmpty();
-            var abs_bits = AbsBits.initEmpty();
-
             _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0x01, @sizeOf(std.meta.FieldType(KeyBits, .masks))), @intFromPtr(&key_bits.masks));
-            _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0x03, @sizeOf(std.meta.FieldType(AbsBits, .masks))), @intFromPtr(&abs_bits.masks));
-
             for (1..KEY_MAX) |code| {
                 if (key_bits.isSet(code)) {
                     const button_index = event_device.button_code_to_index.count();
                     event_device.button_code_to_index.putNoClobber(gpa.allocator(), @intCast(code), @intCast(button_index)) catch return false;
                     std.log.debug("joystick button[{}] = {}", .{ button_index, code });
+                }
+            }
+
+            const ABS_MAX = 0x3f;
+            const AbsBits = std.bit_set.ArrayBitSet(u8, ABS_MAX);
+            var abs_bits = AbsBits.initEmpty();
+            _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_EV_BITS(0x03, @sizeOf(std.meta.FieldType(AbsBits, .masks))), @intFromPtr(&abs_bits.masks));
+            var prev_was_hat = false;
+            for (1..ABS_MAX) |axis| {
+                if (abs_bits.isSet(axis)) {
+                    var abs_info: InputABSInfo = undefined;
+                    _ = std.os.linux.ioctl(fd, EV_IOCTL_GET_ABS_INFO(@intCast(axis)), @intFromPtr(&abs_info));
+
+                    if (abs_info.minimum == -1 and abs_info.maximum == 1 or abs_info.minimum == 1 and abs_info.maximum == -1) {
+                        if (prev_was_hat) {
+                            const hat_index = event_device.hat_count - 1;
+                            event_device.abs_to_index.putNoClobber(gpa.allocator(), @intCast(axis), .{ .hat = .{ prev_was_hat, @intCast(hat_index) } }) catch return false;
+                            std.log.debug("joystick hat[{}] = {}", .{ hat_index, @as(InputEvent.Axis, @enumFromInt(axis)) });
+                            prev_was_hat = false;
+                            continue;
+                        }
+                        // assume digital hat
+                        const hat_index = event_device.hat_count;
+                        event_device.abs_to_index.putNoClobber(gpa.allocator(), @intCast(axis), .{ .hat = .{ prev_was_hat, @intCast(hat_index) } }) catch return false;
+                        std.log.debug("joystick hat[{}] = {}", .{ hat_index, @as(InputEvent.Axis, @enumFromInt(axis)) });
+                        event_device.hat_count += 1;
+                        prev_was_hat = true;
+                    } else {
+                        // assume digital hat
+                        const axis_index = event_device.axis_count;
+                        event_device.abs_to_index.putNoClobber(gpa.allocator(), @intCast(axis), .{ .axis = @intCast(axis_index) }) catch return false;
+                        std.log.debug("joystick axis[{}] = {}", .{ axis_index, @as(InputEvent.Axis, @enumFromInt(axis)) });
+                        event_device.axis_count += 1;
+                    }
                 }
             }
 
@@ -335,8 +365,16 @@ const EventDevice = struct {
     id: InputId,
     mapping: ?seizer.Gamepad.Mapping,
     button_code_to_index: std.AutoHashMapUnmanaged(u16, u16),
+    abs_to_index: std.AutoHashMapUnmanaged(u16, AbsIndex),
+    axis_count: u16,
+    hat_count: u16,
 
     const Name = [256]u8;
+
+    const AbsIndex = union(enum) {
+        axis: u16,
+        hat: struct { bool, u15 },
+    };
 };
 
 const InputId = extern struct {
@@ -386,6 +424,10 @@ pub const EvBits = packed struct(u32) {
 // #define EV_FF_STATUS		0x17
 // #define EV_MAX			0x1f
 // #define EV_CNT			(EV_MAX+1)
+
+pub fn EV_IOCTL_GET_ABS_INFO(axis: u8) u32 {
+    return @bitCast(std.os.linux.IOCTL.IOR('E', 0x40 + axis, InputABSInfo));
+}
 
 pub const InputABSInfo = extern struct {
     value: i32,
@@ -503,10 +545,63 @@ pub fn updateEventDevices(this: *@This()) !void {
                                         try action.on_event(input_event.value > 0);
                                     }
                                 },
-                                .axis => {},
+                                .axis => {
+
+                                    // TODO: implement
+                                },
                             }
                         },
-                        .abs => {},
+                        .abs => if (dev.abs_to_index.get(input_event.code)) |abs_index| {
+                            std.log.debug("abs_index = {}", .{abs_index});
+                            switch (abs_index) {
+                                .axis => {
+                                    // TODO: implement
+                                },
+                                .hat => |hat_isy_and_index| if (hat_isy_and_index[1] < mapping.hats.len) {
+                                    const is_y = hat_isy_and_index[0];
+                                    const hat_index = hat_isy_and_index[1];
+
+                                    const hat_subindex: u2 =
+                                        if (is_y and input_event.value <= 0)
+                                        0
+                                    else if (!is_y and input_event.value > 0)
+                                        1
+                                    else if (is_y and input_event.value > 0)
+                                        2
+                                    else if (!is_y and input_event.value <= 0)
+                                        3
+                                    else blk: {
+                                        std.log.warn("this shouldn't be called ever", .{});
+                                        break :blk 0;
+                                    };
+                                    const hat_anti_index: u2 = hat_subindex +% 2;
+
+                                    const output = mapping.hats[hat_index][hat_subindex] orelse continue;
+                                    switch (output) {
+                                        .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                            for (actions.items) |action| {
+                                                try action.on_event(input_event.value != 0);
+                                            }
+                                        },
+                                        .axis => {
+                                            // TODO: implement
+                                        },
+                                    }
+
+                                    const anti_output = mapping.hats[hat_index][hat_anti_index] orelse continue;
+                                    switch (anti_output) {
+                                        .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                            for (actions.items) |action| {
+                                                try action.on_event(false);
+                                            }
+                                        },
+                                        .axis => {
+                                            // TODO: implement
+                                        },
+                                    }
+                                },
+                            }
+                        },
                         else => break,
                     }
                 }
