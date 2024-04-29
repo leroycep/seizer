@@ -41,7 +41,7 @@ pub const Functions = struct {
     eglCreatePbufferSurface: *const fn (*Display.Handle, config: *Config.Handle, attrib_list: ?[*]const Int) ?*Surface.Handle,
     eglCreateWindowSurface: *const fn (*Display.Handle, config: *Config.Handle, NativeWindowType, attrib_list: ?[*]const Int) ?*Surface.Handle,
     eglCreateContext: *const fn (*Display.Handle, config: *Config.Handle, share_context: ?*Context, attrib_list: ?[*]const Int) ?*Context.Handle,
-    eglMakeCurrent: *const fn (*Display.Handle, draw: *Surface.Handle, read: *Surface.Handle, ctx: *Context.Handle) Boolean,
+    eglMakeCurrent: *const fn (*Display.Handle, draw: ?*Surface.Handle, read: ?*Surface.Handle, ctx: ?*Context.Handle) Boolean,
     eglGetProcAddress: *const fn ([*:0]const u8) ?*align(@alignOf(fn () callconv(.C) void)) const anyopaque,
     eglSwapBuffers: *const fn (*Display.Handle, draw: *Surface.Handle) Boolean,
     eglGetConfigAttrib: *const fn (*Display.Handle, config: *Config.Handle, attribute: Attrib, value_out: *Int) Boolean,
@@ -50,6 +50,7 @@ pub const Functions = struct {
     eglReleaseThread: *const fn () Boolean,
     eglDestroySurface: *const fn (*Display.Handle, *Surface.Handle) Boolean,
     eglQuerySurface: *const fn (*Display.Handle, *Surface.Handle, Attrib, value_out: *Int) Boolean,
+    eglCreateImage: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*Image.Handle,
 
     pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
         var this: @This() = undefined;
@@ -75,21 +76,42 @@ pub const EXT = struct {
         // typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYDEVICEATTRIBEXTPROC) (EGLDeviceEXT device, EGLint attribute, EGLAttrib *value);
         // typedef EGLBoolean (EGLAPIENTRYP PFNEGLQUERYDISPLAYATTRIBEXTPROC) (EGLDisplay dpy, EGLint attribute, EGLAttrib *value);
     };
-
-    pub fn load(comptime Extension: type, functions: Functions) !Extension {
-        var ext: Extension = undefined;
-
-        const fields = std.meta.fields(Extension);
-        inline for (fields) |field| {
-            @field(ext, field.name) = @ptrCast(functions.eglGetProcAddress(field.name) orelse {
-                log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
-                return error.FunctionNotFound;
-            });
-        }
-
-        return ext;
-    }
 };
+
+pub const MESA = struct {
+    pub const image_dma_buf_export = struct {
+        eglExportDMABUFImageQueryMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fourcc: ?*c_int, num_planes: ?*c_int, modifiers: ?*u64) Boolean,
+        eglExportDMABUFImageMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fds: ?[*]c_int, strides: ?[*]Int, offsets: ?[*]Int) Boolean,
+    };
+};
+
+pub const KHR = struct {
+    pub const image_base = struct {
+        eglCreateImageKHR: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*KHR.image_base.Image.Handle,
+        eglDestroyImageKHR: *const fn (*Display.Handle, *KHR.image_base.Image.Handle) Boolean,
+
+        pub const Image = struct {
+            egl: *const EGL,
+            ptr: *Handle,
+
+            const Handle = opaque {};
+        };
+    };
+};
+
+pub fn loadExtension(comptime Extension: type, functions: Functions) !Extension {
+    var ext: Extension = undefined;
+
+    const fields = std.meta.fields(Extension);
+    inline for (fields) |field| {
+        @field(ext, field.name) = @ptrCast(functions.eglGetProcAddress(field.name) orelse {
+            log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+            return error.FunctionNotFound;
+        });
+    }
+
+    return ext;
+}
 
 pub fn deinit(this: *@This()) void {
     _ = this.functions.eglReleaseThread();
@@ -191,8 +213,8 @@ pub const Display = struct {
         };
     }
 
-    pub fn makeCurrent(this: *const @This(), draw: Surface, read: Surface, ctx: Context) Error!void {
-        switch (this.egl.functions.eglMakeCurrent(this.ptr, draw.ptr, read.ptr, ctx.ptr)) {
+    pub fn makeCurrent(this: *const @This(), draw: ?Surface, read: ?Surface, ctx: Context) Error!void {
+        switch (this.egl.functions.eglMakeCurrent(this.ptr, if (draw) |d| d.ptr else null, if (read) |r| r.ptr else null, ctx.ptr)) {
             .true => {},
             .false => return this.egl.functions.eglGetError().toZigError(),
         }
@@ -247,6 +269,12 @@ pub const Context = struct {
 
     pub const Handle = opaque {};
 };
+pub const Image = struct {
+    egl: *const EGL,
+    ptr: *Handle,
+
+    pub const Handle = opaque {};
+};
 pub const Attrib = enum(Int) {
     config_id = 0x3028,
     buffer_size = 0x3020,
@@ -288,6 +316,11 @@ pub const Api = enum(c_uint) {
     opengl_es = 0x30A0,
     openvg = 0x30A1,
     opengl = 0x30A2,
+};
+
+pub const CreateImageTarget = enum(c_uint) {
+    gl_renderbuffer = 0x30B9,
+    _,
 };
 
 pub const ErrorCode = enum(Int) {

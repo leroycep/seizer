@@ -38,6 +38,31 @@ pub fn build(b: *Builder) !void {
         .root_source_file = .{ .path = "dep/EGL.zig" },
     });
 
+    const wayland_module = b.addModule("wayland", .{
+        .root_source_file = .{ .path = "dep/wayland/src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const xml = b.dependency("zig-xml", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const generate_wayland_exe = b.addExecutable(.{
+        .name = "generate-wayland",
+        .root_source_file = .{ .path = "tools/generate-wayland.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
+    generate_wayland_exe.root_module.addImport("xml", xml.module("xml"));
+    const generate_wayland_run_cmd = b.addRunArtifact(generate_wayland_exe);
+    if (b.args) |args| {
+        generate_wayland_run_cmd.addArgs(args);
+    }
+    const generate_wayland_step = b.step("generate-wayland", "generate wayland bindings from xml file");
+    generate_wayland_step.dependOn(&generate_wayland_run_cmd.step);
+
     // seizer
     const module = b.addModule("seizer", .{
         .root_source_file = .{ .path = "src/seizer.zig" },
@@ -47,6 +72,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "gl", .module = gl_module },
             .{ .name = "EGL", .module = egl_module },
             .{ .name = "zflecs", .module = zflecs.module("zflecs") },
+            .{ .name = "wayland", .module = wayland_module },
         },
     });
 

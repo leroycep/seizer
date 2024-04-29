@@ -1,24 +1,21 @@
+pub const wayland = @import("backend/wayland.zig");
 pub const linux = @import("backend/linux.zig");
 
 pub const Backend = struct {
     name: []const u8,
     /// should return true if the next backend should be tried
-    main: *const fn () bool,
+    main: *const fn () anyerror!void,
     createWindow: *const fn (this: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window,
     addButtonInput: *const fn (this: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void,
 };
 
 pub fn main() !void {
-    // build a list of backends and try running each one
-    var backends = std.BoundedArray(*const Backend, 5){};
-    try backends.append(&linux.BACKEND);
-
-    for (backends.slice()) |backend| {
-        if (!backend.main()) {
-            break;
-        } else {
-            std.log.warn("{s} backend failed to initialize, trying next", .{backend.name});
-        }
+    if (wayland.BACKEND.main()) {
+        //
+        // } else |_| if (linux.BACKEND.main()) {
+        //     //
+    } else |_| {
+        //
     }
 }
 
