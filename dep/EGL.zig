@@ -51,6 +51,7 @@ pub const Functions = struct {
     eglDestroySurface: *const fn (*Display.Handle, *Surface.Handle) Boolean,
     eglQuerySurface: *const fn (*Display.Handle, *Surface.Handle, Attrib, value_out: *Int) Boolean,
     eglCreateImage: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*Image.Handle,
+    eglDestroyImage: *const fn (*Display.Handle, *Image.Handle) Boolean,
 
     pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
         var this: @This() = undefined;
@@ -315,6 +316,17 @@ pub const Display = struct {
             .egl = this.egl,
             .ptr = image_handle,
         };
+    }
+
+    pub fn destroyImage(this: @This(), image: Image) Error!void {
+        const result = this.egl.functions.eglDestroyImage(
+            this.ptr,
+            image.ptr,
+        );
+        switch (result) {
+            .true => {},
+            .false => return this.egl.functions.eglGetError().toZigError(),
+        }
     }
 
     pub const QueryStringName = enum(Int) {

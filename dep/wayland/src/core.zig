@@ -345,12 +345,12 @@ pub const Surface = struct {
         );
     }
 
-    pub fn attach(this: @This(), buffer: *Buffer, x: i32, y: i32) !void {
+    pub fn attach(this: @This(), buffer: ?*Buffer, x: i32, y: i32) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .attach = .{
-                .buffer = buffer.id,
+                .buffer = if (buffer) |b| b.id else 0,
                 .x = x,
                 .y = y,
             } },
@@ -467,6 +467,14 @@ pub const Buffer = struct {
     pub const Request = union(enum) {
         destroy: void,
     };
+
+    pub fn destroy(this: @This()) !void {
+        try this.conn.send(
+            Request,
+            this.id,
+            .{ .destroy = {} },
+        );
+    }
 
     pub const Event = union(enum) {
         release: void,

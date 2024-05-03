@@ -205,7 +205,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .on_destroy = options.on_destroy,
 
         .new_window_size = size,
-        .window_size = size,
+        .window_size = [_]c_int{ 0, 0 },
     };
 
     const loader = GlBindingLoader{ .egl = this.egl };
@@ -217,15 +217,6 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
     window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
     try this.wl_connection.dispatchUntilSync();
-
-    window.framebuffer = try window.createFramebuffer(size);
-    try window.wl_surface.attach(window.framebuffer.?.wl_buffer.?, 0, 0);
-    try window.wl_surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
-    try window.setupFrameCallback();
-    try window.wl_surface.commit();
-    try this.wl_connection.dispatchUntilSync();
-
-    gl.viewport(0, 0, size[0], size[1]);
 
     try this.windows.append(context.gpa, window);
 
@@ -345,13 +336,18 @@ const Window = struct {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .configure => |conf| {
-                // TODO: figure out how to resize window without DMA-BUF import failing.
-                std.log.debug("xdg_surface.configure serial = {}; window size = {any}", .{ conf.serial, this.window_size });
                 xdg_surface.ack_configure(conf.serial) catch |e| {
                     std.log.warn("Failed to ack configure: {}", .{e});
                     return;
                 };
                 this.should_render = true;
+
+                if (this.window_size[0] != this.new_window_size[0] or this.window_size[1] != this.new_window_size[1]) {
+                    if (this.framebuffer) |f| {
+                        f.destroy();
+                    }
+                    this.framebuffer = null;
+                }
             },
         }
     }
@@ -376,6 +372,18 @@ const Window = struct {
 
     fn render(this_window: *Window) !void {
         gl.makeBindingCurrent(&this_window.gl_binding);
+        if (this_window.framebuffer == null) {
+            this_window.framebuffer = this_window.createFramebuffer(this_window.new_window_size) catch |e| {
+                std.log.warn("Failed to resize framebuffer: {}", .{e});
+                return;
+            };
+
+            this_window.wl_surface.attach(this_window.framebuffer.?.wl_buffer.?, 0, 0) catch unreachable;
+            this_window.wl_surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32)) catch unreachable;
+
+            this_window.window_size = this_window.new_window_size;
+            gl.viewport(0, 0, this_window.window_size[0], this_window.window_size[1]);
+        }
 
         this_window.on_render(this_window.window()) catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
@@ -407,7 +415,7 @@ const Window = struct {
 
     pub fn createFramebuffer(this_window: *Window, size: [2]c_int) !*Framebuffer {
         const framebuffer = try this_window.allocator.create(Framebuffer);
-        framebuffer.* = .{ .allocator = this_window.allocator, .wl_buffer = null };
+        framebuffer.* = .{ .allocator = this_window.allocator, .wl_buffer = null, .egl_display = this_window.egl_display, .egl_image = undefined };
         errdefer framebuffer.destroy();
 
         gl.genRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
@@ -419,14 +427,14 @@ const Window = struct {
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
 
-        const egl_image = try this_window.egl_display.createImage(
+        framebuffer.egl_image = try this_window.egl_display.createImage(
             this_window.egl_context,
             .gl_renderbuffer,
             @ptrFromInt(@as(usize, @intCast(framebuffer.gl_render_buffers[0]))),
             null,
         );
 
-        const dmabuf_image = try this_window.egl_mesa_image_dma_buf_export.exportImageAlloc(this_window.allocator, this_window.egl_display, egl_image);
+        const dmabuf_image = try this_window.egl_mesa_image_dma_buf_export.exportImageAlloc(this_window.allocator, this_window.egl_display, framebuffer.egl_image);
         defer dmabuf_image.deinit();
 
         const wl_dmabuf_buffer_params = try this_window.wl_globals.zwp_linux_dmabuf_v1.?.create_params();
@@ -458,9 +466,13 @@ const Framebuffer = struct {
     allocator: std.mem.Allocator,
     gl_render_buffers: [1]gl.Uint = .{0},
     gl_framebuffer_objects: [1]gl.Uint = .{0},
+    egl_display: EGL.Display,
+    egl_image: EGL.Image,
     wl_buffer: ?*wayland.core.Buffer,
 
     pub fn destroy(framebuffer: *Framebuffer) void {
+        if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
+        framebuffer.egl_display.destroyImage(framebuffer.egl_image) catch {};
         gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
         gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
         framebuffer.allocator.destroy(framebuffer);
