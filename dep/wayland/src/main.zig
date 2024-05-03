@@ -484,9 +484,11 @@ pub const IdPool = struct {
 };
 
 fn cmsg(comptime T: type) type {
-    const padding_size = (@sizeOf(T) + @sizeOf(c_long) - 1) & ~(@as(usize, @sizeOf(c_long)) - 1);
+    const raw_struct_size = @sizeOf(c_ulong) + @sizeOf(c_int) + @sizeOf(c_int) + @sizeOf(T);
+    const padded_struct_size = std.mem.alignForward(usize, @sizeOf(c_ulong) + @sizeOf(c_int) + @sizeOf(c_int) + @sizeOf(T), @alignOf(c_long));
+    const padding_size = padded_struct_size - raw_struct_size;
     return extern struct {
-        len: c_ulong = @sizeOf(@This()) - padding_size,
+        len: c_ulong = raw_struct_size,
         level: c_int,
         type: c_int,
         data: T,
@@ -673,13 +675,14 @@ pub const Conn = struct {
                 .data = @intFromEnum(fdp.*),
             };
         }
+        const ctrl_msgs_bytes = std.mem.sliceAsBytes(ctrl_msgs);
         const socket_msg = std.posix.msghdr_const{
             .name = null,
             .namelen = 0,
             .iov = &msg_iov,
             .iovlen = msg_iov.len,
-            .control = ctrl_msgs.ptr,
-            .controllen = @intCast(@sizeOf(cmsg(std.posix.fd_t)) * ctrl_msgs.len),
+            .control = ctrl_msgs_bytes.ptr,
+            .controllen = @intCast(ctrl_msgs_bytes.len),
             .flags = 0,
         };
         _ = std.posix.sendmsg(conn.socket.handle, &socket_msg, 0) catch |e| {
