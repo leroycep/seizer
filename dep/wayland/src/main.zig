@@ -1,6 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.wayland);
+const builtin = @import("builtin");
 
 pub const xkbcommon = @import("xkbcommon");
 
@@ -607,26 +608,30 @@ pub const Conn = struct {
         sync_callback.userdata = &sync_received;
 
         while (!sync_received) {
-            const header, const body = try conn.recv();
+            try conn.dispatchOne();
+        }
+    }
 
-            if (conn.objects.get(header.object_id)) |object| {
-                object.interface.event_received(object, header, body);
-            } else if (header.object_id == DISPLAY_ID) {
-                const event = try deserialize(core.Display.Event, header, body);
-                switch (event) {
-                    .@"error" => |e| {
-                        log.err("{}: {} {s}", .{ e.object_id, e.code, e.message });
-                    },
-                    .delete_id => |d| {
-                        if (conn.objects.fetchRemove(d.id)) |kv| {
-                            kv.value.interface.delete(kv.value);
-                            conn.id_pool.destroy(d.id);
-                        }
-                    },
-                }
-            } else {
-                log.warn("Unknown object id = {}", .{header.object_id});
+    pub fn dispatchOne(conn: *Conn) !void {
+        const header, const body = try conn.recv();
+
+        if (conn.objects.get(header.object_id)) |object| {
+            object.interface.event_received(object, header, body);
+        } else if (header.object_id == DISPLAY_ID) {
+            const event = try deserialize(core.Display.Event, header, body);
+            switch (event) {
+                .@"error" => |e| {
+                    log.err("{}: {} {s}", .{ e.object_id, e.code, e.message });
+                },
+                .delete_id => |d| {
+                    if (conn.objects.fetchRemove(d.id)) |kv| {
+                        kv.value.interface.delete(kv.value);
+                        conn.id_pool.destroy(d.id);
+                    }
+                },
             }
+        } else {
+            log.warn("Unknown object id = {}", .{header.object_id});
         }
     }
 
@@ -662,7 +667,6 @@ pub const Conn = struct {
         var ctrl_msgs_buffer: [fds_buffer.len]cmsg(std.posix.fd_t) = undefined;
         const ctrl_msgs = ctrl_msgs_buffer[0..fds.len];
         for (fds, 0..) |fdp, i| {
-            std.debug.print("fd {}: {}\n", .{ i, fdp.* });
             ctrl_msgs[i] = .{
                 .level = std.posix.SOL.SOCKET,
                 .type = 0x01,
@@ -678,7 +682,18 @@ pub const Conn = struct {
             .controllen = @intCast(@sizeOf(cmsg(std.posix.fd_t)) * ctrl_msgs.len),
             .flags = 0,
         };
-        _ = try std.posix.sendmsg(conn.socket.handle, &socket_msg, 0);
+        _ = std.posix.sendmsg(conn.socket.handle, &socket_msg, 0) catch |e| {
+            switch (e) {
+                error.BrokenPipe => if (builtin.mode == .Debug) {
+                    // keep calling dispatchOne until we get an error, just so we can see any error messages that get sent
+                    while (true) {
+                        conn.dispatchOne() catch break;
+                    }
+                },
+                else => {},
+            }
+            return e;
+        };
     }
 
     pub const Message = struct { Header, []const u32 };
