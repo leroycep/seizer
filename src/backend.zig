@@ -14,7 +14,11 @@ pub fn main() !void {
         //
         // } else |_| if (linux.BACKEND.main()) {
         //     //
-    } else |_| {
+    } else |err| {
+        std.debug.print("{s}\n", .{@errorName(err)});
+        if (@errorReturnTrace()) |trace| {
+            std.debug.dumpStackTrace(trace.*);
+        }
         //
     }
 }

@@ -299,7 +299,7 @@ pub const Surface = struct {
     }
 
     pub const Request = union(enum) {
-        destroy: void,
+        destroy: struct {},
         attach: struct {
             buffer: u32,
             x: i32,
@@ -322,7 +322,28 @@ pub const Surface = struct {
             region: u32,
         },
         commit: void,
+        // TODO
+        set_buffer_transform: void,
+        // TODO
+        set_buffer_scale: void,
+        // TODO
+        damage_buffer: struct {
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+        },
+        // TODO
+        offset: void,
     };
+
+    pub fn destroy(this: @This()) !void {
+        try this.conn.send(
+            Request,
+            this.id,
+            .{ .destroy = .{} },
+        );
+    }
 
     pub fn attach(this: @This(), buffer: *Buffer, x: i32, y: i32) !void {
         try this.conn.send(
@@ -349,11 +370,36 @@ pub const Surface = struct {
         );
     }
 
+    pub fn frame(this: @This()) !*Callback {
+        const new_frame_callback_object = try this.conn.createObject(Callback);
+        try this.conn.send(
+            Request,
+            this.id,
+            .{ .frame = .{
+                .callback = new_frame_callback_object.id,
+            } },
+        );
+        return new_frame_callback_object;
+    }
+
     pub fn commit(this: @This()) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .commit = {} },
+        );
+    }
+
+    pub fn damage_buffer(this: @This(), x: i32, y: i32, width: i32, height: i32) !void {
+        try this.conn.send(
+            Request,
+            this.id,
+            .{ .damage_buffer = .{
+                .x = x,
+                .y = y,
+                .width = width,
+                .height = height,
+            } },
         );
     }
 

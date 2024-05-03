@@ -80,22 +80,88 @@ pub const EXT = struct {
 
 pub const MESA = struct {
     pub const image_dma_buf_export = struct {
-        eglExportDMABUFImageQueryMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fourcc: ?*c_int, num_planes: ?*c_int, modifiers: ?*u64) Boolean,
-        eglExportDMABUFImageMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fds: ?[*]c_int, strides: ?[*]Int, offsets: ?[*]Int) Boolean,
-    };
-};
+        eglExportDMABUFImageQueryMESA: *const fn (*Display.Handle, *Image.Handle, fourcc: ?*c_int, num_planes: ?*c_int, modifiers: ?*u64) Boolean,
+        eglExportDMABUFImageMESA: *const fn (*Display.Handle, *Image.Handle, fds: ?[*]c_int, strides: ?[*]Int, offsets: ?[*]Int) Boolean,
 
-pub const KHR = struct {
-    pub const image_base = struct {
-        eglCreateImageKHR: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*KHR.image_base.Image.Handle,
-        eglDestroyImageKHR: *const fn (*Display.Handle, *KHR.image_base.Image.Handle) Boolean,
-
-        pub const Image = struct {
-            egl: *const EGL,
-            ptr: *Handle,
-
-            const Handle = opaque {};
+        pub const ImageQueryResult = struct {
+            fourcc: c_int,
+            num_planes: c_int,
+            modifiers: u64,
         };
+        pub fn queryImage(this: @This(), display: Display, image: Image) Error!ImageQueryResult {
+            var result: ImageQueryResult = undefined;
+            switch (this.eglExportDMABUFImageQueryMESA(
+                display.ptr,
+                image.ptr,
+                &result.fourcc,
+                &result.num_planes,
+                &result.modifiers,
+            )) {
+                .true => {},
+                .false => return display.egl.functions.eglGetError().toZigError(),
+            }
+            return result;
+        }
+
+        pub const ExportImageResult = struct {
+            allocator: std.mem.Allocator,
+            fourcc: c_int,
+            num_planes: c_int,
+            modifiers: u64,
+            dmabuf_fds: []c_int,
+            strides: []c_int,
+            offsets: []c_int,
+
+            pub fn deinit(this: @This()) void {
+                for (this.dmabuf_fds) |fd| {
+                    std.posix.close(fd);
+                }
+                this.allocator.free(this.dmabuf_fds);
+                this.allocator.free(this.strides);
+                this.allocator.free(this.offsets);
+            }
+        };
+        pub fn exportImageAlloc(this: @This(), allocator: std.mem.Allocator, display: Display, image: Image) !ExportImageResult {
+            var query_result: ImageQueryResult = undefined;
+            switch (this.eglExportDMABUFImageQueryMESA(
+                display.ptr,
+                image.ptr,
+                &query_result.fourcc,
+                &query_result.num_planes,
+                &query_result.modifiers,
+            )) {
+                .true => {},
+                .false => return display.egl.functions.eglGetError().toZigError(),
+            }
+
+            const dmabuf_fds = try allocator.alloc(c_int, @intCast(query_result.num_planes));
+            errdefer allocator.free(dmabuf_fds);
+            const strides = try allocator.alloc(c_int, @intCast(query_result.num_planes));
+            errdefer allocator.free(strides);
+            const offsets = try allocator.alloc(c_int, @intCast(query_result.num_planes));
+            errdefer allocator.free(offsets);
+
+            switch (this.eglExportDMABUFImageMESA(
+                display.ptr,
+                image.ptr,
+                dmabuf_fds.ptr,
+                strides.ptr,
+                offsets.ptr,
+            )) {
+                .true => {},
+                .false => return display.egl.functions.eglGetError().toZigError(),
+            }
+
+            return .{
+                .allocator = allocator,
+                .fourcc = query_result.fourcc,
+                .num_planes = query_result.num_planes,
+                .modifiers = query_result.modifiers,
+                .dmabuf_fds = dmabuf_fds,
+                .strides = strides,
+                .offsets = offsets,
+            };
+        }
     };
 };
 
@@ -233,6 +299,22 @@ pub const Display = struct {
             .true => return value,
             .false => return this.egl.functions.eglGetError().toZigError(),
         }
+    }
+
+    pub fn createImage(this: *const @This(), ctx: Context, target: CreateImageTarget, target_handle: ?*anyopaque, attrib_list: ?[*:@intFromEnum(Attrib.none)]Int) Error!Image {
+        const image_handle = this.egl.functions.eglCreateImage(
+            this.ptr,
+            ctx.ptr,
+            target,
+            target_handle,
+            attrib_list,
+        ) orelse {
+            return this.egl.functions.eglGetError().toZigError();
+        };
+        return Image{
+            .egl = this.egl,
+            .ptr = image_handle,
+        };
     }
 
     pub const QueryStringName = enum(Int) {

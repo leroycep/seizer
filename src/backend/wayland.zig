@@ -29,6 +29,14 @@ pub fn main() anyerror!void {
     const this = try gpa.allocator().create(@This());
     defer gpa.allocator().destroy(this);
 
+    this.windows = .{};
+    defer {
+        for (this.windows.items) |window| {
+            window.destroy();
+        }
+        this.windows.deinit(gpa.allocator());
+    }
+
     // init wayland connection
     const conn_path = try wayland.getDisplayPath(gpa.allocator());
     defer gpa.allocator().free(conn_path);
@@ -72,9 +80,6 @@ pub fn main() anyerror!void {
 
     try this.evdev.scanForDevices();
 
-    this.windows = .{};
-    defer this.windows.deinit(gpa.allocator());
-
     var seizer_context = seizer.Context{
         .gpa = gpa.allocator(),
         .backend_userdata = this,
@@ -93,7 +98,7 @@ pub fn main() anyerror!void {
         // TODO: bring all file waiting together
         try this.wl_connection.dispatchUntilSync();
         this.evdev.updateEventDevices() catch |err| {
-            std.debug.print("{s}", .{@errorName(err)});
+            std.debug.print("{s}\n", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
                 std.debug.dumpStackTrace(trace.*);
             }
@@ -110,15 +115,9 @@ pub fn main() anyerror!void {
             }
         }
         for (this.windows.items) |window| {
-            gl.makeBindingCurrent(&window.gl_binding);
-            window.on_render(window.window()) catch |err| {
-                std.debug.print("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                break;
-            };
-            window.swapBuffers();
+            if (window.should_render) {
+                try window.render();
+            }
         }
     }
 }
@@ -152,22 +151,11 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     const size = if (options.size) |s| [2]c_int{ @intCast(s[0]), @intCast(s[1]) } else [2]c_int{ 640, 480 };
 
     const wl_surface = try this.wl_globals.wl_compositor.?.create_surface();
-
     const xdg_surface = try this.wl_globals.xdg_wm_base.?.get_xdg_surface(wl_surface);
-    xdg_surface.on_event = onXdgSurfaceEvent;
-
     const xdg_toplevel = try xdg_surface.get_toplevel();
-    xdg_toplevel.on_event = onXdgToplevelEvent;
-
     try wl_surface.commit();
 
-    // const surface_feedback = try this.wl_globals.zwp_linux_dmabuf_v1.?.get_surface_feedback(wl_surface);
-    // surface_feedback.on_event = onWPLinuxDMABUF_SurfaceFeedback;
-
-    // try this.wl_connection.dispatchUntilSync();
-
     var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-        // @intFromEnum(EGL.Attrib.surface_type),    EGL.WINDOW_BIT,
         @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
         @intFromEnum(EGL.Attrib.red_size),        8,
         @intFromEnum(EGL.Attrib.blue_size),       8,
@@ -186,8 +174,6 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     const configs_len = try this.egl_display.chooseConfig(&attrib_list, configs_buffer);
     const configs = configs_buffer[0..configs_len];
 
-    // const surface = try this.egl_display.createWindowSurface(configs[0], null, null);
-
     try this.egl.bindAPI(.opengl_es);
     var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
         @intFromEnum(EGL.Attrib.context_major_version), 2,
@@ -203,20 +189,22 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
 
     window.* = .{
         .allocator = context.gpa,
+        .egl_mesa_image_dma_buf_export = &this.egl_mesa_image_dma_buf_export,
         .egl_display = this.egl_display,
         .egl_context = egl_context,
+        .wl_globals = &this.wl_globals,
         .wl_surface = wl_surface,
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
-        .wl_buffer = undefined,
         .should_close = false,
 
-        .gl_framebuffer_object = undefined,
+        .framebuffer = null,
 
         .gl_binding = undefined,
         .on_render = options.on_render,
         .on_destroy = options.on_destroy,
 
+        .new_window_size = size,
         .window_size = size,
     };
 
@@ -224,64 +212,17 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     window.gl_binding.init(loader);
     gl.makeBindingCurrent(&window.gl_binding);
 
-    var render_buffers: [1]gl.Uint = undefined;
-    gl.genRenderbuffers(render_buffers.len, &render_buffers);
-    gl.bindRenderbuffer(gl.RENDERBUFFER, render_buffers[0]);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGB8, size[0], size[1]);
-
-    var framebuffer_objects: [1]gl.Uint = undefined;
-    gl.genFramebuffers(framebuffer_objects.len, &framebuffer_objects);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer_objects[0]);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, render_buffers[0]);
-    window.gl_framebuffer_object = framebuffer_objects[0];
-
-    const egl_image = this.egl.functions.eglCreateImage(
-        this.egl_display.ptr,
-        window.egl_context.ptr,
-        .gl_renderbuffer,
-        @ptrFromInt(@as(usize, @intCast(render_buffers[0]))),
-        null,
-    );
-
-    var fourcc: c_int = undefined;
-    var num_planes: c_int = undefined;
-    _ = this.egl_mesa_image_dma_buf_export.eglExportDMABUFImageQueryMESA(
-        this.egl_display.ptr,
-        @ptrCast(egl_image.?),
-        &fourcc,
-        &num_planes,
-        null,
-    );
-    std.log.debug("fourcc = {}, num_planes = {}", .{ fourcc, num_planes });
-
-    var dmabuf_fd: [1]c_int = undefined;
-    var stride: [1]EGL.Int = undefined;
-    var offset: [1]EGL.Int = undefined;
-    _ = this.egl_mesa_image_dma_buf_export.eglExportDMABUFImageMESA(
-        this.egl_display.ptr,
-        @ptrCast(egl_image.?),
-        &dmabuf_fd,
-        &stride,
-        &offset,
-    );
-    std.log.debug("dmabuf = {}, stride = {}, offset = {}", .{ dmabuf_fd[0], stride[0], offset[0] });
-
-    try this.wl_connection.dispatchUntilSync();
-    // window.wl_surface.userdata = window;
     window.xdg_surface.userdata = window;
     window.xdg_toplevel.userdata = window;
-    // window.wl_surface.on_event = Window.onWlSurfaceEvent;
     window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
     window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
+    try this.wl_connection.dispatchUntilSync();
 
-    const wl_dmabuf_buffer_params = try this.wl_globals.zwp_linux_dmabuf_v1.?.create_params();
-    try wl_dmabuf_buffer_params.add(@enumFromInt(dmabuf_fd[0]), 0, @intCast(offset[0]), @intCast(stride[0]), 0, 0);
-    window.wl_buffer = try wl_dmabuf_buffer_params.create_immed(@intCast(size[0]), @intCast(size[1]), @intCast(fourcc), .{ .y_invert = false, .interlaced = false, .bottom_first = false });
-
-    try window.wl_surface.attach(window.wl_buffer, 0, 0);
-    try window.wl_surface.damage(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+    window.framebuffer = try window.createFramebuffer(size);
+    try window.wl_surface.attach(window.framebuffer.?.wl_buffer.?, 0, 0);
+    try window.wl_surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+    try window.setupFrameCallback();
     try window.wl_surface.commit();
-
     try this.wl_connection.dispatchUntilSync();
 
     gl.viewport(0, 0, size[0], size[1]);
@@ -318,25 +259,6 @@ fn onXdgWmBaseEvent(xdg_wm_base: *wayland.xdg_shell.xdg_wm_base, userdata: ?*any
     }
 }
 
-fn onXdgSurfaceEvent(xdg_surface: *wayland.xdg_shell.xdg_surface, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_surface.Event) void {
-    _ = userdata;
-    switch (event) {
-        .configure => |conf| {
-            xdg_surface.ack_configure(conf.serial) catch |e| {
-                std.log.warn("Failed to ack configure: {}", .{e});
-            };
-        },
-    }
-}
-
-fn onXdgToplevelEvent(xdg_toplevel: *wayland.xdg_shell.xdg_toplevel, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_toplevel.Event) void {
-    _ = xdg_toplevel;
-    _ = userdata;
-    switch (event) {
-        else => std.log.debug("{}", .{event}),
-    }
-}
-
 fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *wayland.linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1, userdata: ?*anyopaque, event: wayland.linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1.Event) void {
     _ = feedback;
     _ = userdata;
@@ -362,20 +284,23 @@ fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *wayland.linux_dmabuf_v1.zwp_linux_
 
 const Window = struct {
     allocator: std.mem.Allocator,
+    egl_mesa_image_dma_buf_export: *const EGL.MESA.image_dma_buf_export,
     egl_display: EGL.Display,
     egl_context: EGL.Context,
+    wl_globals: *const Globals,
     wl_surface: *wayland.core.Surface,
     xdg_surface: *wayland.xdg_shell.xdg_surface,
     xdg_toplevel: *wayland.xdg_shell.xdg_toplevel,
-    wl_buffer: *wayland.core.Buffer,
     should_close: bool,
+    should_render: bool = true,
 
-    gl_framebuffer_object: gl.Uint,
+    framebuffer: ?*Framebuffer = null,
 
     gl_binding: gl.Binding,
     on_render: *const fn (seizer.Window) anyerror!void,
     on_destroy: ?*const fn (seizer.Window) void,
 
+    new_window_size: [2]c_int,
     window_size: [2]c_int,
 
     pub const INTERFACE = seizer.Window.Interface{
@@ -388,7 +313,13 @@ const Window = struct {
         if (this.on_destroy) |on_destroy| {
             on_destroy(this.window());
         }
-        // this.display.destroySurface(this.surface);
+
+        if (this.framebuffer) |f| {
+            f.destroy();
+        }
+
+        this.wl_surface.destroy() catch {};
+
         this.allocator.destroy(this);
     }
 
@@ -405,24 +336,22 @@ const Window = struct {
         return .{ @floatFromInt(this.window_size[0]), @floatFromInt(this.window_size[1]) };
     }
 
-    pub fn swapBuffers(this: *@This()) void {
-        // _ = this;
-        this.wl_surface.damage(0, 0, std.math.maxInt(i32), std.math.maxInt(i32)) catch {};
-        this.wl_surface.commit() catch {};
-    }
-
     pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         this.should_close = should_close;
     }
 
     fn onXdgSurfaceEvent(xdg_surface: *wayland.xdg_shell.xdg_surface, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_surface.Event) void {
-        _ = userdata;
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .configure => |conf| {
+                // TODO: figure out how to resize window without DMA-BUF import failing.
+                std.log.debug("xdg_surface.configure serial = {}; window size = {any}", .{ conf.serial, this.window_size });
                 xdg_surface.ack_configure(conf.serial) catch |e| {
                     std.log.warn("Failed to ack configure: {}", .{e});
+                    return;
                 };
+                this.should_render = true;
             },
         }
     }
@@ -432,8 +361,109 @@ const Window = struct {
         _ = xdg_toplevel;
         switch (event) {
             .close => this.should_close = true,
-            else => std.log.debug("{}", .{event}),
+            .configure => |cfg| {
+                this.new_window_size[0] = cfg.width;
+                this.new_window_size[1] = cfg.height;
+            },
         }
+    }
+
+    fn setupFrameCallback(this: *@This()) !void {
+        const frame_callback = try this.wl_surface.frame();
+        frame_callback.on_event = onFrameCallback;
+        frame_callback.userdata = this;
+    }
+
+    fn render(this_window: *Window) !void {
+        gl.makeBindingCurrent(&this_window.gl_binding);
+
+        this_window.on_render(this_window.window()) catch |err| {
+            std.debug.print("{s}", .{@errorName(err)});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            this_window.should_close = true;
+            return;
+        };
+
+        gl.flush();
+
+        try this_window.setupFrameCallback();
+
+        try this_window.wl_surface.commit();
+
+        this_window.should_render = false;
+    }
+
+    fn onFrameCallback(callback: *wayland.core.Callback, userdata: ?*anyopaque, event: wayland.core.Callback.Event) void {
+        const this_window: *@This() = @ptrCast(@alignCast(userdata.?));
+        _ = callback;
+        switch (event) {
+            .done => {
+                this_window.should_render = true;
+            },
+        }
+    }
+
+    pub fn createFramebuffer(this_window: *Window, size: [2]c_int) !*Framebuffer {
+        const framebuffer = try this_window.allocator.create(Framebuffer);
+        framebuffer.* = .{ .allocator = this_window.allocator, .wl_buffer = null };
+        errdefer framebuffer.destroy();
+
+        gl.genRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
+        gl.genFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
+
+        gl.bindRenderbuffer(gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGB8, size[0], size[1]);
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
+
+        const egl_image = try this_window.egl_display.createImage(
+            this_window.egl_context,
+            .gl_renderbuffer,
+            @ptrFromInt(@as(usize, @intCast(framebuffer.gl_render_buffers[0]))),
+            null,
+        );
+
+        const dmabuf_image = try this_window.egl_mesa_image_dma_buf_export.exportImageAlloc(this_window.allocator, this_window.egl_display, egl_image);
+        defer dmabuf_image.deinit();
+
+        const wl_dmabuf_buffer_params = try this_window.wl_globals.zwp_linux_dmabuf_v1.?.create_params();
+        defer wl_dmabuf_buffer_params.destroy() catch {};
+
+        for (0.., dmabuf_image.dmabuf_fds, dmabuf_image.offsets, dmabuf_image.strides) |plane, fd, offset, stride| {
+            try wl_dmabuf_buffer_params.add(
+                @enumFromInt(fd),
+                @intCast(plane),
+                @intCast(offset),
+                @intCast(stride),
+                @intCast((dmabuf_image.modifiers >> 32) & 0xFFFF_FFFF),
+                @intCast((dmabuf_image.modifiers) & 0xFFFF_FFFF),
+            );
+        }
+
+        framebuffer.wl_buffer = try wl_dmabuf_buffer_params.create_immed(
+            @intCast(size[0]),
+            @intCast(size[1]),
+            @intCast(dmabuf_image.fourcc),
+            .{ .y_invert = false, .interlaced = false, .bottom_first = false },
+        );
+
+        return framebuffer;
+    }
+};
+
+const Framebuffer = struct {
+    allocator: std.mem.Allocator,
+    gl_render_buffers: [1]gl.Uint = .{0},
+    gl_framebuffer_objects: [1]gl.Uint = .{0},
+    wl_buffer: ?*wayland.core.Buffer,
+
+    pub fn destroy(framebuffer: *Framebuffer) void {
+        gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
+        gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
+        framebuffer.allocator.destroy(framebuffer);
     }
 };
 

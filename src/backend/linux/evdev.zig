@@ -287,6 +287,7 @@ const InputEvent = extern struct {
 };
 
 pub fn updateEventDevices(this: *EvDev) !void {
+    if (this.devices.items.len == 0) return;
     if (this.pollfds.items.len < this.devices.items.len and
         this.pollfds.capacity < this.devices.items.len)
     {
