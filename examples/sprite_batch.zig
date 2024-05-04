@@ -1,5 +1,7 @@
 pub const main = seizer.main;
 
+var context_global: *seizer.Context = undefined;
+
 var canvas: seizer.Canvas = undefined;
 var player_texture: seizer.Texture = undefined;
 var world: *ecs.world_t = undefined;
@@ -42,6 +44,8 @@ pub fn keepInBounds(it: *ecs.iter_t) callconv(.C) void {
 }
 
 pub fn init(context: *seizer.Context) !void {
+    context_global = context;
+
     _ = try context.createWindow(.{
         .title = "Sprite Batch - Seizer Example",
         .on_render = render,
@@ -121,6 +125,7 @@ fn render(window: seizer.Window) !void {
     canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
+        .invert_y = std.mem.eql(u8, context_global.backend.name, "linux"),
     });
 
     var filter_desc = ecs.filter_desc_t{};

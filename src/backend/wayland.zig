@@ -1,5 +1,6 @@
 egl: EGL,
 egl_mesa_image_dma_buf_export: EGL.MESA.image_dma_buf_export,
+egl_khr_image_base: EGL.KHR.image_base,
 egl_display: EGL.Display,
 evdev: EvDev,
 windows: std.ArrayListUnmanaged(*Window),
@@ -67,6 +68,7 @@ pub fn main() anyerror!void {
     }
 
     this.egl_mesa_image_dma_buf_export = try EGL.loadExtension(EGL.MESA.image_dma_buf_export, this.egl.functions);
+    this.egl_khr_image_base = try EGL.loadExtension(EGL.KHR.image_base, this.egl.functions);
 
     this.egl_display = this.egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
@@ -189,6 +191,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
 
     window.* = .{
         .allocator = context.gpa,
+        .egl_khr_image_base = &this.egl_khr_image_base,
         .egl_mesa_image_dma_buf_export = &this.egl_mesa_image_dma_buf_export,
         .egl_display = this.egl_display,
         .egl_context = egl_context,
@@ -276,6 +279,7 @@ fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *wayland.linux_dmabuf_v1.zwp_linux_
 const Window = struct {
     allocator: std.mem.Allocator,
     egl_mesa_image_dma_buf_export: *const EGL.MESA.image_dma_buf_export,
+    egl_khr_image_base: *const EGL.KHR.image_base,
     egl_display: EGL.Display,
     egl_context: EGL.Context,
     wl_globals: *const Globals,
@@ -415,7 +419,13 @@ const Window = struct {
 
     pub fn createFramebuffer(this_window: *Window, size: [2]c_int) !*Framebuffer {
         const framebuffer = try this_window.allocator.create(Framebuffer);
-        framebuffer.* = .{ .allocator = this_window.allocator, .wl_buffer = null, .egl_display = this_window.egl_display, .egl_image = undefined };
+        framebuffer.* = .{
+            .allocator = this_window.allocator,
+            .egl_khr_image_base = this_window.egl_khr_image_base,
+            .wl_buffer = null,
+            .egl_display = this_window.egl_display,
+            .egl_image = undefined,
+        };
         errdefer framebuffer.destroy();
 
         gl.genRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
@@ -427,7 +437,8 @@ const Window = struct {
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
 
-        framebuffer.egl_image = try this_window.egl_display.createImage(
+        framebuffer.egl_image = try this_window.egl_khr_image_base.createImage(
+            this_window.egl_display,
             this_window.egl_context,
             .gl_renderbuffer,
             @ptrFromInt(@as(usize, @intCast(framebuffer.gl_render_buffers[0]))),
@@ -464,15 +475,16 @@ const Window = struct {
 
 const Framebuffer = struct {
     allocator: std.mem.Allocator,
+    egl_khr_image_base: *const EGL.KHR.image_base,
     gl_render_buffers: [1]gl.Uint = .{0},
     gl_framebuffer_objects: [1]gl.Uint = .{0},
     egl_display: EGL.Display,
-    egl_image: EGL.Image,
+    egl_image: EGL.KHR.image_base.Image,
     wl_buffer: ?*wayland.core.Buffer,
 
     pub fn destroy(framebuffer: *Framebuffer) void {
         if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
-        framebuffer.egl_display.destroyImage(framebuffer.egl_image) catch {};
+        framebuffer.egl_khr_image_base.destroyImage(framebuffer.egl_display, framebuffer.egl_image) catch {};
         gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
         gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
         framebuffer.allocator.destroy(framebuffer);

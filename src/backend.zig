@@ -12,8 +12,12 @@ pub const Backend = struct {
 pub fn main() !void {
     if (wayland.BACKEND.main()) {
         //
-        // } else |_| if (linux.BACKEND.main()) {
-        //     //
+    } else |wayland_err| if (linux.BACKEND.main()) {
+        std.debug.print("{s}\n", .{@errorName(wayland_err)});
+        if (@errorReturnTrace()) |trace| {
+            std.debug.dumpStackTrace(trace.*);
+        }
+        //
     } else |err| {
         std.debug.print("{s}\n", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {

@@ -50,8 +50,6 @@ pub const Functions = struct {
     eglReleaseThread: *const fn () Boolean,
     eglDestroySurface: *const fn (*Display.Handle, *Surface.Handle) Boolean,
     eglQuerySurface: *const fn (*Display.Handle, *Surface.Handle, Attrib, value_out: *Int) Boolean,
-    eglCreateImage: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*Image.Handle,
-    eglDestroyImage: *const fn (*Display.Handle, *Image.Handle) Boolean,
 
     pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
         var this: @This() = undefined;
@@ -81,15 +79,15 @@ pub const EXT = struct {
 
 pub const MESA = struct {
     pub const image_dma_buf_export = struct {
-        eglExportDMABUFImageQueryMESA: *const fn (*Display.Handle, *Image.Handle, fourcc: ?*c_int, num_planes: ?*c_int, modifiers: ?*u64) Boolean,
-        eglExportDMABUFImageMESA: *const fn (*Display.Handle, *Image.Handle, fds: ?[*]c_int, strides: ?[*]Int, offsets: ?[*]Int) Boolean,
+        eglExportDMABUFImageQueryMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fourcc: ?*c_int, num_planes: ?*c_int, modifiers: ?*u64) Boolean,
+        eglExportDMABUFImageMESA: *const fn (*Display.Handle, *KHR.image_base.Image.Handle, fds: ?[*]c_int, strides: ?[*]Int, offsets: ?[*]Int) Boolean,
 
         pub const ImageQueryResult = struct {
             fourcc: c_int,
             num_planes: c_int,
             modifiers: u64,
         };
-        pub fn queryImage(this: @This(), display: Display, image: Image) Error!ImageQueryResult {
+        pub fn queryImage(this: @This(), display: Display, image: KHR.image_base.Image) Error!ImageQueryResult {
             var result: ImageQueryResult = undefined;
             switch (this.eglExportDMABUFImageQueryMESA(
                 display.ptr,
@@ -122,7 +120,7 @@ pub const MESA = struct {
                 this.allocator.free(this.offsets);
             }
         };
-        pub fn exportImageAlloc(this: @This(), allocator: std.mem.Allocator, display: Display, image: Image) !ExportImageResult {
+        pub fn exportImageAlloc(this: @This(), allocator: std.mem.Allocator, display: Display, image: KHR.image_base.Image) !ExportImageResult {
             var query_result: ImageQueryResult = undefined;
             switch (this.eglExportDMABUFImageQueryMESA(
                 display.ptr,
@@ -162,6 +160,47 @@ pub const MESA = struct {
                 .strides = strides,
                 .offsets = offsets,
             };
+        }
+    };
+};
+
+pub const KHR = struct {
+    pub const image_base = struct {
+        eglCreateImageKHR: *const fn (*Display.Handle, *Context.Handle, CreateImageTarget, ?*anyopaque, ?[*]const Int) ?*Image.Handle,
+        eglDestroyImageKHR: *const fn (*Display.Handle, *Image.Handle) Boolean,
+
+        pub const Image = struct {
+            khr_image_base: *const KHR.image_base,
+            ptr: *Handle,
+
+            pub const Handle = opaque {};
+        };
+
+        pub fn createImage(this: *const @This(), display: Display, ctx: Context, target: CreateImageTarget, target_handle: ?*anyopaque, attrib_list: ?[*:@intFromEnum(Attrib.none)]Int) Error!Image {
+            const image_handle = this.eglCreateImageKHR(
+                display.ptr,
+                ctx.ptr,
+                target,
+                target_handle,
+                attrib_list,
+            ) orelse {
+                return display.egl.functions.eglGetError().toZigError();
+            };
+            return Image{
+                .khr_image_base = this,
+                .ptr = image_handle,
+            };
+        }
+
+        pub fn destroyImage(this: @This(), display: Display, image: Image) Error!void {
+            const result = this.eglDestroyImageKHR(
+                display.ptr,
+                image.ptr,
+            );
+            switch (result) {
+                .true => {},
+                .false => return display.egl.functions.eglGetError().toZigError(),
+            }
         }
     };
 };
@@ -302,33 +341,6 @@ pub const Display = struct {
         }
     }
 
-    pub fn createImage(this: *const @This(), ctx: Context, target: CreateImageTarget, target_handle: ?*anyopaque, attrib_list: ?[*:@intFromEnum(Attrib.none)]Int) Error!Image {
-        const image_handle = this.egl.functions.eglCreateImage(
-            this.ptr,
-            ctx.ptr,
-            target,
-            target_handle,
-            attrib_list,
-        ) orelse {
-            return this.egl.functions.eglGetError().toZigError();
-        };
-        return Image{
-            .egl = this.egl,
-            .ptr = image_handle,
-        };
-    }
-
-    pub fn destroyImage(this: @This(), image: Image) Error!void {
-        const result = this.egl.functions.eglDestroyImage(
-            this.ptr,
-            image.ptr,
-        );
-        switch (result) {
-            .true => {},
-            .false => return this.egl.functions.eglGetError().toZigError(),
-        }
-    }
-
     pub const QueryStringName = enum(Int) {
         vendor = 0x3053,
         version = 0x3054,
@@ -358,12 +370,6 @@ pub const Surface = struct {
     pub const Handle = opaque {};
 };
 pub const Context = struct {
-    egl: *const EGL,
-    ptr: *Handle,
-
-    pub const Handle = opaque {};
-};
-pub const Image = struct {
     egl: *const EGL,
     ptr: *Handle,
 

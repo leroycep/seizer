@@ -12,7 +12,7 @@ pub const BACKEND = seizer.backend.Backend{
     .addButtonInput = addButtonInput,
 };
 
-pub fn main() bool {
+pub fn main() anyerror!void {
     const root = @import("root");
 
     if (!@hasDecl(root, "init")) {
@@ -22,17 +22,17 @@ pub fn main() bool {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const this = gpa.allocator().create(@This()) catch return true;
+    const this = try gpa.allocator().create(@This());
     defer gpa.allocator().destroy(this);
 
     // init this
     {
-        var library_prefixes = seizer.backend.getLibrarySearchPaths(gpa.allocator()) catch return true;
+        var library_prefixes = try seizer.backend.getLibrarySearchPaths(gpa.allocator());
         defer library_prefixes.arena.deinit();
 
         this.egl = EGL.loadUsingPrefixes(library_prefixes.paths.items) catch |err| {
             std.log.warn("Failed to load EGL: {}", .{err});
-            return true;
+            return err;
         };
     }
     defer {
@@ -41,18 +41,15 @@ pub fn main() bool {
 
     this.display = this.egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
-        return true;
+        return error.NoDisplay;
     };
-    _ = this.display.initialize() catch |err| {
-        std.log.warn("Failed to initialize EGL display: {}", .{err});
-        return true;
-    };
+    _ = try this.display.initialize();
     defer this.display.terminate();
 
-    this.evdev = EvDev.init(gpa.allocator(), .{}) catch return false;
+    this.evdev = try EvDev.init(gpa.allocator(), .{});
     defer this.evdev.deinit();
 
-    this.evdev.scanForDevices() catch return false;
+    try this.evdev.scanForDevices();
 
     this.windows = .{};
     defer this.windows.deinit(gpa.allocator());
@@ -69,7 +66,7 @@ pub fn main() bool {
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
-        return false;
+        return;
     };
     while (this.windows.items.len > 0) {
         this.evdev.updateEventDevices() catch |err| {
@@ -77,7 +74,7 @@ pub fn main() bool {
             if (@errorReturnTrace()) |trace| {
                 std.debug.dumpStackTrace(trace.*);
             }
-            return false;
+            return;
         };
         {
             var i: usize = this.windows.items.len;
@@ -96,13 +93,11 @@ pub fn main() bool {
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
-                return false;
+                return;
             };
             window.swapBuffers();
         }
     }
-
-    return false;
 }
 
 pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
