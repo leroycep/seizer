@@ -3,17 +3,7 @@ const testing = std.testing;
 const log = std.log.scoped(.wayland);
 const builtin = @import("builtin");
 
-pub const xkbcommon = @import("xkbcommon");
-
-// Protocols
-
-pub const core = @import("./core.zig");
-pub const xdg = @import("./xdg.zig");
-pub const zxdg = @import("./zxdg.zig");
-pub const zwp = @import("./zwp.zig");
-
-pub const linux_dmabuf_v1 = @import("./linux_dmabuf_v1.zig");
-pub const xdg_shell = @import("./xdg-shell.zig");
+pub const wayland = @import("./wayland.zig");
 
 pub const fixed = packed struct(u32) {
     fraction: u8,
@@ -371,8 +361,8 @@ test "deserialize Registry.Event.Global" {
         @bitCast(@as([4]u8, "hm\x00\x00".*)),
         3,
     };
-    const parsed = try deserializeArguments(core.Registry.Event.Global, &words);
-    try std.testing.expectEqualDeep(core.Registry.Event.Global{
+    const parsed = try deserializeArguments(wayland.wl_registry.Event.Global, &words);
+    try std.testing.expectEqualDeep(wayland.wl_registry.Event.Global{
         .name = 1,
         .interface = "wl_shm",
         .version = 3,
@@ -384,7 +374,7 @@ test "deserialize Registry.Event" {
         .object_id = 123,
         .size_and_opcode = .{
             .size = 28,
-            .opcode = @intFromEnum(core.Registry.Event.Tag.global),
+            .opcode = @intFromEnum(wayland.Registry.Event.Tag.global),
         },
     };
     const words = [_]u32{
@@ -394,9 +384,9 @@ test "deserialize Registry.Event" {
         @bitCast(@as([4]u8, "hm\x00\x00".*)),
         3,
     };
-    const parsed = try deserialize(core.Registry.Event, header, &words);
+    const parsed = try deserialize(wayland.Registry.Event, header, &words);
     try std.testing.expectEqualDeep(
-        core.Registry.Event{
+        wayland.Registry.Event{
             .global = .{
                 .name = 1,
                 .interface = "wl_shm",
@@ -410,7 +400,7 @@ test "deserialize Registry.Event" {
         .object_id = 1,
         .size_and_opcode = .{
             .size = 14 * @sizeOf(u32),
-            .opcode = @intFromEnum(core.Display.Event.Tag.@"error"),
+            .opcode = @intFromEnum(wayland.Display.Event.Tag.@"error"),
         },
     };
     const words2 = [_]u32{
@@ -428,9 +418,9 @@ test "deserialize Registry.Event" {
         @bitCast(@as([4]u8, "@2.b".*)),
         @bitCast(@as([4]u8, "ind\x00".*)),
     };
-    const parsed2 = try deserialize(core.Display.Event, header2, &words2);
+    const parsed2 = try deserialize(wayland.Display.Event, header2, &words2);
     try std.testing.expectEqualDeep(
-        core.Display.Event{
+        wayland.Display.Event{
             .@"error" = .{
                 .object_id = 1,
                 .code = 15,
@@ -442,13 +432,13 @@ test "deserialize Registry.Event" {
 }
 
 test "serialize Registry.Event.Global" {
-    const message = core.Registry.Event.Global{
+    const message = wayland.Registry.Event.Global{
         .name = 1,
         .interface = "wl_shm",
         .version = 3,
     };
     var buffer: [5]u32 = undefined;
-    const serialized = try serializeArguments(core.Registry.Event.Global, &buffer, message);
+    const serialized = try serializeArguments(wayland.Registry.Event.Global, &buffer, message);
 
     try std.testing.expectEqualSlices(
         u32,
@@ -572,15 +562,15 @@ pub const Conn = struct {
         conn.socket.close();
     }
 
-    pub fn sync(conn: *Conn) !*core.Callback {
-        const object = try conn.createObject(core.Callback);
-        try conn.send(core.Display.Request, DISPLAY_ID, .{ .sync = .{ .callback = object.id } });
+    pub fn sync(conn: *Conn) !*wayland.wl_callback {
+        const object = try conn.createObject(wayland.wl_callback);
+        try conn.send(wayland.wl_display.Request, DISPLAY_ID, .{ .sync = .{ .callback = object.id } });
         return object;
     }
 
-    pub fn getRegistry(conn: *Conn) !*core.Registry {
-        const object = try conn.createObject(core.Registry);
-        try conn.send(core.Display.Request, DISPLAY_ID, .{ .get_registry = .{ .registry = object.id } });
+    pub fn getRegistry(conn: *Conn) !*wayland.wl_registry {
+        const object = try conn.createObject(wayland.wl_registry);
+        try conn.send(wayland.wl_display.Request, DISPLAY_ID, .{ .get_registry = .{ .registry = object.id } });
         return object;
     }
 
@@ -596,7 +586,7 @@ pub const Conn = struct {
 
     pub fn dispatchUntilSync(conn: *Conn) !void {
         const x = struct {
-            fn sync_callback_set_bool_to_false(registry: *core.Callback, userdata: ?*anyopaque, event: core.Callback.Event) void {
+            fn sync_callback_set_bool_to_false(registry: *wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wl_callback.Event) void {
                 _ = registry;
                 _ = event;
                 const bool_ptr: *bool = @ptrCast(@alignCast(userdata));
@@ -621,10 +611,10 @@ pub const Conn = struct {
         if (conn.objects.get(header.object_id)) |object| {
             object.interface.event_received(object, header, body);
         } else if (header.object_id == DISPLAY_ID) {
-            const event = try deserialize(core.Display.Event, header, body);
+            const event = try deserialize(wayland.wl_display.Event, header, body);
             switch (event) {
                 .@"error" => |e| {
-                    log.err("{}: {} {s}", .{ e.object_id, e.code, e.message });
+                    log.err("{}: {} {?s}", .{ e.object_id, e.code, e.message });
                 },
                 .delete_id => |d| {
                     if (conn.objects.fetchRemove(d.id)) |kv| {
@@ -770,14 +760,14 @@ pub const Conn = struct {
         const registry_id = this.id_pool.create();
         {
             var buffer: [5]u32 = undefined;
-            const message = try serialize(core.Display.Request, &buffer, 1, .{ .get_registry = .{ .registry = registry_id } });
+            const message = try serialize(wayland.Display.Request, &buffer, 1, .{ .get_registry = .{ .registry = registry_id } });
             try this.socket.writeAll(std.mem.sliceAsBytes(message));
         }
 
         const registry_done_id = this.id_pool.create();
         {
             var buffer: [5]u32 = undefined;
-            const message = try serialize(core.Display.Request, &buffer, 1, .{ .sync = .{ .callback = registry_done_id } });
+            const message = try serialize(wayland.Display.Request, &buffer, 1, .{ .sync = .{ .callback = registry_done_id } });
             try this.socket.writeAll(std.mem.sliceAsBytes(message));
         }
 
@@ -794,7 +784,7 @@ pub const Conn = struct {
             message_buffer.shrinkRetainingCapacity(bytes_read / @sizeOf(u32));
 
             if (header.object_id == registry_id) {
-                const event = try deserialize(core.Registry.Event, header, message_buffer.items);
+                const event = try deserialize(wayland.Registry.Event, header, message_buffer.items);
                 switch (event) {
                     .global => |global| {
                         var buffer: [20]u32 = undefined;
@@ -805,7 +795,7 @@ pub const Conn = struct {
                             }
                             const new_id = this.id_pool.create();
                             ids[item.index] = new_id;
-                            const message = try serialize(core.Registry.Request, &buffer, registry_id, .{ .bind = .{
+                            const message = try serialize(wayland.Registry.Request, &buffer, registry_id, .{ .bind = .{
                                 .name = global.name,
                                 .interface = global.interface,
                                 .version = item.version,

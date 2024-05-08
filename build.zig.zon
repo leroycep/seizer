@@ -17,6 +17,7 @@
         .@"zig-xml" = .{
             .url = "https://github.com/leroycep/zig-xml/archive/5cad843d1eb342b3612ec8b358bc2ae264ed5cb9.tar.gz",
             .hash = "12204444e86f7d166431874f68ec03363566a003840b15b840e2be9e351391f5f523",
+            .lazy = true,
         },
     },
 }

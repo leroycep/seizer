@@ -5,7 +5,7 @@ egl_display: EGL.Display,
 evdev: EvDev,
 windows: std.ArrayListUnmanaged(*Window),
 wl_connection: wayland.Conn,
-wl_registry: *wayland.core.Registry,
+wl_registry: *wayland.wayland.wl_registry,
 wl_globals: Globals,
 
 const Linux = @This();
@@ -45,6 +45,7 @@ pub fn main() anyerror!void {
     this.wl_connection = try wayland.Conn.init(gpa.allocator(), conn_path);
     defer this.wl_connection.deinit();
 
+    this.wl_globals = .{};
     this.wl_registry = try this.wl_connection.getRegistry();
     this.wl_registry.userdata = &this.wl_globals;
     this.wl_registry.on_event = Globals.onRegistryEvent;
@@ -125,21 +126,22 @@ pub fn main() anyerror!void {
 }
 
 const Globals = struct {
-    wl_compositor: ?*wayland.core.Compositor = null,
-    xdg_wm_base: ?*wayland.xdg_shell.xdg_wm_base = null,
-    zwp_linux_dmabuf_v1: ?*wayland.linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
+    wl_compositor: ?*wayland.wayland.wl_compositor = null,
+    xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
+    zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
 
-    fn onRegistryEvent(registry: *wayland.core.Registry, userdata: ?*anyopaque, event: wayland.core.Registry.Event) void {
+    fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
         const this: *Globals = @ptrCast(@alignCast(userdata));
         switch (event) {
             .global => |global| {
-                std.log.debug("{s}:{} global {} = {s} v{}", .{ @src().file, @src().line, global.name, global.interface, global.version });
-                if (std.mem.eql(u8, global.interface, wayland.core.Compositor.INTERFACE.name) and global.version >= wayland.core.Compositor.INTERFACE.version) {
-                    this.wl_compositor = registry.bind(wayland.core.Compositor, global.name) catch return;
-                } else if (std.mem.eql(u8, global.interface, wayland.xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= wayland.xdg_shell.xdg_wm_base.INTERFACE.version) {
-                    this.xdg_wm_base = registry.bind(wayland.xdg_shell.xdg_wm_base, global.name) catch return;
-                } else if (std.mem.eql(u8, global.interface, wayland.linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= wayland.linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
-                    this.zwp_linux_dmabuf_v1 = registry.bind(wayland.linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
+                std.log.debug("{s}:{} global {} = {?s} v{}", .{ @src().file, @src().line, global.name, global.interface, global.version });
+                const global_interface = global.interface orelse return;
+                if (std.mem.eql(u8, global_interface, wayland.wayland.wl_compositor.INTERFACE.name) and global.version >= wayland.wayland.wl_compositor.INTERFACE.version) {
+                    this.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
+                } else if (std.mem.eql(u8, global_interface, xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= xdg_shell.xdg_wm_base.INTERFACE.version) {
+                    this.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
+                } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
+                    this.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
                 }
             },
             .global_remove => {},
@@ -241,7 +243,7 @@ pub const GlBindingLoader = struct {
     }
 };
 
-fn onXdgWmBaseEvent(xdg_wm_base: *wayland.xdg_shell.xdg_wm_base, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_wm_base.Event) void {
+fn onXdgWmBaseEvent(xdg_wm_base: *xdg_shell.xdg_wm_base, userdata: ?*anyopaque, event: xdg_shell.xdg_wm_base.Event) void {
     _ = userdata;
     switch (event) {
         .ping => |conf| {
@@ -253,7 +255,7 @@ fn onXdgWmBaseEvent(xdg_wm_base: *wayland.xdg_shell.xdg_wm_base, userdata: ?*any
     }
 }
 
-fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *wayland.linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1, userdata: ?*anyopaque, event: wayland.linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1.Event) void {
+fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1, userdata: ?*anyopaque, event: linux_dmabuf_v1.zwp_linux_dmabuf_feedback_v1.Event) void {
     _ = feedback;
     _ = userdata;
     switch (event) {
@@ -283,9 +285,9 @@ const Window = struct {
     egl_display: EGL.Display,
     egl_context: EGL.Context,
     wl_globals: *const Globals,
-    wl_surface: *wayland.core.Surface,
-    xdg_surface: *wayland.xdg_shell.xdg_surface,
-    xdg_toplevel: *wayland.xdg_shell.xdg_toplevel,
+    wl_surface: *wayland.wayland.wl_surface,
+    xdg_surface: *xdg_shell.xdg_surface,
+    xdg_toplevel: *xdg_shell.xdg_toplevel,
     should_close: bool,
     should_render: bool = true,
 
@@ -336,7 +338,7 @@ const Window = struct {
         this.should_close = should_close;
     }
 
-    fn onXdgSurfaceEvent(xdg_surface: *wayland.xdg_shell.xdg_surface, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_surface.Event) void {
+    fn onXdgSurfaceEvent(xdg_surface: *xdg_shell.xdg_surface, userdata: ?*anyopaque, event: xdg_shell.xdg_surface.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .configure => |conf| {
@@ -356,7 +358,7 @@ const Window = struct {
         }
     }
 
-    fn onXdgToplevelEvent(xdg_toplevel: *wayland.xdg_shell.xdg_toplevel, userdata: ?*anyopaque, event: wayland.xdg_shell.xdg_toplevel.Event) void {
+    fn onXdgToplevelEvent(xdg_toplevel: *xdg_shell.xdg_toplevel, userdata: ?*anyopaque, event: xdg_shell.xdg_toplevel.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         _ = xdg_toplevel;
         switch (event) {
@@ -413,7 +415,7 @@ const Window = struct {
         this_window.should_render = false;
     }
 
-    fn onFrameCallback(callback: *wayland.core.Callback, userdata: ?*anyopaque, event: wayland.core.Callback.Event) void {
+    fn onFrameCallback(callback: *wayland.wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wayland.wl_callback.Event) void {
         const this_window: *@This() = @ptrCast(@alignCast(userdata.?));
         _ = callback;
         switch (event) {
@@ -486,7 +488,7 @@ const Framebuffer = struct {
     gl_framebuffer_objects: [1]gl.Uint = .{0},
     egl_display: EGL.Display,
     egl_image: EGL.KHR.image_base.Image,
-    wl_buffer: ?*wayland.core.Buffer,
+    wl_buffer: ?*wayland.wayland.wl_buffer,
 
     pub fn destroy(framebuffer: *Framebuffer) void {
         if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
@@ -504,6 +506,8 @@ pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButto
 
 const EvDev = @import("./linux/evdev.zig");
 
+const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
+const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";
 const wayland = @import("wayland");
 const gl = seizer.gl;
 const EGL = @import("EGL");

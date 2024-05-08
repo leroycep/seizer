@@ -44,24 +44,76 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
-    const xml = b.dependency("zig-xml", .{
+    const wayland_protocols_module = b.addModule("wayland-protocols", .{
+        .root_source_file = .{ .path = "dep/wayland-protocols/protocols.zig" },
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "wayland", .module = wayland_module },
+        },
     });
 
-    const generate_wayland_exe = b.addExecutable(.{
-        .name = "generate-wayland",
-        .root_source_file = .{ .path = "tools/generate-wayland.zig" },
-        .target = target,
-        .optimize = optimize,
-    });
-    generate_wayland_exe.root_module.addImport("xml", xml.module("xml"));
-    const generate_wayland_run_cmd = b.addRunArtifact(generate_wayland_exe);
-    if (b.args) |args| {
-        generate_wayland_run_cmd.addArgs(args);
+    const generate_wayland_step = b.step("generate-wayland-protocols", "Generate wayland-protocols and copy files to source repository. Does nothing if `generate-wayland-protocols` option is false.");
+
+    const should_generate_wayland_protocols = b.option(bool, "generate-wayland-protocols", "should the wayland protocols be generated from xml? (default: false)") orelse false;
+    if (should_generate_wayland_protocols) {
+        if (b.lazyDependency("zig-xml", .{
+            .target = target,
+            .optimize = optimize,
+        })) |xml| {
+            const generate_wayland_exe = b.addExecutable(.{
+                .name = "generate-wayland",
+                .root_source_file = .{ .path = "tools/generate-wayland.zig" },
+                .target = target,
+                .optimize = optimize,
+            });
+            generate_wayland_exe.root_module.addImport("xml", xml.module("xml"));
+
+            const write_wayland_protocols = b.addNamedWriteFiles("wayland-protocols");
+
+            write_wayland_protocols.addBytesToSource(
+                \\pub const stable = @import("./stable/protocols.zig");
+                \\
+            ,
+                "dep/wayland-protocols/protocols.zig",
+            );
+
+            write_wayland_protocols.addBytesToSource(
+                \\pub const @"xdg-shell" = @import("./xdg-shell.zig");
+                \\pub const @"linux-dmabuf-v1" = @import("./linux-dmabuf-v1.zig");
+                \\
+            ,
+                "dep/wayland-protocols/stable/protocols.zig",
+            );
+
+            // generate wayland core protocol
+            const generate_protocol_wayland = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_wayland.addFileArg(b.path("dep/wayland/src/wayland.xml"));
+            generate_protocol_wayland.addArg("5");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_wayland.captureStdOut(), "dep/wayland/src/wayland.zig");
+
+            // generate xdg-shell protocol
+            const generate_protocol_xdg_shell = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_xdg_shell.addFileArg(b.path("dep/wayland-protocols/stable/xdg-shell.xml"));
+            generate_protocol_xdg_shell.addArg("2");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_shell.captureStdOut(), "dep/wayland-protocols/stable/xdg-shell.zig");
+
+            // generate linux dmabuf protocol
+            const generate_protocol_linux_dmabuf_v1 = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_linux_dmabuf_v1.addFileArg(b.path("dep/wayland-protocols/stable/linux-dmabuf-v1.xml"));
+            generate_protocol_linux_dmabuf_v1.addArg("4");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_linux_dmabuf_v1.captureStdOut(), "dep/wayland-protocols/stable/linux-dmabuf-v1.zig");
+
+            const fmt_protocol_files = b.addFmt(.{ .paths = &.{
+                "dep/wayland/src/wayland.zig",
+                "dep/wayland-protocols/stable/xdg-shell.zig",
+                "dep/wayland-protocols/stable/linux-dmabuf-v1.zig",
+            } });
+            fmt_protocol_files.step.dependOn(&write_wayland_protocols.step);
+
+            generate_wayland_step.dependOn(&fmt_protocol_files.step);
+        }
     }
-    const generate_wayland_step = b.step("generate-wayland", "generate wayland bindings from xml file");
-    generate_wayland_step.dependOn(&generate_wayland_run_cmd.step);
 
     // seizer
     const module = b.addModule("seizer", .{
@@ -73,6 +125,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "EGL", .module = egl_module },
             .{ .name = "zflecs", .module = zflecs.module("zflecs") },
             .{ .name = "wayland", .module = wayland_module },
+            .{ .name = "wayland-protocols", .module = wayland_protocols_module },
         },
     });
 
@@ -86,6 +139,7 @@ pub fn build(b: *Builder) !void {
             .optimize = optimize,
         });
         exe.root_module.addImport("seizer", module);
+        exe.step.dependOn(generate_wayland_step);
 
         const install_exe = b.addInstallArtifact(exe, .{});
         b.getInstallStep().dependOn(&install_exe.step);

@@ -28,10 +28,10 @@ pub fn main() !void {
 
     var interface_locations = std.StringHashMap([]const u8).init(gpa.allocator());
     defer interface_locations.deinit();
-    try interface_locations.putNoClobber("wl_surface", "wayland.core.Surface");
-    try interface_locations.putNoClobber("wl_buffer", "wayland.core.Buffer");
-    try interface_locations.putNoClobber("wl_seat", "wayland.core.Seat");
-    try interface_locations.putNoClobber("wl_output", "wayland.core.Output");
+    try interface_locations.putNoClobber("wl_surface", "wayland.wayland.wl_surface");
+    try interface_locations.putNoClobber("wl_buffer", "wayland.wayland.wl_buffer");
+    try interface_locations.putNoClobber("wl_seat", "wayland.wayland.wl_seat");
+    try interface_locations.putNoClobber("wl_output", "wayland.wayland.wl_output");
 
     var interfaces = std.ArrayList(Interface).init(gpa.allocator());
     defer interfaces.deinit();
@@ -88,7 +88,7 @@ pub fn main() !void {
                 var line_iter = std.mem.splitScalar(u8, text, '\n');
                 while (line_iter.next()) |line| {
                     try writer.writeAll("// ");
-                    try writer.writeAll(std.mem.trimLeft(u8, line, " "));
+                    try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
                     try writer.writeAll("\n");
                 }
                 try writer.writeAll("\n");
@@ -101,7 +101,7 @@ pub fn main() !void {
             var line_iter = std.mem.splitScalar(u8, desc, '\n');
             while (line_iter.next()) |line| {
                 try writer.writeAll("/// ");
-                try writer.writeAll(std.mem.trimLeft(u8, line, " "));
+                try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
                 try writer.writeAll("\n");
             }
         }
@@ -159,8 +159,13 @@ pub fn main() !void {
             if (e.bitfield) {
                 var bits = std.bit_set.IntegerBitSet(32).initEmpty();
                 for (e.entries.items) |entry| {
+                    errdefer std.log.debug("entry name = {s}.{s}", .{ e.name, entry.name });
                     if (target_version != null and target_version.? < entry.since) continue;
                     if (entry.value == 0) continue;
+                    if (@popCount(entry.value) > 1) {
+                        std.log.warn("skipping bitfield value that sets multiple bits: {s}.{s}", .{ e.name, entry.name });
+                        continue;
+                    }
                     const bit_index = std.math.log2(entry.value);
                     if (bits.isSet(bit_index)) return error.DuplicateBitField;
                     bits.set(bit_index);
@@ -186,7 +191,7 @@ pub fn main() !void {
                         if (entry.summary) |summary| {
                             try writer.print("        /// {s}\n", .{summary});
                         }
-                        try writer.print("        {[name]s}: bool,\n", .{ .name = entry.name });
+                        try writer.print("        {[name]}: bool,\n", .{ .name = std.zig.fmtId(entry.name) });
                     }
 
                     prev_index = bit_index;
@@ -210,7 +215,7 @@ pub fn main() !void {
                         try writer.print("        /// {s}\n", .{line});
                     }
                 }
-                try writer.print("        {[name]s} = {[value]},\n", .{ .name = entry.name, .value = entry.value });
+                try writer.print("        {[name]} = {[value]},\n", .{ .name = std.zig.fmtId(entry.name), .value = entry.value });
             }
             try writer.writeAll("    };\n\n");
         }
@@ -220,8 +225,18 @@ pub fn main() !void {
         for (interface.requests.items) |req| {
             if (target_version != null and target_version.? < req.since) continue;
 
-            try writer.print("        {[name]s}: struct {{\n", .{ .name = req.name });
+            try writer.print("        {[name]}: struct {{\n", .{ .name = std.zig.fmtId(req.name) });
             for (req.args.items) |arg| {
+                if (arg.type.isGenericNewId()) {
+                    const interface_field = try std.fmt.allocPrint(arena.allocator(), "{s}_interface", .{arg.name});
+                    const version_field = try std.fmt.allocPrint(arena.allocator(), "{s}_version", .{arg.name});
+
+                    try writer.print("            {}: [:0]const u8,\n", .{std.zig.fmtId(interface_field)});
+                    try writer.print("            {}: u32,\n", .{std.zig.fmtId(version_field)});
+                    try writer.print("            {}: u32,\n", .{std.zig.fmtId(arg.name)});
+
+                    continue;
+                }
                 try writer.print("            {[name]s}: ", .{ .name = arg.name });
                 try arg.type.writeWireFormat(writer);
                 try writer.writeAll(",\n");
@@ -238,9 +253,31 @@ pub fn main() !void {
                 var line_iter = std.mem.splitScalar(u8, desc, '\n');
                 while (line_iter.next()) |line| {
                     try writer.writeAll("    /// ");
-                    try writer.writeAll(std.mem.trimLeft(u8, line, " "));
+                    try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
                     try writer.writeAll("\n");
                 }
+            }
+
+            if (std.mem.eql(u8, interface.name, "wl_registry") and std.mem.eql(u8, req.name, "bind")) {
+                try writer.writeAll(
+                    \\    pub fn bind(this: @This(), comptime T: type, name: u32) !*T {
+                    \\        const new_object = try this.conn.createObject(T);
+                    \\        try this.conn.send(
+                    \\            Request,
+                    \\            this.id,
+                    \\            .{ .bind = .{
+                    \\                .name = name,
+                    \\                .id_interface = T.INTERFACE.name,
+                    \\                .id_version = T.INTERFACE.version,
+                    \\                .id = new_object.id,
+                    \\            } },
+                    \\        );
+                    \\        return new_object;
+                    \\    }
+                    \\
+                    \\
+                );
+                continue;
             }
 
             var newid_index: ?usize = null;
@@ -315,12 +352,12 @@ pub fn main() !void {
                 var line_iter = std.mem.splitScalar(u8, desc, '\n');
                 while (line_iter.next()) |line| {
                     try writer.writeAll("        /// ");
-                    try writer.writeAll(std.mem.trimLeft(u8, line, " "));
+                    try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
                     try writer.writeAll("\n");
                 }
             }
             if (event.args.items.len > 0) {
-                try writer.print("        {[name]s}: struct {{\n", .{ .name = event.name });
+                try writer.print("        {[name]}: struct {{\n", .{ .name = std.zig.fmtId(event.name) });
                 for (event.args.items) |arg| {
                     try writer.print("            {[name]s}: ", .{ .name = arg.name });
                     if (arg.type.kind == .new_id) {
@@ -328,7 +365,7 @@ pub fn main() !void {
                         try arg.type.writeType(writer, &interface_locations, "");
                         try writer.writeAll(")");
                     } else {
-                        try arg.type.writeType(writer, &interface_locations, "");
+                        try arg.type.writeWireFormat(writer);
                     }
                     try writer.writeAll(",\n");
                 }
@@ -342,11 +379,19 @@ pub fn main() !void {
         try writer.print("}};\n\n", .{});
     }
 
-    try writer.writeAll(
-        \\const wayland = @import("./main.zig");
-        \\const std = @import("std");
-        \\
-    );
+    if (protocol_name != null and std.mem.eql(u8, protocol_name.?, "wayland")) {
+        try writer.writeAll(
+            \\const wayland = @import("./main.zig");
+            \\const std = @import("std");
+            \\
+        );
+    } else {
+        try writer.writeAll(
+            \\const wayland = @import("wayland");
+            \\const std = @import("std");
+            \\
+        );
+    }
 }
 
 pub fn parseRequest(gpa: std.mem.Allocator, document: *const xml.Document, element: xml.Element) !Interface.Request {
@@ -401,20 +446,34 @@ pub const Type = struct {
         array,
     };
 
+    pub fn isGenericNewId(this: @This()) bool {
+        return this.kind == .new_id and this.interface == null;
+    }
+
     pub fn writeWireFormat(
         this: @This(),
         writer: anytype,
     ) @TypeOf(writer).Error!void {
         switch (this.kind) {
             .uint => if (this.enum_str) |s| {
-                try writer.writeByte(std.ascii.toUpper(s[0]));
-                try writer.writeAll(s[1..]);
+                if (std.mem.lastIndexOfScalar(u8, s, '.')) |dot_index| {
+                    try writer.writeAll(s[0 .. dot_index + 1]);
+                    try writer.writeByte(std.ascii.toUpper(s[dot_index + 1]));
+                    try writer.writeAll(s[dot_index + 2 ..]);
+                } else {
+                    try writer.writeByte(std.ascii.toUpper(s[0]));
+                    try writer.writeAll(s[1..]);
+                }
             } else {
                 try writer.writeAll("u32");
             },
             .int => try writer.writeAll("i32"),
             .fixed => try writer.writeAll("wayland.fixed"),
-            .new_id => try writer.writeAll("u32"),
+            .new_id => if (this.interface != null) {
+                try writer.writeAll("u32");
+            } else {
+                try writer.writeAll("wayland.GenericNewId");
+            },
             .object => try writer.writeAll("u32"),
             .fd => try writer.writeAll("wayland.fd_t"),
             .string => try writer.writeAll("?[:0]const u8"),
@@ -430,8 +489,14 @@ pub const Type = struct {
     ) @TypeOf(writer).Error!void {
         switch (this.kind) {
             .uint => if (this.enum_str) |s| {
-                try writer.writeByte(std.ascii.toUpper(s[0]));
-                try writer.writeAll(s[1..]);
+                if (std.mem.lastIndexOfScalar(u8, s, '.')) |dot_index| {
+                    try writer.writeAll(s[0 .. dot_index + 1]);
+                    try writer.writeByte(std.ascii.toUpper(s[dot_index + 1]));
+                    try writer.writeAll(s[dot_index + 2 ..]);
+                } else {
+                    try writer.writeByte(std.ascii.toUpper(s[0]));
+                    try writer.writeAll(s[1..]);
+                }
             } else {
                 try writer.writeAll("u32");
             },
@@ -443,9 +508,13 @@ pub const Type = struct {
                 try writer.print("{s}{s}", .{ pointer_str, this.interface orelse "wayland.GenericNewId" });
             },
             .object => if (type_locations.get(this.interface orelse "")) |location| {
-                try writer.print("{s}{?s}", .{ pointer_str, location });
+                try writer.print("{s}{s}", .{ pointer_str, location });
             } else {
-                try writer.print("{s}{?s}", .{ pointer_str, this.interface });
+                if (this.interface) |obj_type| {
+                    try writer.print("{s}{s}", .{ pointer_str, obj_type });
+                } else {
+                    try writer.print("u32", .{});
+                }
             },
             .fd => try writer.writeAll("wayland.fd_t"),
             .string => try writer.writeAll("?[:0]const u8"),
@@ -530,7 +599,12 @@ const Interface = struct {
                 if (std.mem.eql(u8, document.str(child_element.tag_name), "entry")) {
                     const entry_name = document.elem_attr(child_element, "name") orelse return error.InvalidFormat;
                     const entry_value_str = document.elem_attr(child_element, "value") orelse return error.InvalidFormat;
-                    const entry_value = try std.fmt.parseInt(u32, entry_value_str, 10);
+
+                    const entry_value = if (std.mem.startsWith(u8, entry_value_str, "0x"))
+                        try std.fmt.parseInt(u32, entry_value_str[2..], 16)
+                    else
+                        try std.fmt.parseInt(u32, entry_value_str, 10);
+
                     const entry_summary = document.elem_attr(child_element, "summary");
 
                     const since_str = document.elem_attr(element, "since");
