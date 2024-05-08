@@ -44,6 +44,8 @@ pub fn deinit(this: *@This()) void {
         actions.deinit(this.gpa);
     }
     this.button_bindings.deinit(this.gpa);
+
+    this.mapping_db.deinit();
 }
 
 pub fn addButtonInput(this: *EvDev, options: seizer.Context.AddButtonInputOptions) anyerror!void {
