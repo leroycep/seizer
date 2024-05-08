@@ -138,7 +138,14 @@ pub fn main() !void {
             \\    /// This should only be called when the wayland display receives an event for this Object
             \\    pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
             \\        if (this.on_event) |on_event| {
-            \\            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("failed to deserialize event = {}", .{e}); return;};
+            \\            const event = wayland.deserialize(Event, header, body) catch |e| {
+            \\                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
+            \\                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
+            \\                } else |_| {
+            \\                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
+            \\                }
+            \\                return;
+            \\            };
             \\            on_event(this, this.userdata, event);
             \\        }
             \\    }
@@ -410,7 +417,7 @@ pub const Type = struct {
             .new_id => try writer.writeAll("u32"),
             .object => try writer.writeAll("u32"),
             .fd => try writer.writeAll("wayland.fd_t"),
-            .string => try writer.writeAll("[:0]const u8"),
+            .string => try writer.writeAll("?[:0]const u8"),
             .array => try writer.writeAll("[]const u8"),
         }
     }
@@ -441,7 +448,7 @@ pub const Type = struct {
                 try writer.print("{s}{?s}", .{ pointer_str, this.interface });
             },
             .fd => try writer.writeAll("wayland.fd_t"),
-            .string => try writer.writeAll("[:0]const u8"),
+            .string => try writer.writeAll("?[:0]const u8"),
             .array => try writer.writeAll("[]const u8"),
         }
     }

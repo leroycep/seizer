@@ -112,7 +112,7 @@ pub const zwp_linux_dmabuf_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("failed to deserialize event = {}", .{e}); return;};
+            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("{s}:{} failed to deserialize event = {}", .{@src().file, @src().line, e}); return;};
             on_event(this, this.userdata, event);
         }
     }
@@ -294,7 +294,7 @@ pub const zwp_linux_buffer_params_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("failed to deserialize event = {}", .{e}); return;};
+            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("{s}:{} failed to deserialize event = {}", .{@src().file, @src().line, e}); return;};
             on_event(this, this.userdata, event);
         }
     }
@@ -607,7 +607,7 @@ pub const zwp_linux_dmabuf_feedback_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("failed to deserialize event = {}", .{e}); return;};
+            const event = wayland.deserialize(Event, header, body) catch |e| {std.log.warn("{s}:{} failed to deserialize event = {}", .{@src().file, @src().line, e}); return;};
             on_event(this, this.userdata, event);
         }
     }

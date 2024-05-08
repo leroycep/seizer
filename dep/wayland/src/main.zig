@@ -165,7 +165,8 @@ pub fn deserializeArguments(comptime Signature: type, buffer: []const u32) !Sign
             },
             .Pointer => |ptr| switch (ptr.size) {
                 // TODO: Better way to differentiate between string and array
-                .Slice => if (ptr.child == u8) {
+                .Slice => if (ptr.child == u8 and ptr.sentinel != null) {
+                    // if (ptr.sentinel) |s| @compileLog(std.fmt.comptimePrint("pointer sentinel = {}", .{@as(*const ptr.child, @ptrCast(s)).*}));
                     @field(result, field.name) = try readString(buffer, &pos) orelse return error.UnexpectedNullString;
                 } else {
                     @field(result, field.name) = try readArray(ptr.child, buffer, &pos);

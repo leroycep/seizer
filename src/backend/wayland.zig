@@ -346,7 +346,7 @@ const Window = struct {
                 };
                 this.should_render = true;
 
-                if (this.window_size[0] != this.new_window_size[0] or this.window_size[1] != this.new_window_size[1]) {
+                if (!std.mem.eql(c_int, &this.new_window_size, &this.window_size)) {
                     if (this.framebuffer) |f| {
                         f.destroy();
                     }
@@ -362,8 +362,10 @@ const Window = struct {
         switch (event) {
             .close => this.should_close = true,
             .configure => |cfg| {
-                this.new_window_size[0] = cfg.width;
-                this.new_window_size[1] = cfg.height;
+                if (cfg.width > 0 and cfg.height > 0) {
+                    this.new_window_size[0] = cfg.width;
+                    this.new_window_size[1] = cfg.height;
+                }
             },
         }
     }
@@ -378,7 +380,11 @@ const Window = struct {
         gl.makeBindingCurrent(&this_window.gl_binding);
         if (this_window.framebuffer == null) {
             this_window.framebuffer = this_window.createFramebuffer(this_window.new_window_size) catch |e| {
-                std.log.warn("Failed to resize framebuffer: {}", .{e});
+                std.log.warn("Failed to resize framebuffer: {}; new_window_size = {}x{}", .{ e, this_window.new_window_size[0], this_window.new_window_size[1] });
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+                this_window.should_close = true;
                 return;
             };
 
