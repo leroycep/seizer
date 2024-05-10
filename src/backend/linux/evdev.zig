@@ -98,6 +98,14 @@ const Device = struct {
         hat: struct { bool, u15 },
     };
 
+    fn nameSlice(this: *const @This()) []const u8 {
+        if (std.mem.indexOfScalar(u8, &this.name, 0)) |zero_index| {
+            return this.name[0..zero_index];
+        } else {
+            return this.name[0..];
+        }
+    }
+
     pub fn fromFile(gpa: std.mem.Allocator, file: std.fs.File, mapping_db: *const seizer.Gamepad.DB) !Device {
         const fd = file.handle;
         var ev_bits = EV.Bits.initEmpty();
@@ -158,8 +166,12 @@ const Device = struct {
             }
         }
 
+        const name_crc = crc16(0, device.nameSlice());
+
         var guid: u128 = 0;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.bustype) else @byteSwap(@as(u32, device.id.bustype));
+        guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, device.id.bustype) else @byteSwap(@as(u16, device.id.bustype));
+        guid <<= 16;
+        guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, name_crc) else @byteSwap(@as(u16, name_crc));
         guid <<= 32;
         guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.vendor) else @byteSwap(@as(u32, device.id.vendor));
         guid <<= 32;
@@ -172,6 +184,28 @@ const Device = struct {
         return device;
     }
 };
+
+fn crc16(crc_initial: u16, data: []const u8) u16 {
+    var crc: u16 = crc_initial;
+    for (data) |b| {
+        crc = crc16_for_byte(@truncate(crc ^ b)) ^ crc >> 8;
+    }
+    return crc;
+}
+fn crc16_for_byte(byte: u8) u16 {
+    var b: u16 = byte;
+    var crc: u16 = 0;
+    for (0..8) |_| {
+        const n: u16 = if ((crc ^ b) & 1 != 0) 0xA001 else 0;
+        crc = n ^ crc >> 1;
+        b >>= 1;
+    }
+    return crc;
+}
+
+test crc16 {
+    try std.testing.expectEqual(@as(u16, 0x5827), crc16(0, "OpenSimHardware OSH PB Controller"));
+}
 
 pub const IOCTL = struct {
     pub const GET_ID = std.os.linux.IOCTL.IOR('E', 0x02, InputId);
