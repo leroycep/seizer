@@ -203,8 +203,6 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .xdg_toplevel = xdg_toplevel,
         .should_close = false,
 
-        .framebuffer = null,
-
         .gl_binding = undefined,
         .on_render = options.on_render,
         .on_destroy = options.on_destroy,
@@ -291,7 +289,8 @@ const Window = struct {
     should_close: bool,
     should_render: bool = true,
 
-    framebuffer: ?*Framebuffer = null,
+    free_framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
+    framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
 
     gl_binding: gl.Binding,
     on_render: *const fn (seizer.Window) anyerror!void,
@@ -311,7 +310,10 @@ const Window = struct {
             on_destroy(this.window());
         }
 
-        if (this.framebuffer) |f| {
+        for (this.framebuffers.slice()) |f| {
+            f.destroy();
+        }
+        for (this.free_framebuffers.slice()) |f| {
             f.destroy();
         }
 
@@ -348,12 +350,7 @@ const Window = struct {
                 };
                 this.should_render = true;
 
-                if (!std.mem.eql(c_int, &this.new_window_size, &this.window_size)) {
-                    if (this.framebuffer) |f| {
-                        f.destroy();
-                    }
-                    this.framebuffer = null;
-                }
+                this.window_size = this.new_window_size;
             },
         }
     }
@@ -380,22 +377,17 @@ const Window = struct {
 
     fn render(this_window: *Window) !void {
         gl.makeBindingCurrent(&this_window.gl_binding);
-        if (this_window.framebuffer == null) {
-            this_window.framebuffer = this_window.createFramebuffer(this_window.new_window_size) catch |e| {
-                std.log.warn("Failed to resize framebuffer: {}; new_window_size = {}x{}", .{ e, this_window.new_window_size[0], this_window.new_window_size[1] });
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                this_window.should_close = true;
-                return;
-            };
 
-            this_window.wl_surface.attach(this_window.framebuffer.?.wl_buffer.?, 0, 0) catch unreachable;
-            this_window.wl_surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32)) catch unreachable;
-
-            this_window.window_size = this_window.new_window_size;
-            gl.viewport(0, 0, this_window.window_size[0], this_window.window_size[1]);
-        }
+        const framebuffer = this_window.getFramebuffer(this_window.window_size) catch |e| {
+            std.log.warn("Failed to get framebuffer: {}; window_size = {}x{}", .{ e, this_window.window_size[0], this_window.window_size[1] });
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            this_window.should_close = true;
+            return;
+        };
+        framebuffer.bind();
+        gl.viewport(0, 0, this_window.window_size[0], this_window.window_size[1]);
 
         this_window.on_render(this_window.window()) catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
@@ -410,6 +402,8 @@ const Window = struct {
 
         try this_window.setupFrameCallback();
 
+        try this_window.wl_surface.attach(framebuffer.wl_buffer.?, 0, 0);
+        try this_window.wl_surface.damage_buffer(0, 0, framebuffer.size[0], framebuffer.size[1]);
         try this_window.wl_surface.commit();
 
         this_window.should_render = false;
@@ -425,14 +419,29 @@ const Window = struct {
         }
     }
 
+    pub fn getFramebuffer(this: *Window, size: [2]c_int) !*Framebuffer {
+        while (this.free_framebuffers.popOrNull()) |framebuffer| {
+            if (std.mem.eql(c_int, &framebuffer.size, &size)) {
+                return framebuffer;
+            }
+            framebuffer.destroy();
+        }
+
+        const framebuffer = try this.createFramebuffer(size);
+        try this.framebuffers.append(framebuffer);
+        return framebuffer;
+    }
+
     pub fn createFramebuffer(this_window: *Window, size: [2]c_int) !*Framebuffer {
         const framebuffer = try this_window.allocator.create(Framebuffer);
         framebuffer.* = .{
             .allocator = this_window.allocator,
+            .window = this_window,
             .egl_khr_image_base = this_window.egl_khr_image_base,
             .wl_buffer = null,
             .egl_display = this_window.egl_display,
             .egl_image = undefined,
+            .size = size,
         };
         errdefer framebuffer.destroy();
 
@@ -476,6 +485,8 @@ const Window = struct {
             @intCast(dmabuf_image.fourcc),
             .{ .y_invert = false, .interlaced = false, .bottom_first = false },
         );
+        framebuffer.wl_buffer.?.userdata = framebuffer;
+        framebuffer.wl_buffer.?.on_event = Framebuffer.onBufferEvent;
 
         return framebuffer;
     }
@@ -483,12 +494,19 @@ const Window = struct {
 
 const Framebuffer = struct {
     allocator: std.mem.Allocator,
+    window: *Window,
     egl_khr_image_base: *const EGL.KHR.image_base,
     gl_render_buffers: [1]gl.Uint = .{0},
     gl_framebuffer_objects: [1]gl.Uint = .{0},
     egl_display: EGL.Display,
     egl_image: EGL.KHR.image_base.Image,
     wl_buffer: ?*wayland.wayland.wl_buffer,
+    size: [2]c_int,
+
+    pub fn bind(framebuffer: *Framebuffer) void {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
+    }
 
     pub fn destroy(framebuffer: *Framebuffer) void {
         if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
@@ -496,6 +514,19 @@ const Framebuffer = struct {
         gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
         gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
         framebuffer.allocator.destroy(framebuffer);
+    }
+
+    fn onBufferEvent(buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque, event: wayland.wayland.wl_buffer.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        _ = buffer;
+        switch (event) {
+            .release => {
+                this.window.free_framebuffers.append(this) catch {};
+                if (std.mem.indexOfScalar(*Framebuffer, this.window.framebuffers.slice(), this)) |index| {
+                    _ = this.window.framebuffers.swapRemove(index);
+                }
+            },
+        }
     }
 };
 
