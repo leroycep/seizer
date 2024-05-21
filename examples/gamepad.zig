@@ -21,46 +21,68 @@ pub fn init(context: *seizer.Context) !void {
     try context.addButtonInput(.{
         .title = "perform_action",
         .on_event = onPerformAction,
-        .default_bindings = &.{.a},
+        .default_bindings = &.{
+            .{ .gamepad = .a },
+            .{ .keyboard = .z },
+        },
     });
 
     try context.addButtonInput(.{
         .title = "cancel",
         .on_event = onCancel,
-        .default_bindings = &.{.b},
+        .default_bindings = &.{
+            .{ .gamepad = .b },
+            .{ .keyboard = .x },
+        },
     });
 
     try context.addButtonInput(.{
         .title = "leftshoulder",
         .on_event = onLeftShoulder,
-        .default_bindings = &.{.leftshoulder},
+        .default_bindings = &.{
+            .{ .gamepad = .leftshoulder },
+        },
     });
 
     try context.addButtonInput(.{
         .title = "dpleft",
         .on_event = onDPadLeft,
-        .default_bindings = &.{.dpleft},
+        .default_bindings = &.{
+            .{ .gamepad = .dpleft },
+            .{ .keyboard = .left },
+        },
     });
     try context.addButtonInput(.{
         .title = "dpright",
         .on_event = onDPadRight,
-        .default_bindings = &.{.dpright},
+        .default_bindings = &.{
+            .{ .gamepad = .dpright },
+            .{ .keyboard = .right },
+        },
     });
     try context.addButtonInput(.{
         .title = "dpup",
         .on_event = onDPadUp,
-        .default_bindings = &.{.dpup},
+        .default_bindings = &.{
+            .{ .gamepad = .dpup },
+            .{ .keyboard = .up },
+        },
     });
     try context.addButtonInput(.{
         .title = "dpdown",
         .on_event = onDPadDown,
-        .default_bindings = &.{.dpdown},
+        .default_bindings = &.{
+            .{ .gamepad = .dpdown },
+            .{ .keyboard = .down },
+        },
     });
 
     try context.addButtonInput(.{
         .title = "quit",
         .on_event = onQuit,
-        .default_bindings = &.{.back},
+        .default_bindings = &.{
+            .{ .gamepad = .back },
+        },
     });
 }
 

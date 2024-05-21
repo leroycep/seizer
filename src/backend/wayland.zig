@@ -1,3 +1,4 @@
+allocator: std.mem.Allocator,
 egl: EGL,
 egl_mesa_image_dma_buf_export: EGL.MESA.image_dma_buf_export,
 egl_khr_image_base: EGL.KHR.image_base,
@@ -7,6 +8,8 @@ windows: std.ArrayListUnmanaged(*Window),
 wl_connection: wayland.Conn,
 wl_registry: *wayland.wayland.wl_registry,
 wl_globals: Globals,
+seats: std.ArrayListUnmanaged(*Seat),
+key_bindings: std.AutoHashMapUnmanaged(seizer.Context.Key, std.ArrayListUnmanaged(seizer.Context.AddButtonInputOptions)),
 
 const Linux = @This();
 
@@ -30,6 +33,7 @@ pub fn main() anyerror!void {
     const this = try gpa.allocator().create(@This());
     defer gpa.allocator().destroy(this);
 
+    this.allocator = gpa.allocator();
     this.windows = .{};
     defer {
         for (this.windows.items) |window| {
@@ -45,10 +49,25 @@ pub fn main() anyerror!void {
     this.wl_connection = try wayland.Conn.init(gpa.allocator(), conn_path);
     defer this.wl_connection.deinit();
 
+    this.seats = .{};
+    this.key_bindings = .{};
+    defer {
+        for (this.seats.items) |seat| {
+            this.allocator.destroy(seat);
+        }
+        this.seats.deinit(this.allocator);
+
+        var iter = this.key_bindings.iterator();
+        while (iter.next()) |kb| {
+            kb.value_ptr.deinit(this.allocator);
+        }
+        this.key_bindings.deinit(this.allocator);
+    }
+
     this.wl_globals = .{};
     this.wl_registry = try this.wl_connection.getRegistry();
-    this.wl_registry.userdata = &this.wl_globals;
-    this.wl_registry.on_event = Globals.onRegistryEvent;
+    this.wl_registry.userdata = this;
+    this.wl_registry.on_event = onRegistryEvent;
 
     try this.wl_connection.dispatchUntilSync();
     if (this.wl_globals.wl_compositor == null or this.wl_globals.xdg_wm_base == null or this.wl_globals.zwp_linux_dmabuf_v1 == null) {
@@ -129,25 +148,40 @@ const Globals = struct {
     wl_compositor: ?*wayland.wayland.wl_compositor = null,
     xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
     zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
-
-    fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
-        const this: *Globals = @ptrCast(@alignCast(userdata));
-        switch (event) {
-            .global => |global| {
-                std.log.debug("{s}:{} global {} = {?s} v{}", .{ @src().file, @src().line, global.name, global.interface, global.version });
-                const global_interface = global.interface orelse return;
-                if (std.mem.eql(u8, global_interface, wayland.wayland.wl_compositor.INTERFACE.name) and global.version >= wayland.wayland.wl_compositor.INTERFACE.version) {
-                    this.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
-                } else if (std.mem.eql(u8, global_interface, xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= xdg_shell.xdg_wm_base.INTERFACE.version) {
-                    this.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
-                } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
-                    this.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
-                }
-            },
-            .global_remove => {},
-        }
-    }
 };
+
+fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
+    const this: *@This() = @ptrCast(@alignCast(userdata));
+    switch (event) {
+        .global => |global| {
+            std.log.debug("{s}:{} global {} = {?s} v{}", .{ @src().file, @src().line, global.name, global.interface, global.version });
+            const global_interface = global.interface orelse return;
+            if (std.mem.eql(u8, global_interface, wayland.wayland.wl_compositor.INTERFACE.name) and global.version >= wayland.wayland.wl_compositor.INTERFACE.version) {
+                this.wl_globals.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= xdg_shell.xdg_wm_base.INTERFACE.version) {
+                this.wl_globals.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
+                this.wl_globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
+                this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
+
+                const seat = this.allocator.create(Seat) catch return;
+                const wl_seat = registry.bind(wayland.wayland.wl_seat, global.name) catch {
+                    this.allocator.destroy(seat);
+                    return;
+                };
+                seat.* = .{
+                    .backend = this,
+                    .wl_seat = wl_seat,
+                };
+                seat.wl_seat.userdata = seat;
+                seat.wl_seat.on_event = Seat.onSeatCallback;
+                this.seats.appendAssumeCapacity(seat);
+            }
+        },
+        .global_remove => {},
+    }
+}
 
 pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
     const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
@@ -533,7 +567,83 @@ const Framebuffer = struct {
 pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
     const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
     try this.evdev.addButtonInput(options);
+
+    for (options.default_bindings) |button_code| {
+        switch (button_code) {
+            .gamepad => {},
+            .keyboard => |key| {
+                const gop = try this.key_bindings.getOrPut(this.allocator, key);
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = .{};
+                }
+                try gop.value_ptr.append(this.allocator, options);
+            },
+        }
+    }
 }
+
+const Seat = struct {
+    backend: *Linux,
+    wl_seat: *wayland.wayland.wl_seat,
+    wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
+
+    fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata));
+        _ = seat;
+        switch (event) {
+            .capabilities => |capabilities| {
+                std.log.debug("seat capabilities = {}", .{capabilities});
+
+                if (capabilities.capabilities.keyboard) {
+                    if (this.wl_keyboard == null) {
+                        this.wl_keyboard = this.wl_seat.get_keyboard() catch return;
+                        this.wl_keyboard.?.userdata = this;
+                        this.wl_keyboard.?.on_event = onKeyboardCallback;
+                    }
+                } else {
+                    if (this.wl_keyboard) |keyboard| {
+                        keyboard.release() catch return;
+                        this.wl_keyboard = null;
+                    }
+                }
+            },
+            .name => |n| {
+                std.log.debug("seat name = \"{}\"", .{std.zig.fmtEscapes(n.name orelse "")});
+            },
+        }
+    }
+
+    fn onKeyboardCallback(seat: *wayland.wayland.wl_keyboard, userdata: ?*anyopaque, event: wayland.wayland.wl_keyboard.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata));
+        _ = seat;
+        switch (event) {
+            .key => |k| {
+                const key: EvDev.KEY = @enumFromInt(@as(u16, @intCast(k.key)));
+                const logical_key: seizer.Context.Key = switch (key) {
+                    .up => .up,
+                    .down => .down,
+                    .left => .left,
+                    .right => .right,
+                    .z => .z,
+                    .x => .x,
+                    else => return,
+                };
+
+                const actions = this.backend.key_bindings.get(logical_key) orelse return;
+                for (actions.items) |action| {
+                    action.on_event(k.state == .pressed) catch |err| {
+                        std.debug.print("{s}\n", .{@errorName(err)});
+                        if (@errorReturnTrace()) |trace| {
+                            std.debug.dumpStackTrace(trace.*);
+                        }
+                        break;
+                    };
+                }
+            },
+            else => {},
+        }
+    }
+};
 
 const EvDev = @import("./linux/evdev.zig");
 

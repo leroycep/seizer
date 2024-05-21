@@ -19,8 +19,23 @@ pub fn createWindow(this: *@This(), options: CreateWindowOptions) anyerror!seize
 pub const AddButtonInputOptions = struct {
     title: []const u8,
     on_event: *const fn (pressed: bool) anyerror!void,
-    default_bindings: []const seizer.Gamepad.Button,
+    default_bindings: []const Binding,
+
+    pub const Binding = union(enum) {
+        keyboard: Key,
+        gamepad: seizer.Gamepad.Button,
+    };
 };
+
+pub const Key = enum {
+    left,
+    right,
+    up,
+    down,
+    z,
+    x,
+};
+
 pub fn addButtonInput(this: *@This(), options: AddButtonInputOptions) anyerror!void {
     return this.backend.addButtonInput(this, options);
 }
