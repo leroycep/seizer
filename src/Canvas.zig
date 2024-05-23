@@ -217,7 +217,7 @@ pub fn deinit(this: *@This()) void {
 pub const BeginOptions = struct {
     window_size: [2]f32,
     framebuffer_size: [2]f32,
-    invert_y: bool = true,
+    invert_y: bool = false,
 };
 
 pub fn begin(this: *@This(), options: BeginOptions) void {
@@ -228,8 +228,8 @@ pub fn begin(this: *@This(), options: BeginOptions) void {
         f32,
         0,
         this.window_size[0],
-        if (options.invert_y) this.window_size[1] else 0,
         if (options.invert_y) 0 else this.window_size[1],
+        if (options.invert_y) this.window_size[1] else 0,
         -1,
         1,
     );

@@ -436,6 +436,7 @@ const Window = struct {
 
         try this_window.setupFrameCallback();
 
+        try this_window.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
         try this_window.wl_surface.attach(framebuffer.wl_buffer.?, 0, 0);
         try this_window.wl_surface.damage_buffer(0, 0, framebuffer.size[0], framebuffer.size[1]);
         try this_window.wl_surface.commit();
