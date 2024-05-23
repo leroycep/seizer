@@ -117,6 +117,9 @@ const importObject = {
         data_view.setUint32(height_ptr, w.canvas.height, true);
       }
     },
+    surface_make_gl_context_current: function(w_id) {
+      gl_context = windows[w_id].gl;
+    },
   },
   webgl2: {
     genTextures: function(textures_len, textures_ptr) {

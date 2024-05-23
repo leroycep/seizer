@@ -87,11 +87,13 @@ pub const Window = struct {
 pub const Surface = opaque {
     pub extern "seizer" fn create_surface(width: u32, height: u32) ?*Surface;
     pub extern "seizer" fn surface_get_size(this: *@This(), width: ?*u32, height: ?*u32) void;
+    pub extern "seizer" fn surface_make_gl_context_current(*Surface) void;
 };
 
 pub export fn _render() void {
     for (windows.values()) |window| {
         if (window.on_render) |render| {
+            window.surface.surface_make_gl_context_current();
             render(window.window()) catch |err| {
                 std.log.warn("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
