@@ -1,5 +1,4 @@
 pub const backend = @import("./backend.zig");
-pub const gl = @import("gl");
 pub const glUtil = @import("./gl_util.zig");
 pub const geometry = @import("./geometry.zig");
 pub const mem = @import("./mem.zig");
@@ -16,3 +15,4 @@ pub const Texture = @import("./Texture.zig");
 pub const Window = @import("./Window.zig");
 
 pub const main = backend.main;
+pub const gl = backend.gl;

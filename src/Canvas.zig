@@ -35,7 +35,7 @@ pub fn init(
         const vs = gl.createShader(gl.VERTEX_SHADER);
         defer gl.deleteShader(vs);
         const vs_src = @embedFile("./Canvas/vs.glsl");
-        gl.shaderSource(vs, 1, &[_][*:0]const u8{vs_src}, null);
+        gl.shaderSource(vs, 1, &[_][*:0]const u8{vs_src}, &[_]c_int{@intCast(vs_src.len)});
         gl.compileShader(vs);
 
         var vertex_shader_status: gl.Int = undefined;
@@ -45,14 +45,14 @@ pub fn init(
             var shader_log: [1024:0]u8 = undefined;
             var shader_log_len: gl.Sizei = undefined;
             gl.getShaderInfoLog(vs, shader_log.len, &shader_log_len, &shader_log);
-            std.debug.print("{s}:{} error compiling shader: {s}\n", .{ @src().file, @src().line, shader_log });
+            std.log.warn("{s}:{} error compiling shader: {s}", .{ @src().file, @src().line, shader_log });
             return error.ShaderCompilation;
         }
 
         const fs = gl.createShader(gl.FRAGMENT_SHADER);
         defer gl.deleteShader(fs);
         const fs_src = @embedFile("./Canvas/fs.glsl");
-        gl.shaderSource(fs, 1, &[_][*:0]const u8{fs_src}, null);
+        gl.shaderSource(fs, 1, &[_][*:0]const u8{fs_src}, &[_]c_int{@intCast(fs_src.len)});
         gl.compileShader(fs);
 
         var fragment_shader_status: gl.Int = undefined;
@@ -62,7 +62,7 @@ pub fn init(
             var shader_log: [1024:0]u8 = undefined;
             var shader_log_len: gl.Sizei = undefined;
             gl.getShaderInfoLog(fs, shader_log.len, &shader_log_len, &shader_log);
-            std.debug.print("{s}:{} error compiling shader: {s}\n", .{ @src().file, @src().line, shader_log });
+            std.log.warn("{s}:{} error compiling shader: {s}", .{ @src().file, @src().line, shader_log });
             return error.ShaderCompilation;
         }
 
@@ -82,7 +82,7 @@ pub fn init(
             var program_log: [1024:0]u8 = undefined;
             var program_log_len: gl.Sizei = undefined;
             gl.getProgramInfoLog(program, program_log.len, &program_log_len, &program_log);
-            std.debug.print("{s}:{} error compiling program: {s}\n", .{ @src().file, @src().line, program_log });
+            std.log.warn("{s}:{} error compiling program: {s}\n", .{ @src().file, @src().line, program_log });
             return error.ShaderCompilation;
         }
     }
@@ -217,7 +217,7 @@ pub fn deinit(this: *@This()) void {
 pub const BeginOptions = struct {
     window_size: [2]f32,
     framebuffer_size: [2]f32,
-    invert_y: bool = false,
+    invert_y: bool = true,
 };
 
 pub fn begin(this: *@This(), options: BeginOptions) void {
@@ -794,6 +794,7 @@ const Vertex = struct {
 
 const log = std.log.scoped(.Canvas);
 const std = @import("std");
-const gl = @import("gl");
+const gl = seizer.gl;
+const seizer = @import("seizer.zig");
 const zigimg = @import("zigimg");
 const geometry = @import("./geometry.zig");

@@ -1,5 +1,11 @@
+pub const wasm = @import("backend/wasm.zig");
 pub const wayland = @import("backend/wayland.zig");
 pub const linux = @import("backend/linux.zig");
+
+pub const gl = if (builtin.target.cpu.arch.isWasm())
+    wasm.gl
+else
+    @import("gl");
 
 pub const Backend = struct {
     name: []const u8,
@@ -10,20 +16,31 @@ pub const Backend = struct {
 };
 
 pub fn main() !void {
-    if (wayland.BACKEND.main()) {
-        //
-    } else |wayland_err| if (linux.BACKEND.main()) {
-        std.debug.print("{s}\n", .{@errorName(wayland_err)});
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
+    if (builtin.target.os.tag == .linux) {
+        if (wayland.BACKEND.main()) {
+            //
+        } else |wayland_err| if (linux.BACKEND.main()) {
+            std.debug.print("{s}\n", .{@errorName(wayland_err)});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            //
+        } else |err| {
+            std.debug.print("{s}\n", .{@errorName(err)});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
+            //
         }
-        //
-    } else |err| {
-        std.debug.print("{s}\n", .{@errorName(err)});
-        if (@errorReturnTrace()) |trace| {
-            std.debug.dumpStackTrace(trace.*);
+    } else if (builtin.target.cpu.arch.isWasm()) {
+        if (wasm.BACKEND.main()) {
+            //
+        } else |err| {
+            std.log.err("{s}", .{@errorName(err)});
+            if (@errorReturnTrace()) |trace| {
+                std.debug.dumpStackTrace(trace.*);
+            }
         }
-        //
     }
 }
 

@@ -5,7 +5,7 @@ const Example = enum {
     clear,
     textures,
     bitmap_font,
-    sprite_batch,
+    // sprite_batch,
     tinyvg,
     gamepad,
 };
@@ -21,11 +21,6 @@ pub fn build(b: *Builder) !void {
     });
 
     const tinyvg = b.dependency("tinyvg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const zflecs = b.dependency("zflecs", .{
         .target = target,
         .optimize = optimize,
     });
@@ -122,12 +117,26 @@ pub fn build(b: *Builder) !void {
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
-            .{ .name = "EGL", .module = egl_module },
-            .{ .name = "zflecs", .module = zflecs.module("zflecs") },
-            .{ .name = "wayland", .module = wayland_module },
-            .{ .name = "wayland-protocols", .module = wayland_protocols_module },
         },
     });
+
+    if (target.result.os.tag == .wasi) {
+        module.export_symbol_names = &.{
+            "_render",
+        };
+    }
+
+    const import_egl = target.result.os.tag != .wasi;
+    if (import_egl) {
+        module.addImport("EGL", egl_module);
+        module.link_libc = true;
+    }
+
+    const import_wayland = target.result.os.tag == .linux;
+    if (import_wayland) {
+        module.addImport("wayland", wayland_module);
+        module.addImport("wayland-protocols", wayland_protocols_module);
+    }
 
     const example_fields = @typeInfo(Example).Enum.fields;
     inline for (example_fields) |tag| {
@@ -140,6 +149,10 @@ pub fn build(b: *Builder) !void {
         });
         exe.root_module.addImport("seizer", module);
         exe.step.dependOn(generate_wayland_step);
+
+        if (target.result.os.tag == .wasi) {
+            exe.wasi_exec_model = .reactor;
+        }
 
         const install_exe = b.addInstallArtifact(exe, .{});
         b.getInstallStep().dependOn(&install_exe.step);
