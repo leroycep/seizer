@@ -130,6 +130,7 @@ pub fn build(b: *Builder) !void {
     if (target.result.os.tag == .wasi) {
         module.export_symbol_names = &.{
             "_render",
+            "_key_event",
         };
     }
 

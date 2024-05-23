@@ -20,11 +20,11 @@ pub const AddButtonInputOptions = struct {
     title: []const u8,
     on_event: *const fn (pressed: bool) anyerror!void,
     default_bindings: []const Binding,
+};
 
-    pub const Binding = union(enum) {
-        keyboard: Key,
-        gamepad: seizer.Gamepad.Button,
-    };
+pub const Binding = union(enum) {
+    keyboard: Key,
+    gamepad: seizer.Gamepad.Button,
 };
 
 pub const Key = enum {

@@ -6,8 +6,11 @@ pub const BACKEND = seizer.backend.Backend{
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var windows = std.AutoArrayHashMapUnmanaged(u32, Window){};
+var windows = std.AutoArrayHashMapUnmanaged(*Surface, Window){};
 var next_window_id: u32 = 1;
+
+var button_inputs = std.SegmentedList(seizer.Context.AddButtonInputOptions, 16){};
+var button_bindings = std.AutoHashMapUnmanaged(seizer.Context.Binding, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)){};
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -39,18 +42,15 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     const surface = Surface.create_surface(size[0], size[1]) orelse return error.CreateSurface;
 
     const wasm_window = Window{
-        .id = next_window_id,
         .surface = surface,
         .on_render = options.on_render,
     };
-    try windows.put(gpa.allocator(), wasm_window.id, wasm_window);
-    next_window_id += 1;
+    try windows.put(gpa.allocator(), surface, wasm_window);
 
     return wasm_window.window();
 }
 
 pub const Window = struct {
-    id: u32,
     surface: *Surface,
     on_render: ?*const fn (seizer.Window) anyerror!void,
     should_close: bool = false,
@@ -63,13 +63,13 @@ pub const Window = struct {
 
     pub fn window(this: @This()) seizer.Window {
         return seizer.Window{
-            .pointer = @ptrFromInt(this.id),
+            .pointer = this.surface,
             .interface = &INTERFACE,
         };
     }
 
     pub fn getSize(userdata: ?*anyopaque) [2]f32 {
-        const this = windows.get(@intFromPtr(userdata)).?;
+        const this = windows.get(@ptrCast(userdata)).?;
 
         var size: [2]u32 = undefined;
         this.surface.surface_get_size(&size[0], &size[1]);
@@ -78,8 +78,7 @@ pub const Window = struct {
     }
 
     pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
-        std.log.debug("{s}:{}\n", .{ @src().file, @src().line });
-        const this = windows.getPtr(@intFromPtr(userdata)).?;
+        const this = windows.getPtr(@ptrCast(userdata)).?;
         this.should_close = should_close;
     }
 };
@@ -95,6 +94,23 @@ pub export fn _render() void {
         if (window.on_render) |render| {
             window.surface.surface_make_gl_context_current();
             render(window.window()) catch |err| {
+                std.log.warn("{s}", .{@errorName(err)});
+                if (@errorReturnTrace()) |trace| {
+                    std.debug.dumpStackTrace(trace.*);
+                }
+            };
+        }
+    }
+}
+
+pub export fn _key_event(surface: *Surface, key_code: u32, pressed: bool) void {
+    const window = windows.getPtr(@ptrCast(surface)).?;
+    _ = window;
+
+    const binding = seizer.Context.Binding{ .keyboard = @enumFromInt(key_code) };
+    if (button_bindings.get(binding)) |actions| {
+        for (actions.items) |action| {
+            action.on_event(pressed) catch |err| {
                 std.log.warn("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -218,8 +234,17 @@ pub const gl = struct {
 
 pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
     _ = context;
-    _ = options;
-    return error.unimplemented;
+
+    const options_owned = try button_inputs.addOne(gpa.allocator());
+    options_owned.* = options;
+
+    for (options.default_bindings) |button_code| {
+        const gop = try button_bindings.getOrPut(gpa.allocator(), button_code);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(gpa.allocator(), options_owned);
+    }
 }
 
 const seizer = @import("../seizer.zig");

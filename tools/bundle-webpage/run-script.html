@@ -6,6 +6,15 @@ const ERR = {
   IO: 29,
 };
 
+const MAP_KEY_STRING_TO_NUMBER = {
+  "ArrowLeft": 0,
+  "ArrowRight": 1,
+  "ArrowUp": 2,
+  "ArrowDown": 3,
+  "KeyZ": 4,
+  "KeyX": 5,
+};
+
 const output_element = document.getElementById("output");
 var windows = {};
 var next_window_id = 4;
@@ -93,6 +102,7 @@ const importObject = {
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
+      canvas.tabIndex = 0;
 
       output_element.append(canvas);
 
@@ -103,6 +113,23 @@ const importObject = {
       };
 
       gl_context = windows[window_id].gl;
+
+      canvas.addEventListener("keydown", (event) => {
+        if (event.defaultPrevented) return;
+
+        const key_code_number = MAP_KEY_STRING_TO_NUMBER[event.code];
+        if (key_code_number === undefined) return;
+
+        wasm_instance.exports._key_event(window_id, key_code_number, true);
+      }, true);
+      canvas.addEventListener("keyup", (event) => {
+        if (event.defaultPrevented) return;
+
+        const key_code_number = MAP_KEY_STRING_TO_NUMBER[event.code];
+        if (key_code_number === undefined) return;
+
+        wasm_instance.exports._key_event(window_id, key_code_number, false);
+      }, true);
 
       return window_id;
     },
