@@ -5,7 +5,7 @@ const Example = enum {
     clear,
     textures,
     bitmap_font,
-    // sprite_batch,
+    sprite_batch,
     tinyvg,
     gamepad,
 };

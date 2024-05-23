@@ -2,6 +2,7 @@
 const ERR = {
   SUCCESS: 0,
   BADF: 8,
+  INVAL: 28,
   IO: 29,
 };
 
@@ -70,6 +71,18 @@ const importObject = {
     },
     "fd_filestat_get": function (fd) {
       throw "unimplemented";
+    },
+    clock_time_get: function(id, precision, timeOut) {
+        if (id !== 0) return ERR.INVAL;
+
+        const view = new DataView(wasm_instance.exports.memory.buffer);
+
+        const now = new Date().getTime();
+
+        view.setUint32(timeOut, (now * 1000000.0) % 0x100000000, true);
+        view.setUint32(timeOut + 4, (now * 1000000.0) / 0x100000000, true);
+
+        return ERR.SUCCESS;
     },
   },
   seizer: {
