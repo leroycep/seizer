@@ -110,6 +110,13 @@ pub fn build(b: *Builder) !void {
         }
     }
 
+    // a tool that bundles a wasm binary into an html file
+    const bundle_webpage_exe = b.addExecutable(.{
+        .name = "bundle-webpage",
+        .root_source_file = .{ .path = "tools/bundle-webpage.zig" },
+        .target = b.graph.host,
+    });
+
     // seizer
     const module = b.addModule("seizer", .{
         .root_source_file = .{ .path = "src/seizer.zig" },
@@ -154,12 +161,22 @@ pub fn build(b: *Builder) !void {
             exe.wasi_exec_model = .reactor;
         }
 
-        const install_exe = b.addInstallArtifact(exe, .{});
-        b.getInstallStep().dependOn(&install_exe.step);
-
         // build
         const build_step = b.step("example-" ++ tag_name, "Build the " ++ tag_name ++ " example");
+
+        const install_exe = b.addInstallArtifact(exe, .{});
+        b.getInstallStep().dependOn(&install_exe.step);
         build_step.dependOn(&install_exe.step);
+
+        // additionally generate an HTML file with the wasm module embedded when we use the wasi target
+        if (target.result.os.tag == .wasi) {
+            const bundle_webpage = b.addRunArtifact(bundle_webpage_exe);
+            bundle_webpage.addArtifactArg(exe);
+
+            const install_html = b.addInstallFile(bundle_webpage.captureStdOut(), "www/" ++ tag_name ++ ".html");
+            b.getInstallStep().dependOn(&install_html.step);
+            build_step.dependOn(&install_html.step);
+        }
 
         // run
         const run_cmd = b.addRunArtifact(exe);
