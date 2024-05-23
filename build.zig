@@ -116,6 +116,7 @@ pub fn build(b: *Builder) !void {
         .root_source_file = .{ .path = "tools/bundle-webpage.zig" },
         .target = b.graph.host,
     });
+    b.installArtifact(bundle_webpage_exe);
 
     // seizer
     const module = b.addModule("seizer", .{
