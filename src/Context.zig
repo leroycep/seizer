@@ -27,14 +27,7 @@ pub const Binding = union(enum) {
     gamepad: seizer.Gamepad.Button,
 };
 
-pub const Key = enum {
-    left,
-    right,
-    up,
-    down,
-    z,
-    x,
-};
+pub const Key = @import("./backend/linux/evdev.zig").KEY;
 
 pub fn addButtonInput(this: *@This(), options: AddButtonInputOptions) anyerror!void {
     return this.backend.addButtonInput(this, options);

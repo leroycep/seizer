@@ -82,6 +82,7 @@ pub fn init(context: *seizer.Context) !void {
         .on_event = onQuit,
         .default_bindings = &.{
             .{ .gamepad = .back },
+            .{ .keyboard = .esc },
         },
     });
 }

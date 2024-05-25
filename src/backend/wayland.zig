@@ -620,17 +620,8 @@ const Seat = struct {
         switch (event) {
             .key => |k| {
                 const key: EvDev.KEY = @enumFromInt(@as(u16, @intCast(k.key)));
-                const logical_key: seizer.Context.Key = switch (key) {
-                    .up => .up,
-                    .down => .down,
-                    .left => .left,
-                    .right => .right,
-                    .z => .z,
-                    .x => .x,
-                    else => return,
-                };
 
-                const actions = this.backend.key_bindings.get(logical_key) orelse return;
+                const actions = this.backend.key_bindings.get(key) orelse return;
                 for (actions.items) |action| {
                     action.on_event(k.state == .pressed) catch |err| {
                         std.debug.print("{s}\n", .{@errorName(err)});
