@@ -46,6 +46,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .on_render = options.on_render,
     };
     try windows.put(gpa.allocator(), surface, wasm_window);
+    surface.surface_make_gl_context_current();
 
     return wasm_window.window();
 }

@@ -1,4 +1,3 @@
-<script>
 // Encodes binary data into text, like base64 but more efficient.
 //
 // Implements http://rfc.zeromq.org/spec:32
@@ -79,4 +78,3 @@ function z85_decode(string, dest) {
 
     return byte_nbr;
 }
-</script>

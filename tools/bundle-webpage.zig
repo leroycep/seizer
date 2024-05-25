@@ -17,8 +17,15 @@ pub fn main() !void {
 
     try out.writeAll(@embedFile("bundle-webpage/document-header.html"));
     try out.print("<script id=\"z85-encoded-wasm\" decoded-length=\"{}\" type=\"application/json\">{{\"data\":\"{}\"}}</script>\n", .{ wasm_binary.len, z85.fmt(wasm_binary) });
-    try out.writeAll(@embedFile("bundle-webpage/z85.html"));
-    try out.writeAll(@embedFile("bundle-webpage/run-script.html"));
+
+    try out.writeAll("<script>\n");
+    try out.writeAll(@embedFile("bundle-webpage/z85.js"));
+    try out.writeAll(@embedFile("bundle-webpage/wasi_snapshot_preview1-import.js"));
+    try out.writeAll(@embedFile("bundle-webpage/seizer-import.js"));
+    try out.writeAll(@embedFile("bundle-webpage/webgl2-import.js"));
+    try out.writeAll(@embedFile("bundle-webpage/main.js"));
+    try out.writeAll("</script>\n");
+
     try out.writeAll(@embedFile("bundle-webpage/document-footer.html"));
 }
 
