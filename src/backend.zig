@@ -13,6 +13,8 @@ pub const Backend = struct {
     main: *const fn () anyerror!void,
     createWindow: *const fn (this: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window,
     addButtonInput: *const fn (this: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void,
+    write_file_fn: *const fn (this: *seizer.Context, options: seizer.Context.WriteFileOptions) void,
+    read_file_fn: *const fn (this: *seizer.Context, options: seizer.Context.ReadFileOptions) void,
 };
 
 pub fn main() !void {

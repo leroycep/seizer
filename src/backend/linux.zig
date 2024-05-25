@@ -10,6 +10,8 @@ pub const BACKEND = seizer.backend.Backend{
     .main = main,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
+    .write_file_fn = writeFile,
+    .read_file_fn = readFile,
 };
 
 pub fn main() anyerror!void {
@@ -232,6 +234,51 @@ const Window = struct {
 pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
     const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
     try this.evdev.addButtonInput(options);
+}
+
+pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) void {
+    if (writeFileWithError(ctx, options)) {
+        options.callback(options.userdata, {});
+    } else |err| {
+        switch (err) {
+            else => std.debug.panic("{}", .{err}),
+        }
+    }
+}
+
+fn writeFileWithError(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) !void {
+    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
+    defer ctx.gpa.free(app_data_dir_path);
+
+    var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
+    defer app_data_dir.close();
+
+    try app_data_dir.writeFile2(.{
+        .sub_path = options.path,
+        .data = options.data,
+    });
+}
+
+pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) void {
+    if (readFileWithError(ctx, options)) |read_bytes| {
+        options.callback(options.userdata, read_bytes);
+    } else |err| {
+        switch (err) {
+            error.FileNotFound => options.callback(options.userdata, error.NotFound),
+            else => std.debug.panic("{}", .{err}),
+        }
+    }
+}
+
+fn readFileWithError(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) ![]u8 {
+    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
+    defer ctx.gpa.free(app_data_dir_path);
+
+    var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
+    defer app_data_dir.close();
+
+    const read_buffer = try app_data_dir.readFile(options.path, options.buffer);
+    return read_buffer;
 }
 
 const EvDev = @import("./linux/evdev.zig");

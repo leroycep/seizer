@@ -32,3 +32,31 @@ pub const Key = @import("./backend/linux/evdev.zig").KEY;
 pub fn addButtonInput(this: *@This(), options: AddButtonInputOptions) anyerror!void {
     return this.backend.addButtonInput(this, options);
 }
+
+pub const FileError = error{NotFound};
+pub const WriteFileCallbackFn = *const fn (userdata: ?*anyopaque, FileError!void) void;
+pub const ReadFileCallbackFn = *const fn (userdata: ?*anyopaque, FileError![]const u8) void;
+
+pub const WriteFileOptions = struct {
+    appname: []const u8,
+    path: []const u8,
+    data: []const u8,
+    callback: WriteFileCallbackFn,
+    userdata: ?*anyopaque,
+};
+
+pub fn writeFile(this: *@This(), options: WriteFileOptions) void {
+    return this.backend.write_file_fn(this, options);
+}
+
+pub const ReadFileOptions = struct {
+    appname: []const u8,
+    path: []const u8,
+    buffer: []u8,
+    callback: ReadFileCallbackFn,
+    userdata: ?*anyopaque,
+};
+
+pub fn readFile(this: *@This(), options: ReadFileOptions) void {
+    return this.backend.read_file_fn(this, options);
+}

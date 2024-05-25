@@ -91,6 +91,13 @@ function getSeizerWasmImport(getMemory, setGlContext, getWasmInstance) {
       "ArrowDown" : 108,
   };
 
+  const ERRCODE = {
+    Success : 0,
+    NotFound : 1,
+  };
+
+  let text_decoder = new TextDecoder();
+
   const output_element = document.getElementById("output");
   let windows = {};
   let next_window_id = 4;
@@ -145,6 +152,46 @@ function getSeizerWasmImport(getMemory, setGlContext, getWasmInstance) {
     },
     surface_make_gl_context_current: function(w_id) {
       setGlContext(windows[w_id].gl);
+    },
+
+    file_write: function(path_ptr, path_len, data_ptr, data_len, completion_callback, completion_userdata) {
+      const path = text_decoder.decode(new Uint8Array(getMemory().buffer, path_ptr, path_len));
+
+      if (navigator.storage) {
+        navigator.storage.getDirectory().then(async function(opfsRoot) {
+          const file_handle = await opfsRoot.getFileHandle(path, { create: true });
+          const writer = await file_handle.createWritable();
+          const data = new Uint8Array(getMemory().buffer, data_ptr, data_len);
+          await writer.write(data);
+          await writer.close();
+          getWasmInstance().exports._dispatch_write_file_completion(completion_callback, completion_userdata, ERRCODE.Success);
+        }).catch(function(error) {
+          console.log(error);
+        });
+      }
+    },
+    file_read: function(path_ptr, path_len, buf_ptr, buf_len, completion_callback, completion_userdata) {
+      const path = text_decoder.decode(new Uint8Array(getMemory().buffer, path_ptr, path_len));
+
+      if (navigator.storage) {
+        navigator.storage.getDirectory().then(async function(opfsRoot) {
+          const file_handle = await opfsRoot.getFileHandle(path);
+          const file = await file_handle.getFile();
+          const array_buffer = await file.arrayBuffer();
+          const buf = new Uint8Array(getMemory().buffer, buf_ptr, buf_len);
+          buf.set(new Uint8Array(array_buffer));
+          getWasmInstance().exports._dispatch_read_file_completion(completion_callback, completion_userdata, ERRCODE.Success, buf_ptr, array_buffer.byteLength);
+        }).catch(function(error) {
+          if (error instanceof DOMException) {
+            switch (error.name) {
+              case "NotFoundError": getWasmInstance().exports._dispatch_file_completion(completion_callback, ERRCODE.NotFound, buf_ptr, 0); break;
+              default: console.log(error); break;
+            }
+          } else {
+            console.log(error);
+          }
+        });
+      }
     },
   }
 }

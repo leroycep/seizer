@@ -3,6 +3,8 @@ pub const BACKEND = seizer.backend.Backend{
     .main = main,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
+    .write_file_fn = writeFile,
+    .read_file_fn = readFile,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -12,6 +14,8 @@ var next_window_id: u32 = 1;
 var button_inputs = std.SegmentedList(seizer.Context.AddButtonInputOptions, 16){};
 var button_bindings = std.AutoHashMapUnmanaged(seizer.Context.Binding, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)){};
 
+var seizer_context: seizer.Context = undefined;
+
 pub fn main() anyerror!void {
     const root = @import("root");
 
@@ -19,7 +23,7 @@ pub fn main() anyerror!void {
         @compileError("root module must contain init function");
     }
 
-    var seizer_context = seizer.Context{
+    seizer_context = seizer.Context{
         .gpa = gpa.allocator(),
         .backend_userdata = null,
         .backend = &BACKEND,
@@ -245,6 +249,53 @@ pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButto
             gop.value_ptr.* = .{};
         }
         try gop.value_ptr.append(gpa.allocator(), options_owned);
+    }
+}
+
+pub extern "seizer" fn file_write(path_ptr: [*]const u8, path_len: usize, data_ptr: [*]const u8, data_len: usize, completion_callback: *const anyopaque, completion_userdata: ?*anyopaque) void;
+pub extern "seizer" fn file_read(path_ptr: [*]const u8, path_len: usize, buffer_ptr: [*]u8, buffer_len: usize, completion_callback: *const anyopaque, completion_userdata: ?*anyopaque) void;
+
+pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) void {
+    _ = ctx;
+    file_write(
+        options.path.ptr,
+        options.path.len,
+        options.data.ptr,
+        options.data.len,
+        options.callback,
+        options.userdata,
+    );
+}
+
+pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) void {
+    _ = ctx;
+    file_read(
+        options.path.ptr,
+        options.path.len,
+        options.buffer.ptr,
+        options.buffer.len,
+        options.callback,
+        options.userdata,
+    );
+}
+
+const FileErrcode = enum(u32) {
+    Success = 0,
+    NotFound = 1,
+};
+pub export fn _dispatch_write_file_completion(callback_opaque_fn: *const anyopaque, userdata: ?*anyopaque, errorcode: FileErrcode) void {
+    const callback: seizer.Context.WriteFileCallbackFn = @ptrCast(callback_opaque_fn);
+    switch (errorcode) {
+        .Success => callback(userdata, {}),
+        .NotFound => callback(userdata, error.NotFound),
+    }
+}
+
+pub export fn _dispatch_read_file_completion(callback_opaque_fn: *const anyopaque, userdata: ?*anyopaque, errorcode: FileErrcode, buf_ptr: [*]u8, nbytes: usize) void {
+    const callback: seizer.Context.ReadFileCallbackFn = @ptrCast(callback_opaque_fn);
+    switch (errorcode) {
+        .Success => callback(userdata, buf_ptr[0..nbytes]),
+        .NotFound => callback(userdata, error.NotFound),
     }
 }
 

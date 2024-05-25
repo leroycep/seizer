@@ -8,6 +8,7 @@ const Example = enum {
     sprite_batch,
     tinyvg,
     gamepad,
+    clicker,
 };
 
 pub fn build(b: *Builder) !void {
@@ -132,6 +133,8 @@ pub fn build(b: *Builder) !void {
         module.export_symbol_names = &.{
             "_render",
             "_key_event",
+            "_dispatch_read_file_completion",
+            "_dispatch_write_file_completion",
         };
     }
 
