@@ -615,48 +615,11 @@ const Seat = struct {
 };
 
 pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
-    if (writeFileWithError(options)) {
-        options.callback(options.userdata, {});
-    } else |err| {
-        switch (err) {
-            else => std.debug.panic("{}", .{err}),
-        }
-    }
-}
-
-fn writeFileWithError(options: seizer.Platform.WriteFileOptions) !void {
-    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
-    defer gpa.allocator().free(app_data_dir_path);
-
-    var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
-    defer app_data_dir.close();
-
-    try app_data_dir.writeFile2(.{
-        .sub_path = options.path,
-        .data = options.data,
-    });
+    linuxbsd_fs.writeFile(gpa.allocator(), options);
 }
 
 pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
-    if (readFileWithError(options)) |read_bytes| {
-        options.callback(options.userdata, read_bytes);
-    } else |err| {
-        switch (err) {
-            error.FileNotFound => options.callback(options.userdata, error.NotFound),
-            else => std.debug.panic("{}", .{err}),
-        }
-    }
-}
-
-fn readFileWithError(options: seizer.Platform.ReadFileOptions) ![]u8 {
-    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
-    defer gpa.allocator().free(app_data_dir_path);
-
-    var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
-    defer app_data_dir.close();
-
-    const read_buffer = try app_data_dir.readFile(options.path, options.buffer);
-    return read_buffer;
+    linuxbsd_fs.readFile(gpa.allocator(), options);
 }
 
 const LibraryPaths = struct {
@@ -695,6 +658,8 @@ pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
 }
 
 const EvDev = @import("./linuxbsd/evdev.zig");
+
+const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
 const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
 const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";
