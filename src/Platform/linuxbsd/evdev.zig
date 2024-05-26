@@ -54,6 +54,7 @@ pub fn scanForDevices(this: *@This()) !void {
         try this.pollfds.ensureTotalCapacity(this.gpa, this.devices.items.len + 1);
         try this.devices.append(this.gpa, device);
     }
+    std.log.debug("Found {} evdev input devices", .{this.devices.items.len});
 }
 
 const Device = struct {
@@ -143,18 +144,37 @@ const Device = struct {
 
         const name_crc = crc16(0, device.nameSlice());
 
-        var guid: u128 = 0;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, device.id.bustype) else @byteSwap(@as(u16, device.id.bustype));
-        guid <<= 16;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, name_crc) else @byteSwap(@as(u16, name_crc));
-        guid <<= 32;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.vendor) else @byteSwap(@as(u32, device.id.vendor));
-        guid <<= 32;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.product) else @byteSwap(@as(u32, device.id.product));
-        guid <<= 32;
-        guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.version) else @byteSwap(@as(u32, device.id.version));
+        {
+            var guid: u128 = 0;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, device.id.bustype) else @byteSwap(@as(u16, device.id.bustype));
+            guid <<= 16;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, name_crc) else @byteSwap(@as(u16, name_crc));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.vendor) else @byteSwap(@as(u32, device.id.vendor));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.product) else @byteSwap(@as(u32, device.id.product));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.version) else @byteSwap(@as(u32, device.id.version));
 
-        device.mapping = mapping_db.mappings.get(guid);
+            device.mapping = mapping_db.mappings.get(guid);
+        }
+
+        // Try the guid again; this time without the crc. Seems like it isn't populated on batocera on the RG35XXH?
+        // Wish this had a spec instead of just code.
+        if (device.mapping == null) {
+            var guid: u128 = 0;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u16, device.id.bustype) else @byteSwap(@as(u16, device.id.bustype));
+            guid <<= 16;
+            // skip the name_crc
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.vendor) else @byteSwap(@as(u32, device.id.vendor));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.product) else @byteSwap(@as(u32, device.id.product));
+            guid <<= 32;
+            guid |= if (builtin.cpu.arch.endian() == .big) @as(u32, device.id.version) else @byteSwap(@as(u32, device.id.version));
+
+            device.mapping = mapping_db.mappings.get(guid);
+        }
 
         return device;
     }
