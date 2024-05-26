@@ -3,8 +3,8 @@ devices: std.ArrayListUnmanaged(Device),
 pollfds: std.ArrayListUnmanaged(std.posix.pollfd),
 mapping_db: seizer.Gamepad.DB,
 input_device_dir: std.fs.Dir,
-button_inputs: std.SegmentedList(seizer.Context.AddButtonInputOptions, 16),
-button_bindings: std.AutoHashMapUnmanaged(seizer.Gamepad.Button, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)),
+button_inputs: std.SegmentedList(seizer.Platform.AddButtonInputOptions, 16),
+button_bindings: std.AutoHashMapUnmanaged(seizer.Gamepad.Button, std.ArrayListUnmanaged(*seizer.Platform.AddButtonInputOptions)),
 
 const EvDev = @This();
 
@@ -48,7 +48,7 @@ pub fn deinit(this: *@This()) void {
     this.mapping_db.deinit();
 }
 
-pub fn addButtonInput(this: *EvDev, options: seizer.Context.AddButtonInputOptions) anyerror!void {
+pub fn addButtonInput(this: *EvDev, options: seizer.Platform.AddButtonInputOptions) anyerror!void {
     const button_input = try this.button_inputs.addOne(this.gpa);
     button_input.* = options;
 

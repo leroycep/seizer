@@ -2,14 +2,14 @@ pub const main = seizer.main;
 
 var canvas: seizer.Canvas = undefined;
 
-pub fn init(context: *seizer.Context) !void {
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "Bitmap Font - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(context.gpa, .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
     errdefer canvas.deinit();
 }
 

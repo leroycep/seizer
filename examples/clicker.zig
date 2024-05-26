@@ -2,26 +2,23 @@ pub const main = seizer.main;
 
 const APPNAME = "seizer-example-clicker";
 
-var context_global: *seizer.Context = undefined;
 var canvas: seizer.Canvas = undefined;
 
 var clicks: ?u64 = null;
 
 var clicks_read_buffer: [8]u8 = undefined;
 
-pub fn init(context: *seizer.Context) !void {
-    context_global = context;
-
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "Clicker - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(context.gpa, .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
     errdefer canvas.deinit();
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "click",
         .on_event = onClick,
         .default_bindings = &.{
@@ -30,7 +27,7 @@ pub fn init(context: *seizer.Context) !void {
         },
     });
 
-    context.readFile(.{
+    seizer.platform.readFile(.{
         .appname = APPNAME,
         .path = "clicks",
         .buffer = &clicks_read_buffer,
@@ -39,7 +36,7 @@ pub fn init(context: *seizer.Context) !void {
     });
 }
 
-fn onClicksFileRead(userdata: ?*anyopaque, result: seizer.Context.FileError![]const u8) void {
+fn onClicksFileRead(userdata: ?*anyopaque, result: seizer.Platform.FileError![]const u8) void {
     _ = userdata;
     if (result) |file_contents| {
         clicks = std.mem.readInt(u64, file_contents[0..8], .little);
@@ -48,10 +45,10 @@ fn onClicksFileRead(userdata: ?*anyopaque, result: seizer.Context.FileError![]co
     }
 }
 
-fn onClicksFileWritten(userdata: ?*anyopaque, result: seizer.Context.FileError!void) void {
+fn onClicksFileWritten(userdata: ?*anyopaque, result: seizer.Platform.FileError!void) void {
     const clicks_write_buffer: *u64 = @ptrCast(@alignCast(userdata));
     _ = result catch {};
-    context_global.gpa.destroy(clicks_write_buffer);
+    seizer.platform.allocator().destroy(clicks_write_buffer);
 }
 
 pub fn deinit(window: seizer.Window) void {
@@ -64,9 +61,9 @@ fn onClick(pressed: bool) !void {
         if (clicks) |*c| {
             c.* += 1;
 
-            const clicks_write_buffer = try context_global.gpa.create(u64);
+            const clicks_write_buffer = try seizer.platform.allocator().create(u64);
             std.mem.writeInt(u64, std.mem.asBytes(clicks_write_buffer), c.*, .little);
-            context_global.writeFile(.{
+            seizer.platform.writeFile(.{
                 .appname = APPNAME,
                 .path = "clicks",
                 .data = std.mem.asBytes(clicks_write_buffer),

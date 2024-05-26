@@ -8,17 +8,17 @@ var cancel_input: bool = false;
 
 var window_global: seizer.Window = undefined;
 
-pub fn init(context: *seizer.Context) !void {
-    window_global = try context.createWindow(.{
+pub fn init() !void {
+    window_global = try seizer.platform.createWindow(.{
         .title = "Gamepad - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(context.gpa, .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
     errdefer canvas.deinit();
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "perform_action",
         .on_event = onPerformAction,
         .default_bindings = &.{
@@ -27,7 +27,7 @@ pub fn init(context: *seizer.Context) !void {
         },
     });
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "cancel",
         .on_event = onCancel,
         .default_bindings = &.{
@@ -36,7 +36,7 @@ pub fn init(context: *seizer.Context) !void {
         },
     });
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "leftshoulder",
         .on_event = onLeftShoulder,
         .default_bindings = &.{
@@ -44,7 +44,7 @@ pub fn init(context: *seizer.Context) !void {
         },
     });
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "dpleft",
         .on_event = onDPadLeft,
         .default_bindings = &.{
@@ -52,7 +52,7 @@ pub fn init(context: *seizer.Context) !void {
             .{ .keyboard = .left },
         },
     });
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "dpright",
         .on_event = onDPadRight,
         .default_bindings = &.{
@@ -60,7 +60,7 @@ pub fn init(context: *seizer.Context) !void {
             .{ .keyboard = .right },
         },
     });
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "dpup",
         .on_event = onDPadUp,
         .default_bindings = &.{
@@ -68,7 +68,7 @@ pub fn init(context: *seizer.Context) !void {
             .{ .keyboard = .up },
         },
     });
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "dpdown",
         .on_event = onDPadDown,
         .default_bindings = &.{
@@ -77,7 +77,7 @@ pub fn init(context: *seizer.Context) !void {
         },
     });
 
-    try context.addButtonInput(.{
+    try seizer.platform.addButtonInput(.{
         .title = "quit",
         .on_event = onQuit,
         .default_bindings = &.{

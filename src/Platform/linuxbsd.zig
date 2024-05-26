@@ -1,18 +1,19 @@
-egl: EGL,
-display: EGL.Display,
-evdev: EvDev,
-windows: std.ArrayListUnmanaged(*Window),
-
-const Linux = @This();
-
-pub const BACKEND = seizer.backend.Backend{
-    .name = "linux",
+pub const PLATFORM = seizer.Platform{
+    .name = "linuxbsd",
     .main = main,
+    .gl = @import("gl"),
+    .allocator = getAllocator,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
-    .write_file_fn = writeFile,
-    .read_file_fn = readFile,
+    .writeFile = writeFile,
+    .readFile = readFile,
 };
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var egl: EGL = undefined;
+var display: EGL.Display = undefined;
+var evdev: EvDev = undefined;
+var windows: std.ArrayListUnmanaged(*Window) = .{};
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -21,7 +22,6 @@ pub fn main() anyerror!void {
         @compileError("root module must contain init function");
     }
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
     const this = try gpa.allocator().create(@This());
@@ -29,49 +29,43 @@ pub fn main() anyerror!void {
 
     // init this
     {
-        var library_prefixes = try seizer.backend.getLibrarySearchPaths(gpa.allocator());
+        var library_prefixes = try getLibrarySearchPaths(gpa.allocator());
         defer library_prefixes.arena.deinit();
 
-        this.egl = EGL.loadUsingPrefixes(library_prefixes.paths.items) catch |err| {
+        egl = EGL.loadUsingPrefixes(library_prefixes.paths.items) catch |err| {
             std.log.warn("Failed to load EGL: {}", .{err});
             return err;
         };
     }
     defer {
-        this.egl.deinit();
+        egl.deinit();
     }
 
-    this.display = this.egl.getDisplay(null) orelse {
+    display = egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
         return error.NoDisplay;
     };
-    _ = try this.display.initialize();
-    defer this.display.terminate();
+    _ = try display.initialize();
+    defer display.terminate();
 
-    this.evdev = try EvDev.init(gpa.allocator(), .{});
-    defer this.evdev.deinit();
+    evdev = try EvDev.init(gpa.allocator(), .{});
+    defer evdev.deinit();
 
-    try this.evdev.scanForDevices();
+    try evdev.scanForDevices();
 
-    this.windows = .{};
-    defer this.windows.deinit(gpa.allocator());
-
-    var seizer_context = seizer.Context{
-        .gpa = gpa.allocator(),
-        .backend_userdata = this,
-        .backend = &BACKEND,
-    };
+    windows = .{};
+    defer windows.deinit(gpa.allocator());
 
     // Call root module's `init()` function
-    root.init(&seizer_context) catch |err| {
+    root.init() catch |err| {
         std.debug.print("{s}\n", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
         return;
     };
-    while (this.windows.items.len > 0) {
-        this.evdev.updateEventDevices() catch |err| {
+    while (windows.items.len > 0) {
+        evdev.updateEventDevices() catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
                 std.debug.dumpStackTrace(trace.*);
@@ -79,16 +73,16 @@ pub fn main() anyerror!void {
             return;
         };
         {
-            var i: usize = this.windows.items.len;
+            var i: usize = windows.items.len;
             while (i > 0) : (i -= 1) {
-                const window = this.windows.items[i - 1];
+                const window = windows.items[i - 1];
                 if (window.should_close) {
-                    _ = this.windows.swapRemove(i - 1);
+                    _ = windows.swapRemove(i - 1);
                     window.destroy();
                 }
             }
         }
-        for (this.windows.items) |window| {
+        for (windows.items) |window| {
             gl.makeBindingCurrent(&window.gl_binding);
             window.on_render(window.window()) catch |err| {
                 std.debug.print("{s}", .{@errorName(err)});
@@ -102,9 +96,11 @@ pub fn main() anyerror!void {
     }
 }
 
-pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
-    const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
+pub fn getAllocator() std.mem.Allocator {
+    return gpa.allocator();
+}
 
+pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
     var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
         @intFromEnum(EGL.Attrib.surface_type),    EGL.WINDOW_BIT,
         @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
@@ -113,36 +109,34 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         @intFromEnum(EGL.Attrib.green_size),      8,
         @intFromEnum(EGL.Attrib.none),
     };
-    const num_configs = try this.display.chooseConfig(&attrib_list, null);
+    const num_configs = try display.chooseConfig(&attrib_list, null);
 
     if (num_configs == 0) {
         return error.NoSuitableConfigs;
     }
 
-    const configs_buffer = try context.gpa.alloc(*EGL.Config.Handle, @intCast(num_configs));
-    defer context.gpa.free(configs_buffer);
+    const configs_buffer = try gpa.allocator().alloc(*EGL.Config.Handle, @intCast(num_configs));
+    defer gpa.allocator().free(configs_buffer);
 
-    const configs_len = try this.display.chooseConfig(&attrib_list, configs_buffer);
+    const configs_len = try display.chooseConfig(&attrib_list, configs_buffer);
     const configs = configs_buffer[0..configs_len];
 
-    const surface = try this.display.createWindowSurface(configs[0], null, null);
+    const surface = try display.createWindowSurface(configs[0], null, null);
 
-    try this.egl.bindAPI(.opengl_es);
+    try egl.bindAPI(.opengl_es);
     var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
         @intFromEnum(EGL.Attrib.context_major_version), 2,
         @intFromEnum(EGL.Attrib.context_minor_version), 0,
         @intFromEnum(EGL.Attrib.none),
     };
-    const egl_context = try this.display.createContext(configs[0], null, &context_attrib_list);
+    const egl_context = try display.createContext(configs[0], null, &context_attrib_list);
 
-    try this.display.makeCurrent(surface, surface, egl_context);
+    try display.makeCurrent(surface, surface, egl_context);
 
-    const linux_window = try context.gpa.create(Window);
-    errdefer context.gpa.destroy(linux_window);
+    const linux_window = try gpa.allocator().create(Window);
+    errdefer gpa.allocator().destroy(linux_window);
 
     linux_window.* = .{
-        .allocator = context.gpa,
-        .display = this.display,
         .surface = surface,
         .egl_context = egl_context,
         .should_close = false,
@@ -152,23 +146,23 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .on_destroy = options.on_destroy,
     };
 
-    const loader = GlBindingLoader{ .egl = this.egl };
+    const loader = GlBindingLoader{};
     linux_window.gl_binding.init(loader);
     gl.makeBindingCurrent(&linux_window.gl_binding);
 
     gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
 
-    try this.windows.append(context.gpa, linux_window);
+    try windows.append(gpa.allocator(), linux_window);
 
     return linux_window.window();
 }
 
 pub const GlBindingLoader = struct {
-    egl: EGL,
     const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
 
     pub fn getCommandFnPtr(this: @This(), command_name: [:0]const u8) ?AnyCFnPtr {
-        return this.egl.functions.eglGetProcAddress(command_name);
+        _ = this;
+        return egl.functions.eglGetProcAddress(command_name);
     }
 
     pub fn extensionSupported(this: @This(), extension_name: [:0]const u8) bool {
@@ -179,8 +173,6 @@ pub const GlBindingLoader = struct {
 };
 
 const Window = struct {
-    allocator: std.mem.Allocator,
-    display: EGL.Display,
     surface: EGL.Surface,
     egl_context: EGL.Context,
     should_close: bool,
@@ -199,8 +191,8 @@ const Window = struct {
         if (this.on_destroy) |on_destroy| {
             on_destroy(this.window());
         }
-        this.display.destroySurface(this.surface);
-        this.allocator.destroy(this);
+        display.destroySurface(this.surface);
+        gpa.allocator().destroy(this);
     }
 
     pub fn window(this: *@This()) seizer.Window {
@@ -213,14 +205,14 @@ const Window = struct {
     pub fn getSize(userdata: ?*anyopaque) [2]f32 {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
 
-        const width = this.display.querySurface(this.surface, .width) catch unreachable;
-        const height = this.display.querySurface(this.surface, .height) catch unreachable;
+        const width = display.querySurface(this.surface, .width) catch unreachable;
+        const height = display.querySurface(this.surface, .height) catch unreachable;
 
         return .{ @floatFromInt(width), @floatFromInt(height) };
     }
 
     pub fn swapBuffers(this: *@This()) void {
-        this.display.swapBuffers(this.surface) catch |err| {
+        display.swapBuffers(this.surface) catch |err| {
             std.log.warn("failed to swap buffers: {}", .{err});
         };
     }
@@ -231,13 +223,12 @@ const Window = struct {
     }
 };
 
-pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
-    const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
-    try this.evdev.addButtonInput(options);
+pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
+    try evdev.addButtonInput(options);
 }
 
-pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) void {
-    if (writeFileWithError(ctx, options)) {
+pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
+    if (writeFileWithError(options)) {
         options.callback(options.userdata, {});
     } else |err| {
         switch (err) {
@@ -246,9 +237,9 @@ pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions)
     }
 }
 
-fn writeFileWithError(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) !void {
-    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
-    defer ctx.gpa.free(app_data_dir_path);
+fn writeFileWithError(options: seizer.Platform.WriteFileOptions) !void {
+    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
+    defer gpa.allocator().free(app_data_dir_path);
 
     var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
     defer app_data_dir.close();
@@ -259,8 +250,8 @@ fn writeFileWithError(ctx: *seizer.Context, options: seizer.Context.WriteFileOpt
     });
 }
 
-pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) void {
-    if (readFileWithError(ctx, options)) |read_bytes| {
+pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
+    if (readFileWithError(options)) |read_bytes| {
         options.callback(options.userdata, read_bytes);
     } else |err| {
         switch (err) {
@@ -270,9 +261,9 @@ pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) v
     }
 }
 
-fn readFileWithError(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) ![]u8 {
-    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
-    defer ctx.gpa.free(app_data_dir_path);
+fn readFileWithError(options: seizer.Platform.ReadFileOptions) ![]u8 {
+    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
+    defer gpa.allocator().free(app_data_dir_path);
 
     var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
     defer app_data_dir.close();
@@ -281,7 +272,42 @@ fn readFileWithError(ctx: *seizer.Context, options: seizer.Context.ReadFileOptio
     return read_buffer;
 }
 
-const EvDev = @import("./linux/evdev.zig");
+const LibraryPaths = struct {
+    arena: std.heap.ArenaAllocator,
+    paths: std.ArrayListUnmanaged([]const u8),
+};
+
+pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
+    var path_arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    errdefer path_arena_allocator.deinit();
+    const arena = path_arena_allocator.allocator();
+
+    var prefixes_to_try = std.ArrayList([]const u8).init(arena);
+
+    try prefixes_to_try.append(try arena.dupe(u8, "."));
+    try prefixes_to_try.append(try arena.dupe(u8, ""));
+    try prefixes_to_try.append(try arena.dupe(u8, "/usr/lib/"));
+    if (std.process.getEnvVarOwned(arena, "NIX_LD_LIBRARY_PATH")) |path_list| {
+        var path_list_iter = std.mem.tokenize(u8, path_list, ":");
+        while (path_list_iter.next()) |path| {
+            try prefixes_to_try.append(path);
+        }
+    } else |_| {}
+
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const exe_dir_path = try std.fs.selfExeDirPath(&path_buf);
+    var dir_to_search_opt: ?[]const u8 = exe_dir_path;
+    while (dir_to_search_opt) |dir_to_search| : (dir_to_search_opt = std.fs.path.dirname(dir_to_search)) {
+        try prefixes_to_try.append(try std.fs.path.join(arena, &.{ dir_to_search, "lib" }));
+    }
+
+    return LibraryPaths{
+        .arena = path_arena_allocator,
+        .paths = prefixes_to_try.moveToUnmanaged(),
+    };
+}
+
+pub const EvDev = @import("./linuxbsd/evdev.zig");
 
 const gl = seizer.gl;
 const EGL = @import("EGL");

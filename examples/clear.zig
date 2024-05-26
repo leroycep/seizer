@@ -1,7 +1,7 @@
 pub const main = seizer.main;
 
-pub fn init(context: *seizer.Context) !void {
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "Clear - Seizer Example",
         .on_render = render,
     });

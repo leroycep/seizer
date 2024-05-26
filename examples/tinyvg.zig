@@ -3,17 +3,17 @@ pub const main = seizer.main;
 var canvas: seizer.Canvas = undefined;
 var shield_texture: seizer.Texture = undefined;
 
-pub fn init(context: *seizer.Context) !void {
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "TinyVG - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(context.gpa, .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
     errdefer canvas.deinit();
 
-    shield_texture = try seizer.Texture.initFromTVG(context.gpa, &shield_icon_tvg, .{});
+    shield_texture = try seizer.Texture.initFromTVG(seizer.platform.allocator(), &shield_icon_tvg, .{});
     errdefer shield_texture.deinit();
 }
 

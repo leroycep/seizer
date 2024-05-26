@@ -56,16 +56,16 @@ var shader_program: gl.Uint = undefined;
 var vbo: gl.Uint = undefined;
 var vao: gl.Uint = undefined;
 
-pub fn init(context: *seizer.Context) !void {
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "Textures - Seizer Example",
         .on_render = render,
     });
 
-    player_texture = try seizer.Texture.initFromFileContents(context.gpa, @embedFile("assets/wedge.png"), .{});
+    player_texture = try seizer.Texture.initFromFileContents(seizer.platform.allocator(), @embedFile("assets/wedge.png"), .{});
     std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });
 
-    shader_program = try seizer.glUtil.compileShader(context.gpa, VERT_SHADER, FRAG_SHADER);
+    shader_program = try seizer.glUtil.compileShader(seizer.platform.allocator(), VERT_SHADER, FRAG_SHADER);
 
     // Create VBO to display texture
     gl.genBuffers(1, &vbo);

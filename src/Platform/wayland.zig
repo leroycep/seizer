@@ -1,25 +1,26 @@
-allocator: std.mem.Allocator,
-egl: EGL,
-egl_mesa_image_dma_buf_export: EGL.MESA.image_dma_buf_export,
-egl_khr_image_base: EGL.KHR.image_base,
-egl_display: EGL.Display,
-evdev: EvDev,
-windows: std.ArrayListUnmanaged(*Window),
-wl_connection: wayland.Conn,
-wl_registry: *wayland.wayland.wl_registry,
-wl_globals: Globals,
-seats: std.ArrayListUnmanaged(*Seat),
-key_bindings: std.AutoHashMapUnmanaged(seizer.Context.Key, std.ArrayListUnmanaged(seizer.Context.AddButtonInputOptions)),
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var egl: EGL = undefined;
+var egl_mesa_image_dma_buf_export: EGL.MESA.image_dma_buf_export = undefined;
+var egl_khr_image_base: EGL.KHR.image_base = undefined;
+var egl_display: EGL.Display = undefined;
+var evdev: EvDev = undefined;
+var windows: std.ArrayListUnmanaged(*Window) = .{};
+var wl_connection: wayland.Conn = undefined;
+var wl_registry: *wayland.wayland.wl_registry = undefined;
+var wl_globals: Globals = undefined;
 
-const Linux = @This();
+var seats: std.ArrayListUnmanaged(*Seat) = .{};
+var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
 
-pub const BACKEND = seizer.backend.Backend{
+pub const PLATFORM = seizer.Platform{
     .name = "wayland",
     .main = main,
+    .gl = @import("gl"),
+    .allocator = getAllocator,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
-    .write_file_fn = writeFile,
-    .read_file_fn = readFile,
+    .writeFile = writeFile,
+    .readFile = readFile,
 };
 
 pub fn main() anyerror!void {
@@ -29,99 +30,87 @@ pub fn main() anyerror!void {
         @compileError("root module must contain init function");
     }
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
-    const this = try gpa.allocator().create(@This());
-    defer gpa.allocator().destroy(this);
-
-    this.allocator = gpa.allocator();
-    this.windows = .{};
+    windows = .{};
     defer {
-        for (this.windows.items) |window| {
+        for (windows.items) |window| {
             window.destroy();
         }
-        this.windows.deinit(gpa.allocator());
+        windows.deinit(gpa.allocator());
     }
 
     // init wayland connection
     const conn_path = try wayland.getDisplayPath(gpa.allocator());
     defer gpa.allocator().free(conn_path);
 
-    this.wl_connection = try wayland.Conn.init(gpa.allocator(), conn_path);
-    defer this.wl_connection.deinit();
+    wl_connection = try wayland.Conn.init(gpa.allocator(), conn_path);
+    defer wl_connection.deinit();
 
-    this.seats = .{};
-    this.key_bindings = .{};
+    seats = .{};
+    key_bindings = .{};
     defer {
-        for (this.seats.items) |seat| {
-            this.allocator.destroy(seat);
+        for (seats.items) |seat| {
+            gpa.allocator().destroy(seat);
         }
-        this.seats.deinit(this.allocator);
+        seats.deinit(gpa.allocator());
 
-        var iter = this.key_bindings.iterator();
+        var iter = key_bindings.iterator();
         while (iter.next()) |kb| {
-            kb.value_ptr.deinit(this.allocator);
+            kb.value_ptr.deinit(gpa.allocator());
         }
-        this.key_bindings.deinit(this.allocator);
+        key_bindings.deinit(gpa.allocator());
     }
 
-    this.wl_globals = .{};
-    this.wl_registry = try this.wl_connection.getRegistry();
-    this.wl_registry.userdata = this;
-    this.wl_registry.on_event = onRegistryEvent;
+    wl_globals = .{};
+    wl_registry = try wl_connection.getRegistry();
+    wl_registry.on_event = onRegistryEvent;
 
-    try this.wl_connection.dispatchUntilSync();
-    if (this.wl_globals.wl_compositor == null or this.wl_globals.xdg_wm_base == null or this.wl_globals.zwp_linux_dmabuf_v1 == null) {
+    try wl_connection.dispatchUntilSync();
+    if (wl_globals.wl_compositor == null or wl_globals.xdg_wm_base == null or wl_globals.zwp_linux_dmabuf_v1 == null) {
         return error.MissingWaylandProtocol;
     }
 
-    this.wl_globals.xdg_wm_base.?.on_event = onXdgWmBaseEvent;
+    wl_globals.xdg_wm_base.?.on_event = onXdgWmBaseEvent;
 
     // init this
     {
-        var library_prefixes = try seizer.backend.getLibrarySearchPaths(gpa.allocator());
+        var library_prefixes = try getLibrarySearchPaths(gpa.allocator());
         defer library_prefixes.arena.deinit();
 
-        this.egl = try EGL.loadUsingPrefixes(library_prefixes.paths.items);
+        egl = try EGL.loadUsingPrefixes(library_prefixes.paths.items);
     }
     defer {
-        this.egl.deinit();
+        egl.deinit();
     }
 
-    this.egl_mesa_image_dma_buf_export = try EGL.loadExtension(EGL.MESA.image_dma_buf_export, this.egl.functions);
-    this.egl_khr_image_base = try EGL.loadExtension(EGL.KHR.image_base, this.egl.functions);
+    egl_mesa_image_dma_buf_export = try EGL.loadExtension(EGL.MESA.image_dma_buf_export, egl.functions);
+    egl_khr_image_base = try EGL.loadExtension(EGL.KHR.image_base, egl.functions);
 
-    this.egl_display = this.egl.getDisplay(null) orelse {
+    egl_display = egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
         return error.EGLGetDisplay;
     };
-    _ = try this.egl_display.initialize();
-    defer this.egl_display.terminate();
+    _ = try egl_display.initialize();
+    defer egl_display.terminate();
 
-    this.evdev = try EvDev.init(gpa.allocator(), .{});
-    defer this.evdev.deinit();
+    evdev = try EvDev.init(gpa.allocator(), .{});
+    defer evdev.deinit();
 
-    try this.evdev.scanForDevices();
-
-    var seizer_context = seizer.Context{
-        .gpa = gpa.allocator(),
-        .backend_userdata = this,
-        .backend = &BACKEND,
-    };
+    try evdev.scanForDevices();
 
     // Call root module's `init()` function
-    root.init(&seizer_context) catch |err| {
+    root.init() catch |err| {
         std.debug.print("{s}\n", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
         return;
     };
-    while (this.windows.items.len > 0) {
+    while (windows.items.len > 0) {
         // TODO: bring all file waiting together
-        try this.wl_connection.dispatchUntilSync();
-        this.evdev.updateEventDevices() catch |err| {
+        try wl_connection.dispatchUntilSync();
+        evdev.updateEventDevices() catch |err| {
             std.debug.print("{s}\n", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
                 std.debug.dumpStackTrace(trace.*);
@@ -129,21 +118,25 @@ pub fn main() anyerror!void {
             break;
         };
         {
-            var i: usize = this.windows.items.len;
+            var i: usize = windows.items.len;
             while (i > 0) : (i -= 1) {
-                const window = this.windows.items[i - 1];
+                const window = windows.items[i - 1];
                 if (window.should_close) {
-                    _ = this.windows.swapRemove(i - 1);
+                    _ = windows.swapRemove(i - 1);
                     window.destroy();
                 }
             }
         }
-        for (this.windows.items) |window| {
+        for (windows.items) |window| {
             if (window.should_render) {
                 try window.render();
             }
         }
     }
+}
+
+fn getAllocator() std.mem.Allocator {
+    return gpa.allocator();
 }
 
 const Globals = struct {
@@ -153,45 +146,42 @@ const Globals = struct {
 };
 
 fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
-    const this: *@This() = @ptrCast(@alignCast(userdata));
+    _ = userdata;
     switch (event) {
         .global => |global| {
             std.log.debug("{s}:{} global {} = {?s} v{}", .{ @src().file, @src().line, global.name, global.interface, global.version });
             const global_interface = global.interface orelse return;
             if (std.mem.eql(u8, global_interface, wayland.wayland.wl_compositor.INTERFACE.name) and global.version >= wayland.wayland.wl_compositor.INTERFACE.version) {
-                this.wl_globals.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
+                wl_globals.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= xdg_shell.xdg_wm_base.INTERFACE.version) {
-                this.wl_globals.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
+                wl_globals.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
-                this.wl_globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
+                wl_globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
-                this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
+                seats.ensureUnusedCapacity(gpa.allocator(), 1) catch return;
 
-                const seat = this.allocator.create(Seat) catch return;
+                const seat = gpa.allocator().create(Seat) catch return;
                 const wl_seat = registry.bind(wayland.wayland.wl_seat, global.name) catch {
-                    this.allocator.destroy(seat);
+                    gpa.allocator().destroy(seat);
                     return;
                 };
                 seat.* = .{
-                    .backend = this,
                     .wl_seat = wl_seat,
                 };
                 seat.wl_seat.userdata = seat;
                 seat.wl_seat.on_event = Seat.onSeatCallback;
-                this.seats.appendAssumeCapacity(seat);
+                seats.appendAssumeCapacity(seat);
             }
         },
         .global_remove => {},
     }
 }
 
-pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
-    const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
-
+pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
     const size = if (options.size) |s| [2]c_int{ @intCast(s[0]), @intCast(s[1]) } else [2]c_int{ 640, 480 };
 
-    const wl_surface = try this.wl_globals.wl_compositor.?.create_surface();
-    const xdg_surface = try this.wl_globals.xdg_wm_base.?.get_xdg_surface(wl_surface);
+    const wl_surface = try wl_globals.wl_compositor.?.create_surface();
+    const xdg_surface = try wl_globals.xdg_wm_base.?.get_xdg_surface(wl_surface);
     const xdg_toplevel = try xdg_surface.get_toplevel();
     try wl_surface.commit();
 
@@ -202,38 +192,33 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         @intFromEnum(EGL.Attrib.green_size),      8,
         @intFromEnum(EGL.Attrib.none),
     };
-    const num_configs = try this.egl_display.chooseConfig(&attrib_list, null);
+    const num_configs = try egl_display.chooseConfig(&attrib_list, null);
 
     if (num_configs == 0) {
         return error.NoSuitableConfigs;
     }
 
-    const configs_buffer = try context.gpa.alloc(*EGL.Config.Handle, @intCast(num_configs));
-    defer context.gpa.free(configs_buffer);
+    const configs_buffer = try gpa.allocator().alloc(*EGL.Config.Handle, @intCast(num_configs));
+    defer gpa.allocator().free(configs_buffer);
 
-    const configs_len = try this.egl_display.chooseConfig(&attrib_list, configs_buffer);
+    const configs_len = try egl_display.chooseConfig(&attrib_list, configs_buffer);
     const configs = configs_buffer[0..configs_len];
 
-    try this.egl.bindAPI(.opengl_es);
+    try egl.bindAPI(.opengl_es);
     var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-        @intFromEnum(EGL.Attrib.context_major_version), 2,
+        @intFromEnum(EGL.Attrib.context_major_version), 3,
         @intFromEnum(EGL.Attrib.context_minor_version), 0,
         @intFromEnum(EGL.Attrib.none),
     };
-    const egl_context = try this.egl_display.createContext(configs[0], null, &context_attrib_list);
+    const egl_context = try egl_display.createContext(configs[0], null, &context_attrib_list);
 
-    try this.egl_display.makeCurrent(null, null, egl_context);
+    try egl_display.makeCurrent(null, null, egl_context);
 
-    const window = try context.gpa.create(Window);
-    errdefer context.gpa.destroy(window);
+    const window = try gpa.allocator().create(Window);
+    errdefer gpa.allocator().destroy(window);
 
     window.* = .{
-        .allocator = context.gpa,
-        .egl_khr_image_base = &this.egl_khr_image_base,
-        .egl_mesa_image_dma_buf_export = &this.egl_mesa_image_dma_buf_export,
-        .egl_display = this.egl_display,
         .egl_context = egl_context,
-        .wl_globals = &this.wl_globals,
         .wl_surface = wl_surface,
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
@@ -247,7 +232,7 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
         .window_size = [_]c_int{ 0, 0 },
     };
 
-    const loader = GlBindingLoader{ .egl = this.egl };
+    const loader = GlBindingLoader{ .egl = egl };
     window.gl_binding.init(loader);
     gl.makeBindingCurrent(&window.gl_binding);
 
@@ -255,9 +240,9 @@ pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWind
     window.xdg_toplevel.userdata = window;
     window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
     window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
-    try this.wl_connection.dispatchUntilSync();
+    try wl_connection.dispatchUntilSync();
 
-    try this.windows.append(context.gpa, window);
+    try windows.append(gpa.allocator(), window);
 
     return window.window();
 }
@@ -313,12 +298,7 @@ fn onWPLinuxDMABUF_SurfaceFeedback(feedback: *linux_dmabuf_v1.zwp_linux_dmabuf_f
 }
 
 const Window = struct {
-    allocator: std.mem.Allocator,
-    egl_mesa_image_dma_buf_export: *const EGL.MESA.image_dma_buf_export,
-    egl_khr_image_base: *const EGL.KHR.image_base,
-    egl_display: EGL.Display,
     egl_context: EGL.Context,
-    wl_globals: *const Globals,
     wl_surface: *wayland.wayland.wl_surface,
     xdg_surface: *xdg_shell.xdg_surface,
     xdg_toplevel: *xdg_shell.xdg_toplevel,
@@ -355,7 +335,7 @@ const Window = struct {
 
         this.wl_surface.destroy() catch {};
 
-        this.allocator.destroy(this);
+        gpa.allocator().destroy(this);
     }
 
     pub fn window(this: *@This()) seizer.Window {
@@ -470,13 +450,11 @@ const Window = struct {
     }
 
     pub fn createFramebuffer(this_window: *Window, size: [2]c_int) !*Framebuffer {
-        const framebuffer = try this_window.allocator.create(Framebuffer);
+        const framebuffer = try gpa.allocator().create(Framebuffer);
         framebuffer.* = .{
-            .allocator = this_window.allocator,
+            .allocator = gpa.allocator(),
             .window = this_window,
-            .egl_khr_image_base = this_window.egl_khr_image_base,
             .wl_buffer = null,
-            .egl_display = this_window.egl_display,
             .egl_image = undefined,
             .size = size,
         };
@@ -491,18 +469,18 @@ const Window = struct {
         gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
 
-        framebuffer.egl_image = try this_window.egl_khr_image_base.createImage(
-            this_window.egl_display,
+        framebuffer.egl_image = try egl_khr_image_base.createImage(
+            egl_display,
             this_window.egl_context,
             .gl_renderbuffer,
             @ptrFromInt(@as(usize, @intCast(framebuffer.gl_render_buffers[0]))),
             null,
         );
 
-        const dmabuf_image = try this_window.egl_mesa_image_dma_buf_export.exportImageAlloc(this_window.allocator, this_window.egl_display, framebuffer.egl_image);
+        const dmabuf_image = try egl_mesa_image_dma_buf_export.exportImageAlloc(gpa.allocator(), egl_display, framebuffer.egl_image);
         defer dmabuf_image.deinit();
 
-        const wl_dmabuf_buffer_params = try this_window.wl_globals.zwp_linux_dmabuf_v1.?.create_params();
+        const wl_dmabuf_buffer_params = try wl_globals.zwp_linux_dmabuf_v1.?.create_params();
         defer wl_dmabuf_buffer_params.destroy() catch {};
 
         for (0.., dmabuf_image.dmabuf_fds, dmabuf_image.offsets, dmabuf_image.strides) |plane, fd, offset, stride| {
@@ -532,10 +510,8 @@ const Window = struct {
 const Framebuffer = struct {
     allocator: std.mem.Allocator,
     window: *Window,
-    egl_khr_image_base: *const EGL.KHR.image_base,
     gl_render_buffers: [1]gl.Uint = .{0},
     gl_framebuffer_objects: [1]gl.Uint = .{0},
-    egl_display: EGL.Display,
     egl_image: EGL.KHR.image_base.Image,
     wl_buffer: ?*wayland.wayland.wl_buffer,
     size: [2]c_int,
@@ -547,7 +523,7 @@ const Framebuffer = struct {
 
     pub fn destroy(framebuffer: *Framebuffer) void {
         if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
-        framebuffer.egl_khr_image_base.destroyImage(framebuffer.egl_display, framebuffer.egl_image) catch {};
+        egl_khr_image_base.destroyImage(egl_display, framebuffer.egl_image) catch {};
         gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
         gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
         framebuffer.allocator.destroy(framebuffer);
@@ -567,26 +543,24 @@ const Framebuffer = struct {
     }
 };
 
-pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
-    const this: *@This() = @ptrCast(@alignCast(context.backend_userdata.?));
-    try this.evdev.addButtonInput(options);
+pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
+    try evdev.addButtonInput(options);
 
     for (options.default_bindings) |button_code| {
         switch (button_code) {
             .gamepad => {},
             .keyboard => |key| {
-                const gop = try this.key_bindings.getOrPut(this.allocator, key);
+                const gop = try key_bindings.getOrPut(gpa.allocator(), .{ .keyboard = key });
                 if (!gop.found_existing) {
                     gop.value_ptr.* = .{};
                 }
-                try gop.value_ptr.append(this.allocator, options);
+                try gop.value_ptr.append(gpa.allocator(), options);
             },
         }
     }
 }
 
 const Seat = struct {
-    backend: *Linux,
     wl_seat: *wayland.wayland.wl_seat,
     wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
 
@@ -618,12 +592,13 @@ const Seat = struct {
 
     fn onKeyboardCallback(seat: *wayland.wayland.wl_keyboard, userdata: ?*anyopaque, event: wayland.wayland.wl_keyboard.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata));
+        _ = this;
         _ = seat;
         switch (event) {
             .key => |k| {
                 const key: EvDev.KEY = @enumFromInt(@as(u16, @intCast(k.key)));
 
-                const actions = this.backend.key_bindings.get(key) orelse return;
+                const actions = key_bindings.get(.{ .keyboard = key }) orelse return;
                 for (actions.items) |action| {
                     action.on_event(k.state == .pressed) catch |err| {
                         std.debug.print("{s}\n", .{@errorName(err)});
@@ -639,8 +614,8 @@ const Seat = struct {
     }
 };
 
-pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) void {
-    if (writeFileWithError(ctx, options)) {
+pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
+    if (writeFileWithError(options)) {
         options.callback(options.userdata, {});
     } else |err| {
         switch (err) {
@@ -649,9 +624,9 @@ pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions)
     }
 }
 
-fn writeFileWithError(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) !void {
-    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
-    defer ctx.gpa.free(app_data_dir_path);
+fn writeFileWithError(options: seizer.Platform.WriteFileOptions) !void {
+    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
+    defer gpa.allocator().free(app_data_dir_path);
 
     var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
     defer app_data_dir.close();
@@ -662,8 +637,8 @@ fn writeFileWithError(ctx: *seizer.Context, options: seizer.Context.WriteFileOpt
     });
 }
 
-pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) void {
-    if (readFileWithError(ctx, options)) |read_bytes| {
+pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
+    if (readFileWithError(options)) |read_bytes| {
         options.callback(options.userdata, read_bytes);
     } else |err| {
         switch (err) {
@@ -673,9 +648,9 @@ pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) v
     }
 }
 
-fn readFileWithError(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) ![]u8 {
-    const app_data_dir_path = try std.fs.getAppDataDir(ctx.gpa, options.appname);
-    defer ctx.gpa.free(app_data_dir_path);
+fn readFileWithError(options: seizer.Platform.ReadFileOptions) ![]u8 {
+    const app_data_dir_path = try std.fs.getAppDataDir(gpa.allocator(), options.appname);
+    defer gpa.allocator().free(app_data_dir_path);
 
     var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
     defer app_data_dir.close();
@@ -684,7 +659,42 @@ fn readFileWithError(ctx: *seizer.Context, options: seizer.Context.ReadFileOptio
     return read_buffer;
 }
 
-const EvDev = @import("./linux/evdev.zig");
+const LibraryPaths = struct {
+    arena: std.heap.ArenaAllocator,
+    paths: std.ArrayListUnmanaged([]const u8),
+};
+
+pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
+    var path_arena_allocator = std.heap.ArenaAllocator.init(allocator);
+    errdefer path_arena_allocator.deinit();
+    const arena = path_arena_allocator.allocator();
+
+    var prefixes_to_try = std.ArrayList([]const u8).init(arena);
+
+    try prefixes_to_try.append(try arena.dupe(u8, "."));
+    try prefixes_to_try.append(try arena.dupe(u8, ""));
+    try prefixes_to_try.append(try arena.dupe(u8, "/usr/lib/"));
+    if (std.process.getEnvVarOwned(arena, "NIX_LD_LIBRARY_PATH")) |path_list| {
+        var path_list_iter = std.mem.tokenize(u8, path_list, ":");
+        while (path_list_iter.next()) |path| {
+            try prefixes_to_try.append(path);
+        }
+    } else |_| {}
+
+    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
+    const exe_dir_path = try std.fs.selfExeDirPath(&path_buf);
+    var dir_to_search_opt: ?[]const u8 = exe_dir_path;
+    while (dir_to_search_opt) |dir_to_search| : (dir_to_search_opt = std.fs.path.dirname(dir_to_search)) {
+        try prefixes_to_try.append(try std.fs.path.join(arena, &.{ dir_to_search, "lib" }));
+    }
+
+    return LibraryPaths{
+        .arena = path_arena_allocator,
+        .paths = prefixes_to_try.moveToUnmanaged(),
+    };
+}
+
+const EvDev = @import("./linuxbsd/evdev.zig");
 
 const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
 const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";

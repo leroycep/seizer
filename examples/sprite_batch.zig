@@ -1,7 +1,5 @@
 pub const main = seizer.main;
 
-var allocator: std.mem.Allocator = undefined;
-
 var canvas: seizer.Canvas = undefined;
 var player_texture: seizer.Texture = undefined;
 var sprites: std.MultiArrayList(Sprite) = .{};
@@ -36,26 +34,24 @@ pub fn keepInBounds(positions: []const [2]f32, velocities: [][2]f32, sizes: []co
     }
 }
 
-pub fn init(context: *seizer.Context) !void {
-    allocator = context.gpa;
-
-    _ = try context.createWindow(.{
+pub fn init() !void {
+    _ = try seizer.platform.createWindow(.{
         .title = "Sprite Batch - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(allocator, .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
     errdefer canvas.deinit();
 
-    player_texture = try seizer.Texture.initFromFileContents(context.gpa, @embedFile("assets/wedge.png"), .{});
+    player_texture = try seizer.Texture.initFromFileContents(seizer.platform.allocator(), @embedFile("assets/wedge.png"), .{});
 
     prng = std.rand.DefaultPrng.init(1337);
 }
 
 pub fn deinit(window: seizer.Window) void {
     _ = window;
-    sprites.deinit(allocator);
+    sprites.deinit(seizer.platform.allocator());
     canvas.deinit();
 }
 
@@ -91,7 +87,7 @@ fn render(window: seizer.Window) !void {
             @as(f32, @floatFromInt(player_texture.size[0])) * scale,
             @as(f32, @floatFromInt(player_texture.size[1])) * scale,
         };
-        try sprites.append(allocator, .{
+        try sprites.append(seizer.platform.allocator(), .{
             .pos = .{
                 prng.random().float(f32) * (world_size[0] - size[0]) + world_bounds.min[0],
                 prng.random().float(f32) * (world_size[1] - size[1]) + world_bounds.min[1],

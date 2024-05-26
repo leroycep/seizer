@@ -1,18 +1,20 @@
-pub const BACKEND = seizer.backend.Backend{
+pub const PLATFORM = seizer.Platform{
     .name = "wasm",
     .main = main,
+    .gl = gl,
+    .allocator = getAllocator,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
-    .write_file_fn = writeFile,
-    .read_file_fn = readFile,
+    .writeFile = writeFile,
+    .readFile = readFile,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var windows = std.AutoArrayHashMapUnmanaged(*Surface, Window){};
 var next_window_id: u32 = 1;
 
-var button_inputs = std.SegmentedList(seizer.Context.AddButtonInputOptions, 16){};
-var button_bindings = std.AutoHashMapUnmanaged(seizer.Context.Binding, std.ArrayListUnmanaged(*seizer.Context.AddButtonInputOptions)){};
+var button_inputs = std.SegmentedList(seizer.Platform.AddButtonInputOptions, 16){};
+var button_bindings = std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(*seizer.Platform.AddButtonInputOptions)){};
 
 var seizer_context: seizer.Context = undefined;
 
@@ -23,14 +25,8 @@ pub fn main() anyerror!void {
         @compileError("root module must contain init function");
     }
 
-    seizer_context = seizer.Context{
-        .gpa = gpa.allocator(),
-        .backend_userdata = null,
-        .backend = &BACKEND,
-    };
-
     // Call root module's `init()` function
-    root.init(&seizer_context) catch |err| {
+    root.init() catch |err| {
         std.log.warn("{s}\n", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
@@ -39,8 +35,11 @@ pub fn main() anyerror!void {
     };
 }
 
-pub fn createWindow(context: *seizer.Context, options: seizer.Context.CreateWindowOptions) anyerror!seizer.Window {
-    _ = context;
+pub fn getAllocator() std.mem.Allocator {
+    return gpa.allocator();
+}
+
+pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
     const size: [2]u32 = options.size orelse .{ 640, 480 };
 
     const surface = Surface.create_surface(size[0], size[1]) orelse return error.CreateSurface;
@@ -112,7 +111,7 @@ pub export fn _key_event(surface: *Surface, key_code: u32, pressed: bool) void {
     const window = windows.getPtr(@ptrCast(surface)).?;
     _ = window;
 
-    const binding = seizer.Context.Binding{ .keyboard = @enumFromInt(key_code) };
+    const binding = seizer.Platform.Binding{ .keyboard = @enumFromInt(key_code) };
     if (button_bindings.get(binding)) |actions| {
         for (actions.items) |action| {
             action.on_event(pressed) catch |err| {
@@ -237,9 +236,7 @@ pub const gl = struct {
     pub extern "webgl2" fn uniformMatrix4fv(location: Int, count: Sizei, transpose: Boolean, value: [*c]const Float) void;
 };
 
-pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButtonInputOptions) anyerror!void {
-    _ = context;
-
+pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
     const options_owned = try button_inputs.addOne(gpa.allocator());
     options_owned.* = options;
 
@@ -255,8 +252,7 @@ pub fn addButtonInput(context: *seizer.Context, options: seizer.Context.AddButto
 pub extern "seizer" fn file_write(path_ptr: [*]const u8, path_len: usize, data_ptr: [*]const u8, data_len: usize, completion_callback: *const anyopaque, completion_userdata: ?*anyopaque) void;
 pub extern "seizer" fn file_read(path_ptr: [*]const u8, path_len: usize, buffer_ptr: [*]u8, buffer_len: usize, completion_callback: *const anyopaque, completion_userdata: ?*anyopaque) void;
 
-pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions) void {
-    _ = ctx;
+pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
     file_write(
         options.path.ptr,
         options.path.len,
@@ -267,8 +263,7 @@ pub fn writeFile(ctx: *seizer.Context, options: seizer.Context.WriteFileOptions)
     );
 }
 
-pub fn readFile(ctx: *seizer.Context, options: seizer.Context.ReadFileOptions) void {
-    _ = ctx;
+pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
     file_read(
         options.path.ptr,
         options.path.len,
@@ -284,7 +279,7 @@ const FileErrcode = enum(u32) {
     NotFound = 1,
 };
 pub export fn _dispatch_write_file_completion(callback_opaque_fn: *const anyopaque, userdata: ?*anyopaque, errorcode: FileErrcode) void {
-    const callback: seizer.Context.WriteFileCallbackFn = @ptrCast(callback_opaque_fn);
+    const callback: seizer.Platform.WriteFileCallbackFn = @ptrCast(callback_opaque_fn);
     switch (errorcode) {
         .Success => callback(userdata, {}),
         .NotFound => callback(userdata, error.NotFound),
@@ -292,7 +287,7 @@ pub export fn _dispatch_write_file_completion(callback_opaque_fn: *const anyopaq
 }
 
 pub export fn _dispatch_read_file_completion(callback_opaque_fn: *const anyopaque, userdata: ?*anyopaque, errorcode: FileErrcode, buf_ptr: [*]u8, nbytes: usize) void {
-    const callback: seizer.Context.ReadFileCallbackFn = @ptrCast(callback_opaque_fn);
+    const callback: seizer.Platform.ReadFileCallbackFn = @ptrCast(callback_opaque_fn);
     switch (errorcode) {
         .Success => callback(userdata, buf_ptr[0..nbytes]),
         .NotFound => callback(userdata, error.NotFound),
