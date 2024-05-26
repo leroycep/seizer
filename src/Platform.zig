@@ -1,7 +1,5 @@
 pub const wasm = @import("Platform/wasm.zig");
 pub const linuxbsd = @import("Platform/linuxbsd.zig");
-// TODO: merge wayland backend with linuxbsd backend
-pub const wayland = @import("Platform/wayland.zig");
 
 const Platform = @This();
 

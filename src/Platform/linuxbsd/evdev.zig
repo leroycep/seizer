@@ -3,15 +3,11 @@ devices: std.ArrayListUnmanaged(Device),
 pollfds: std.ArrayListUnmanaged(std.posix.pollfd),
 mapping_db: seizer.Gamepad.DB,
 input_device_dir: std.fs.Dir,
-button_inputs: std.SegmentedList(seizer.Platform.AddButtonInputOptions, 16),
-button_bindings: std.AutoHashMapUnmanaged(seizer.Gamepad.Button, std.ArrayListUnmanaged(*seizer.Platform.AddButtonInputOptions)),
+button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
 const EvDev = @This();
 
-const InitOptions = struct {};
-
-pub fn init(gpa: std.mem.Allocator, options: InitOptions) !EvDev {
-    _ = options;
+pub fn init(gpa: std.mem.Allocator, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !EvDev {
     var mapping_db = try seizer.Gamepad.DB.init(gpa, .{});
     errdefer mapping_db.deinit();
 
@@ -24,8 +20,7 @@ pub fn init(gpa: std.mem.Allocator, options: InitOptions) !EvDev {
         .pollfds = .{},
         .mapping_db = mapping_db,
         .input_device_dir = input_device_dir,
-        .button_inputs = .{},
-        .button_bindings = .{},
+        .button_bindings = button_bindings,
     };
 }
 
@@ -37,33 +32,8 @@ pub fn deinit(this: *@This()) void {
     }
     this.devices.deinit(this.gpa);
     this.pollfds.deinit(this.gpa);
-    this.button_inputs.deinit(this.gpa);
-
-    var binding_iter = this.button_bindings.valueIterator();
-    while (binding_iter.next()) |actions| {
-        actions.deinit(this.gpa);
-    }
-    this.button_bindings.deinit(this.gpa);
 
     this.mapping_db.deinit();
-}
-
-pub fn addButtonInput(this: *EvDev, options: seizer.Platform.AddButtonInputOptions) anyerror!void {
-    const button_input = try this.button_inputs.addOne(this.gpa);
-    button_input.* = options;
-
-    for (options.default_bindings) |button_code| {
-        switch (button_code) {
-            .gamepad => |btn| {
-                const gop = try this.button_bindings.getOrPut(this.gpa, btn);
-                if (!gop.found_existing) {
-                    gop.value_ptr.* = .{};
-                }
-                try gop.value_ptr.append(this.gpa, button_input);
-            },
-            .keyboard => {},
-        }
-    }
 }
 
 // TODO: replace with some kind of listener similar to inotify
@@ -443,7 +413,7 @@ pub fn updateEventDevices(this: *EvDev) !void {
                         .KEY => if (dev.button_code_to_index.get(input_event.code)) |btn_index| do_output: {
                             const output = mapping.buttons[btn_index] orelse break :do_output;
                             switch (output) {
-                                .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
                                     for (actions.items) |action| {
                                         try action.on_event(input_event.value > 0);
                                     }
@@ -479,7 +449,7 @@ pub fn updateEventDevices(this: *EvDev) !void {
 
                                     const output = mapping.hats[hat_index][hat_subindex] orelse continue;
                                     switch (output) {
-                                        .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                        .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
                                             for (actions.items) |action| {
                                                 try action.on_event(input_event.value != 0);
                                             }
@@ -491,7 +461,7 @@ pub fn updateEventDevices(this: *EvDev) !void {
 
                                     const anti_output = mapping.hats[hat_index][hat_anti_index] orelse continue;
                                     switch (anti_output) {
-                                        .button => |gamepad_btn_code| if (this.button_bindings.get(gamepad_btn_code)) |actions| {
+                                        .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
                                             for (actions.items) |action| {
                                                 try action.on_event(false);
                                             }

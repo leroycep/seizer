@@ -13,7 +13,8 @@ var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var egl: EGL = undefined;
 var display: EGL.Display = undefined;
 var evdev: EvDev = undefined;
-var windows: std.ArrayListUnmanaged(*Window) = .{};
+var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
+var window_manager: WindowManager = undefined;
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -24,10 +25,6 @@ pub fn main() anyerror!void {
 
     defer _ = gpa.deinit();
 
-    const this = try gpa.allocator().create(@This());
-    defer gpa.allocator().destroy(this);
-
-    // init this
     {
         var library_prefixes = try getLibrarySearchPaths(gpa.allocator());
         defer library_prefixes.arena.deinit();
@@ -48,13 +45,24 @@ pub fn main() anyerror!void {
     _ = try display.initialize();
     defer display.terminate();
 
-    evdev = try EvDev.init(gpa.allocator(), .{});
-    defer evdev.deinit();
+    defer {
+        var iter = key_bindings.valueIterator();
+        while (iter.next()) |actions| {
+            actions.deinit(gpa.allocator());
+        }
+        key_bindings.deinit(gpa.allocator());
+    }
 
+    evdev = try EvDev.init(gpa.allocator(), &key_bindings);
+    defer evdev.deinit();
     try evdev.scanForDevices();
 
-    windows = .{};
-    defer windows.deinit(gpa.allocator());
+    window_manager = try WindowManager.init(.{
+        .allocator = gpa.allocator(),
+        .egl = &egl,
+        .key_bindings = &key_bindings,
+    });
+    defer window_manager.deinit();
 
     // Call root module's `init()` function
     root.init() catch |err| {
@@ -64,7 +72,7 @@ pub fn main() anyerror!void {
         }
         return;
     };
-    while (windows.items.len > 0) {
+    while (!window_manager.shouldClose()) {
         evdev.updateEventDevices() catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
@@ -72,27 +80,7 @@ pub fn main() anyerror!void {
             }
             return;
         };
-        {
-            var i: usize = windows.items.len;
-            while (i > 0) : (i -= 1) {
-                const window = windows.items[i - 1];
-                if (window.should_close) {
-                    _ = windows.swapRemove(i - 1);
-                    window.destroy();
-                }
-            }
-        }
-        for (windows.items) |window| {
-            gl.makeBindingCurrent(&window.gl_binding);
-            window.on_render(window.window()) catch |err| {
-                std.debug.print("{s}", .{@errorName(err)});
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                return;
-            };
-            window.swapBuffers();
-        }
+        try window_manager.update();
     }
 }
 
@@ -101,130 +89,17 @@ pub fn getAllocator() std.mem.Allocator {
 }
 
 pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
-    var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-        @intFromEnum(EGL.Attrib.surface_type),    EGL.WINDOW_BIT,
-        @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
-        @intFromEnum(EGL.Attrib.red_size),        8,
-        @intFromEnum(EGL.Attrib.blue_size),       8,
-        @intFromEnum(EGL.Attrib.green_size),      8,
-        @intFromEnum(EGL.Attrib.none),
-    };
-    const num_configs = try display.chooseConfig(&attrib_list, null);
-
-    if (num_configs == 0) {
-        return error.NoSuitableConfigs;
-    }
-
-    const configs_buffer = try gpa.allocator().alloc(*EGL.Config.Handle, @intCast(num_configs));
-    defer gpa.allocator().free(configs_buffer);
-
-    const configs_len = try display.chooseConfig(&attrib_list, configs_buffer);
-    const configs = configs_buffer[0..configs_len];
-
-    const surface = try display.createWindowSurface(configs[0], null, null);
-
-    try egl.bindAPI(.opengl_es);
-    var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-        @intFromEnum(EGL.Attrib.context_major_version), 3,
-        @intFromEnum(EGL.Attrib.context_minor_version), 0,
-        @intFromEnum(EGL.Attrib.none),
-    };
-    const egl_context = try display.createContext(configs[0], null, &context_attrib_list);
-
-    try display.makeCurrent(surface, surface, egl_context);
-
-    const linux_window = try gpa.allocator().create(Window);
-    errdefer gpa.allocator().destroy(linux_window);
-
-    linux_window.* = .{
-        .surface = surface,
-        .egl_context = egl_context,
-        .should_close = false,
-
-        .gl_binding = undefined,
-        .on_render = options.on_render,
-        .on_destroy = options.on_destroy,
-    };
-
-    const loader = GlBindingLoader{};
-    linux_window.gl_binding.init(loader);
-    gl.makeBindingCurrent(&linux_window.gl_binding);
-
-    gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
-
-    try windows.append(gpa.allocator(), linux_window);
-
-    return linux_window.window();
+    return window_manager.createWindow(options, display);
 }
 
-pub const GlBindingLoader = struct {
-    const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
-
-    pub fn getCommandFnPtr(this: @This(), command_name: [:0]const u8) ?AnyCFnPtr {
-        _ = this;
-        return egl.functions.eglGetProcAddress(command_name);
-    }
-
-    pub fn extensionSupported(this: @This(), extension_name: [:0]const u8) bool {
-        _ = this;
-        _ = extension_name;
-        return true;
-    }
-};
-
-const Window = struct {
-    surface: EGL.Surface,
-    egl_context: EGL.Context,
-    should_close: bool,
-
-    gl_binding: gl.Binding,
-    on_render: *const fn (seizer.Window) anyerror!void,
-    on_destroy: ?*const fn (seizer.Window) void,
-
-    pub const INTERFACE = seizer.Window.Interface{
-        .getSize = getSize,
-        .getFramebufferSize = getSize,
-        .setShouldClose = setShouldClose,
-    };
-
-    pub fn destroy(this: *@This()) void {
-        if (this.on_destroy) |on_destroy| {
-            on_destroy(this.window());
-        }
-        display.destroySurface(this.surface);
-        gpa.allocator().destroy(this);
-    }
-
-    pub fn window(this: *@This()) seizer.Window {
-        return seizer.Window{
-            .pointer = this,
-            .interface = &INTERFACE,
-        };
-    }
-
-    pub fn getSize(userdata: ?*anyopaque) [2]f32 {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
-
-        const width = display.querySurface(this.surface, .width) catch unreachable;
-        const height = display.querySurface(this.surface, .height) catch unreachable;
-
-        return .{ @floatFromInt(width), @floatFromInt(height) };
-    }
-
-    pub fn swapBuffers(this: *@This()) void {
-        display.swapBuffers(this.surface) catch |err| {
-            std.log.warn("failed to swap buffers: {}", .{err});
-        };
-    }
-
-    pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
-        this.should_close = should_close;
-    }
-};
-
 pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
-    try evdev.addButtonInput(options);
+    for (options.default_bindings) |button_code| {
+        const gop = try key_bindings.getOrPut(gpa.allocator(), button_code);
+        if (!gop.found_existing) {
+            gop.value_ptr.* = .{};
+        }
+        try gop.value_ptr.append(gpa.allocator(), options);
+    }
 }
 
 pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
@@ -271,6 +146,7 @@ pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
 }
 
 pub const EvDev = @import("./linuxbsd/evdev.zig");
+pub const WindowManager = @import("./linuxbsd/window_manager.zig").WindowManager;
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 

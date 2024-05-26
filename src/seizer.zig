@@ -16,7 +16,7 @@ pub const main = platform.main;
 pub const gl = platform.gl;
 
 pub const platform: Platform = if (builtin.os.tag == .linux or builtin.os.tag.isBSD())
-    Platform.wayland.PLATFORM
+    Platform.linuxbsd.PLATFORM
 else if (builtin.os.tag == .wasi)
     Platform.wasm.PLATFORM
 else

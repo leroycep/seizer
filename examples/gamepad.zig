@@ -106,6 +106,7 @@ fn onLeftShoulder(pressed: bool) !void {
 
 fn onQuit(pressed: bool) !void {
     if (!pressed) return;
+    std.log.debug("{s}:{} Telling seizer to close", .{ @src().file, @src().line });
     window_global.setShouldClose(true);
 }
 
