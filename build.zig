@@ -26,6 +26,11 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
+    const libxev = b.dependency("libxev", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const gl_module = b.addModule("gl", .{
         .root_source_file = .{ .path = "dep/gles3v0.zig" },
     });
@@ -126,6 +131,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
+            .{ .name = "xev", .module = libxev.module("xev") },
         },
     });
 

@@ -11,6 +11,7 @@ pub const PLATFORM = seizer.Platform{
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var egl: EGL = undefined;
+var loop: xev.Loop = undefined;
 var display: EGL.Display = undefined;
 var evdev: EvDev = undefined;
 var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
@@ -37,6 +38,9 @@ pub fn main() anyerror!void {
     defer {
         egl.deinit();
     }
+
+    loop = try xev.Loop.init(.{});
+    defer loop.deinit();
 
     display = egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
@@ -73,6 +77,7 @@ pub fn main() anyerror!void {
         return;
     };
     while (!window_manager.shouldClose()) {
+        try loop.run(.no_wait);
         evdev.updateEventDevices() catch |err| {
             std.debug.print("{s}", .{@errorName(err)});
             if (@errorReturnTrace()) |trace| {
@@ -150,6 +155,7 @@ pub const WindowManager = @import("./linuxbsd/window_manager.zig").WindowManager
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
+const xev = @import("xev");
 const gl = seizer.gl;
 const EGL = @import("EGL");
 const seizer = @import("../seizer.zig");
