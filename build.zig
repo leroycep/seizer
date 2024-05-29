@@ -43,6 +43,9 @@ pub fn build(b: *Builder) !void {
         .root_source_file = .{ .path = "dep/wayland/src/main.zig" },
         .target = target,
         .optimize = optimize,
+        .imports = &.{
+            .{ .name = "xev", .module = libxev.module("xev") },
+        },
     });
 
     const wayland_protocols_module = b.addModule("wayland-protocols", .{

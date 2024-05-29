@@ -6,6 +6,7 @@ pub const WindowManager = union(enum) {
 
     pub const InitOptions = struct {
         allocator: std.mem.Allocator,
+        loop: *xev.Loop,
         egl: *const EGL,
         key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
     };
@@ -80,9 +81,6 @@ const Wayland = struct {
         const connection_path = try wayland.getDisplayPath(options.allocator);
         defer options.allocator.free(connection_path);
 
-        var connection = try wayland.Conn.init(options.allocator, connection_path);
-        errdefer connection.deinit();
-
         // Get required EGL extensions
         const egl_mesa_image_dma_buf_export = try EGL.loadExtension(EGL.MESA.image_dma_buf_export, options.egl.functions);
         const egl_khr_image_base = try EGL.loadExtension(EGL.KHR.image_base, options.egl.functions);
@@ -91,7 +89,7 @@ const Wayland = struct {
         this.* = .{
             .allocator = options.allocator,
 
-            .connection = connection,
+            .connection = undefined,
             .registry = undefined,
 
             .egl = options.egl,
@@ -101,11 +99,14 @@ const Wayland = struct {
             .key_bindings = options.key_bindings,
         };
 
+        try this.connection.connect(options.loop, options.allocator, connection_path);
+        errdefer this.connection.deinit();
+
         this.registry = try this.connection.getRegistry();
         this.registry.on_event = onRegistryEvent;
         this.registry.userdata = this;
 
-        try this.connection.dispatchUntilSync();
+        try this.connection.dispatchUntilSync(options.loop);
         if (this.globals.wl_compositor == null or this.globals.xdg_wm_base == null or this.globals.zwp_linux_dmabuf_v1 == null) {
             return error.MissingWaylandProtocol;
         }
@@ -136,8 +137,6 @@ const Wayland = struct {
     }
 
     fn update(this: *@This()) !void {
-        // TODO: bring all file waiting together
-        try this.connection.dispatchUntilSync();
         {
             var i: usize = this.windows.items.len;
             while (i > 0) : (i -= 1) {
@@ -270,7 +269,6 @@ const Wayland = struct {
         window.xdg_toplevel.userdata = window;
         window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
         window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
-        try this.connection.dispatchUntilSync();
 
         try this.windows.append(this.allocator, window);
 
@@ -375,6 +373,8 @@ const Wayland = struct {
         }
 
         fn render(this_window: *Window) !void {
+            if (this_window.window_size[0] == 0 and this_window.window_size[1] == 0) return;
+
             gl.makeBindingCurrent(&this_window.gl_binding);
 
             const framebuffer = this_window.getFramebuffer(this_window.window_size) catch |e| {
@@ -767,6 +767,7 @@ pub const GlBindingLoader = struct {
     }
 };
 
+const xev = @import("xev");
 const EGL = @import("EGL");
 const gl = seizer.gl;
 const seizer = @import("../../seizer.zig");

@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const log = std.log.scoped(.wayland);
 const builtin = @import("builtin");
+const xev = @import("xev");
 
 pub const wayland = @import("./wayland.zig");
 
@@ -474,6 +475,10 @@ pub const IdPool = struct {
     }
 };
 
+const SCM = struct {
+    const RIGHTS = 0x01;
+};
+
 fn cmsg(comptime T: type) type {
     const raw_struct_size = @sizeOf(c_ulong) + @sizeOf(c_int) + @sizeOf(c_int) + @sizeOf(T);
     const padded_struct_size = std.mem.alignForward(usize, @sizeOf(c_ulong) + @sizeOf(c_int) + @sizeOf(c_int) + @sizeOf(T), @alignOf(c_long));
@@ -486,6 +491,17 @@ fn cmsg(comptime T: type) type {
         _padding: [padding_size]u8 align(1) = [_]u8{0} ** padding_size,
     };
 }
+
+const cmsg_header_t = extern struct {
+    len: c_ulong,
+    level: c_int,
+    type: c_int,
+
+    // Calculate the size of the message if padding is included
+    pub fn size(cmsg_header: cmsg_header_t) usize {
+        return std.mem.alignForward(usize, cmsg_header.len, @alignOf(c_long));
+    }
+};
 
 pub const Object = struct {
     interface: *const Interface,
@@ -528,25 +544,82 @@ pub const Object = struct {
 
 pub const Conn = struct {
     allocator: std.mem.Allocator,
+
     id_pool: IdPool,
     objects: std.AutoHashMapUnmanaged(u32, Object),
-    send_buffer: []u32,
-    recv_buffer: []u32,
-    fd_queue: std.ArrayListUnmanaged(std.posix.fd_t),
-    socket: std.net.Stream,
 
-    pub fn init(alloc: std.mem.Allocator, display_path: []const u8) !Conn {
+    /// Store a buffer to avoid allocating a serialization buffer every time `send` is called.
+    send_buffer: []u32,
+
+    recv_completion: xev.Completion,
+
+    recv_msghdr: std.posix.msghdr,
+    recv_iov: [1]std.posix.iovec,
+
+    /// A buffer to read data into. Anything in `send_buffer.items` are bytes that have already been read.
+    /// The capacity slice is used as a destination for `read` calls.
+    ///
+    /// Whenever possible, this buffer should be empty. All received messages that are complete should be
+    /// dispatched and removed from this buffer. The only time it should have data in it is when a message
+    /// has only been partially received.
+    recv_buffer: std.ArrayListUnmanaged(u8),
+    control_recv_buffer: std.ArrayListUnmanaged(u8),
+
+    /// Temporarily stores file descriptors until the corresponding message is deserialized
+    recv_fd_queue: std.ArrayListUnmanaged(std.posix.fd_t),
+
+    socket: std.posix.socket_t,
+
+    pub fn connect(conn: *Conn, loop: *xev.Loop, alloc: std.mem.Allocator, display_path: []const u8) !void {
         const send_buffer = try alloc.alloc(u32, 1024);
-        const recv_buffer = try alloc.alloc(u32, 1024);
-        return .{
+        errdefer alloc.free(send_buffer);
+
+        var recv_buffer = try std.ArrayListUnmanaged(u8).initCapacity(alloc, 1024);
+        errdefer recv_buffer.deinit(alloc);
+
+        var control_recv_buffer = try std.ArrayListUnmanaged(u8).initCapacity(alloc, 1024);
+        errdefer control_recv_buffer.deinit(alloc);
+
+        const stream = try std.net.connectUnixSocket(display_path);
+        errdefer stream.close();
+
+        conn.* = .{
             .allocator = alloc,
+
             .id_pool = .{},
             .objects = .{},
             .send_buffer = send_buffer,
+
+            .recv_iov = .{.{
+                .iov_base = recv_buffer.unusedCapacitySlice().ptr,
+                .iov_len = recv_buffer.unusedCapacitySlice().len,
+            }},
+
+            .recv_msghdr = .{
+                .name = null,
+                .namelen = 0,
+                .iov = &conn.recv_iov,
+                .iovlen = conn.recv_iov.len,
+                .control = control_recv_buffer.items.ptr,
+                .controllen = @intCast(control_recv_buffer.items.len),
+                .flags = 0,
+            },
+
+            .recv_completion = .{
+                .op = .{ .recvmsg = .{
+                    .fd = stream.handle,
+                    .msghdr = &conn.recv_msghdr,
+                } },
+                .callback = recvMsgCallback,
+            },
             .recv_buffer = recv_buffer,
-            .fd_queue = .{},
-            .socket = try std.net.connectUnixSocket(display_path),
+            .control_recv_buffer = control_recv_buffer,
+            .recv_fd_queue = .{},
+
+            .socket = stream.handle,
         };
+
+        loop.add(&conn.recv_completion);
     }
 
     pub fn deinit(conn: *Conn) void {
@@ -555,11 +628,13 @@ pub const Conn = struct {
             obj.interface.delete(obj.*);
         }
         conn.objects.deinit(conn.allocator);
-
         conn.allocator.free(conn.send_buffer);
-        conn.allocator.free(conn.recv_buffer);
-        conn.fd_queue.deinit(conn.allocator);
-        conn.socket.close();
+
+        conn.recv_buffer.deinit(conn.allocator);
+        conn.control_recv_buffer.deinit(conn.allocator);
+        conn.recv_fd_queue.deinit(conn.allocator);
+
+        std.posix.close(conn.socket);
     }
 
     pub fn sync(conn: *Conn) !*wayland.wl_callback {
@@ -584,7 +659,7 @@ pub const Conn = struct {
         return object;
     }
 
-    pub fn dispatchUntilSync(conn: *Conn) !void {
+    pub fn dispatchUntilSync(conn: *Conn, loop: *xev.Loop) !void {
         const x = struct {
             fn sync_callback_set_bool_to_false(registry: *wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wl_callback.Event) void {
                 _ = registry;
@@ -601,13 +676,11 @@ pub const Conn = struct {
         sync_callback.userdata = &sync_received;
 
         while (!sync_received) {
-            try conn.dispatchOne();
+            try loop.run(.once);
         }
     }
 
-    pub fn dispatchOne(conn: *Conn) !void {
-        const header, const body = try conn.recv();
-
+    pub fn dispatchMessage(conn: *Conn, header: Header, body: []const u32) !void {
         if (conn.objects.get(header.object_id)) |object| {
             object.interface.event_received(object, header, body);
         } else if (header.object_id == DISPLAY_ID) {
@@ -662,7 +735,7 @@ pub const Conn = struct {
         for (fds, 0..) |fdp, i| {
             ctrl_msgs[i] = .{
                 .level = std.posix.SOL.SOCKET,
-                .type = 0x01,
+                .type = SCM.RIGHTS,
                 .data = @intFromEnum(fdp.*),
             };
         }
@@ -676,147 +749,79 @@ pub const Conn = struct {
             .controllen = @intCast(ctrl_msgs_bytes.len),
             .flags = 0,
         };
-        _ = std.posix.sendmsg(conn.socket.handle, &socket_msg, 0) catch |e| {
-            switch (e) {
-                error.BrokenPipe => if (builtin.mode == .Debug) {
-                    // keep calling dispatchOne until we get an error, just so we can see any error messages that get sent
-                    while (true) {
-                        conn.dispatchOne() catch break;
+        _ = try std.posix.sendmsg(conn.socket, &socket_msg, 0);
+    }
+
+    pub fn recvMsgCallback(userdata: ?*anyopaque, loop: *xev.Loop, completion: *xev.Completion, result: xev.Result) xev.CallbackAction {
+        const conn: *Conn = @fieldParentPtr("recv_completion", completion);
+        _ = userdata;
+        _ = loop;
+
+        if (result.recvmsg) |num_bytes_read| {
+            conn.recv_buffer.items.len += num_bytes_read;
+
+            // check for control messages
+            const control_msg = conn.control_recv_buffer.items;
+            var control_pos: usize = 0;
+            while (control_pos + @sizeOf(cmsg_header_t) < control_msg.len) {
+                const control_header = std.mem.bytesToValue(cmsg_header_t, control_msg[control_pos..][0..@sizeOf(cmsg_header_t)]);
+                const control_data = control_msg[control_pos..][@sizeOf(cmsg_header_t) .. control_header.len - @sizeOf(cmsg_header_t)];
+
+                if (control_header.level == std.posix.SOL.SOCKET and control_header.type == SCM.RIGHTS) {
+                    const fds = std.mem.bytesAsSlice(std.posix.fd_t, control_data);
+                    conn.recv_fd_queue.ensureUnusedCapacity(conn.allocator, fds.len) catch |err| {
+                        std.debug.panic("Failed to receive file descriptor from socket: {}", .{err});
+                    };
+                    for (fds) |fd| {
+                        conn.recv_fd_queue.appendAssumeCapacity(fd);
                     }
-                },
-                else => {},
-            }
-            return e;
-        };
-    }
-
-    pub const Message = struct { Header, []const u32 };
-    pub fn recv(conn: *Conn) !Message {
-        // TODO: make this less messy
-        // Read header
-        @memset(conn.recv_buffer, 0);
-        var iov: [1]std.posix.iovec = .{.{
-            .iov_base = std.mem.sliceAsBytes(conn.recv_buffer).ptr,
-            .iov_len = @sizeOf(Header),
-        }};
-        var control_msg: cmsg(std.posix.fd_t) = undefined;
-        const control_bytes = std.mem.asBytes(&control_msg);
-        var socket_msg = std.posix.msghdr{
-            .name = null,
-            .namelen = 0,
-            .iov = &iov,
-            .iovlen = iov.len,
-            .control = control_bytes.ptr,
-            .controllen = @intCast(control_bytes.len),
-            .flags = 0,
-        };
-
-        const size = std.os.linux.recvmsg(conn.socket.handle, &socket_msg, 0);
-
-        if (size < @sizeOf(Header)) return error.SocketClosed;
-
-        var header: Header = undefined;
-        @memcpy(std.mem.asBytes(&header), iov[0].iov_base[0..@sizeOf(Header)]);
-
-        if (socket_msg.controllen != 0) {
-            try conn.fd_queue.append(conn.allocator, control_msg.data);
-        }
-
-        // Read body
-        const body_size = (header.size_and_opcode.size - @sizeOf(Header)) / @sizeOf(u32);
-
-        iov[0] = .{
-            .iov_base = std.mem.sliceAsBytes(conn.recv_buffer).ptr,
-            .iov_len = body_size * @sizeOf(u32),
-        };
-        socket_msg = std.posix.msghdr{
-            .name = null,
-            .namelen = 0,
-            .iov = &iov,
-            .iovlen = iov.len,
-            .control = control_bytes.ptr,
-            .controllen = @intCast(control_bytes.len),
-            .flags = 0,
-        };
-        const size2 = std.os.linux.recvmsg(conn.socket.handle, &socket_msg, 0);
-        const message = conn.recv_buffer[0 .. size2 / @sizeOf(u32)];
-
-        if (socket_msg.controllen != 0) {
-            try conn.fd_queue.append(conn.allocator, control_msg.data);
-        }
-
-        return .{ header, message };
-    }
-
-    pub fn registerGlobals(this: *@This(), comptime T: []const type) ![T.len]?u32 {
-        const Item = struct { version: u32, index: u32 };
-        const Pair = struct { []const u8, Item };
-        comptime var kvs_list: []const Pair = &[_]Pair{};
-        inline for (T, 0..) |t, i| {
-            kvs_list = kvs_list ++ &[_]Pair{.{ t.INTERFACE, .{ .version = t.VERSION, .index = i } }};
-        }
-        const map = std.ComptimeStringMap(Item, kvs_list);
-
-        const registry_id = this.id_pool.create();
-        {
-            var buffer: [5]u32 = undefined;
-            const message = try serialize(wayland.Display.Request, &buffer, 1, .{ .get_registry = .{ .registry = registry_id } });
-            try this.socket.writeAll(std.mem.sliceAsBytes(message));
-        }
-
-        const registry_done_id = this.id_pool.create();
-        {
-            var buffer: [5]u32 = undefined;
-            const message = try serialize(wayland.Display.Request, &buffer, 1, .{ .sync = .{ .callback = registry_done_id } });
-            try this.socket.writeAll(std.mem.sliceAsBytes(message));
-        }
-
-        var ids: [T.len]?u32 = [_]?u32{null} ** T.len;
-        var message_buffer = std.ArrayList(u32).init(this.allocator);
-        defer message_buffer.deinit();
-        while (true) {
-            var header: Header = undefined;
-            const header_bytes_read = try this.socket.readAll(std.mem.asBytes(&header));
-            if (header_bytes_read < @sizeOf(Header)) break;
-
-            try message_buffer.resize((header.size_and_opcode.size - @sizeOf(Header)) / @sizeOf(u32));
-            const bytes_read = try this.socket.readAll(std.mem.sliceAsBytes(message_buffer.items));
-            message_buffer.shrinkRetainingCapacity(bytes_read / @sizeOf(u32));
-
-            if (header.object_id == registry_id) {
-                const event = try deserialize(wayland.Registry.Event, header, message_buffer.items);
-                switch (event) {
-                    .global => |global| {
-                        var buffer: [20]u32 = undefined;
-                        if (map.get(global.interface)) |item| {
-                            if (global.version < item.version) {
-                                // TODO: Add diagnostics API
-                                return error.OutdatedCompositorProtocol;
-                            }
-                            const new_id = this.id_pool.create();
-                            ids[item.index] = new_id;
-                            const message = try serialize(wayland.Registry.Request, &buffer, registry_id, .{ .bind = .{
-                                .name = global.name,
-                                .interface = global.interface,
-                                .version = item.version,
-                                .new_id = new_id,
-                            } });
-                            try this.socket.writeAll(std.mem.sliceAsBytes(message));
-                        }
-                    },
-                    .global_remove => {},
                 }
-            } else if (header.object_id == registry_done_id) {
-                break;
-            } else {
-                std.log.info("{} {x} \"{}\"", .{
-                    header.object_id,
-                    header.size_and_opcode.opcode,
-                    std.zig.fmtEscapes(std.mem.sliceAsBytes(message_buffer.items)),
-                });
-            }
-        }
 
-        return ids;
+                control_pos += control_header.size();
+            }
+
+            // read and dispatch received messages
+            var position: usize = 0;
+            while (position + @sizeOf(Header) < conn.recv_buffer.items.len) {
+                const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[position..][0..@sizeOf(Header)]);
+
+                if (position + header.size_and_opcode.size >= conn.recv_buffer.items.len) {
+                    break;
+                }
+
+                const message_bytes = conn.recv_buffer.items[position..][0..header.size_and_opcode.size][@sizeOf(Header)..];
+                const message_words = std.mem.bytesAsSlice(u32, message_bytes);
+                conn.dispatchMessage(header, @alignCast(message_words)) catch |err| {
+                    std.debug.panic("Failed to dispatch wayland message: {}", .{err});
+                };
+
+                position += header.size_and_opcode.size;
+            }
+
+            // move bytes remaining in the buffer to the start of the buffer.
+            const remaining_byte_count = conn.recv_buffer.items.len - position;
+            for (conn.recv_buffer.items[0..remaining_byte_count], conn.recv_buffer.items[position..][0..remaining_byte_count]) |*dest, src| {
+                dest.* = src;
+            }
+            conn.recv_buffer.items.len = remaining_byte_count;
+
+            // if there is a header in the remaining bytes (or rather, if the remaining bytes are >= @sizeOf(Header)), ensure that the recv_buffer is large enough to receive the entire message.
+            if (conn.recv_buffer.items.len >= @sizeOf(Header)) {
+                const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[0..@sizeOf(Header)]);
+                conn.recv_buffer.ensureTotalCapacity(conn.allocator, header.size_and_opcode.size) catch |err| std.debug.panic("Could not receive message from wayland compositor: {}", .{err});
+            }
+
+            // update the iovec to point to the unused capacity slice.
+            const unused_slice = conn.recv_buffer.unusedCapacitySlice();
+            conn.recv_iov[0] = .{
+                .iov_base = unused_slice.ptr,
+                .iov_len = unused_slice.len,
+            };
+
+            return .rearm;
+        } else |err| {
+            std.log.warn("Error receiving message: {}", .{err});
+            return .disarm;
+        }
     }
 };
