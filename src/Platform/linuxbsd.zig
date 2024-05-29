@@ -57,7 +57,7 @@ pub fn main() anyerror!void {
         key_bindings.deinit(gpa.allocator());
     }
 
-    evdev = try EvDev.init(gpa.allocator(), &key_bindings);
+    evdev = try EvDev.init(gpa.allocator(), &loop, &key_bindings);
     defer evdev.deinit();
     try evdev.scanForDevices();
 
@@ -78,13 +78,6 @@ pub fn main() anyerror!void {
     };
     while (!window_manager.shouldClose()) {
         try loop.run(.no_wait);
-        evdev.updateEventDevices() catch |err| {
-            std.debug.print("{s}", .{@errorName(err)});
-            if (@errorReturnTrace()) |trace| {
-                std.debug.dumpStackTrace(trace.*);
-            }
-            return;
-        };
         try window_manager.update();
     }
 }

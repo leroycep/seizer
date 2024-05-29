@@ -1,13 +1,13 @@
 gpa: std.mem.Allocator,
-devices: std.ArrayListUnmanaged(Device),
-pollfds: std.ArrayListUnmanaged(std.posix.pollfd),
+loop: *xev.Loop,
+devices: std.SegmentedList(*Device, 16),
 mapping_db: seizer.Gamepad.DB,
 input_device_dir: std.fs.Dir,
 button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
 const EvDev = @This();
 
-pub fn init(gpa: std.mem.Allocator, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !EvDev {
+pub fn init(gpa: std.mem.Allocator, loop: *xev.Loop, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !EvDev {
     var mapping_db = try seizer.Gamepad.DB.init(gpa, .{});
     errdefer mapping_db.deinit();
 
@@ -16,8 +16,8 @@ pub fn init(gpa: std.mem.Allocator, button_bindings: *const std.AutoHashMapUnman
 
     return EvDev{
         .gpa = gpa,
+        .loop = loop,
         .devices = .{},
-        .pollfds = .{},
         .mapping_db = mapping_db,
         .input_device_dir = input_device_dir,
         .button_bindings = button_bindings,
@@ -25,13 +25,11 @@ pub fn init(gpa: std.mem.Allocator, button_bindings: *const std.AutoHashMapUnman
 }
 
 pub fn deinit(this: *@This()) void {
-    for (this.devices.items) |*dev| {
-        std.posix.close(dev.fd);
-        dev.button_code_to_index.deinit(this.gpa);
-        dev.abs_to_index.deinit(this.gpa);
+    var device_iter = this.devices.iterator(0);
+    while (device_iter.next()) |device| {
+        device.*.destroy();
     }
     this.devices.deinit(this.gpa);
-    this.pollfds.deinit(this.gpa);
 
     this.mapping_db.deinit();
 }
@@ -46,19 +44,21 @@ pub fn scanForDevices(this: *@This()) !void {
 
         const std_file = try this.input_device_dir.openFile(dev.name, .{});
 
-        const device = Device.fromFile(this.gpa, std_file, &this.mapping_db) catch {
+        const device = Device.fromFile(this.gpa, this.loop, std_file, &this.mapping_db, this.button_bindings) catch {
             std_file.close();
             continue;
         };
+        errdefer device.destroy();
 
-        try this.pollfds.ensureTotalCapacity(this.gpa, this.devices.items.len + 1);
         try this.devices.append(this.gpa, device);
     }
-    std.log.debug("Found {} evdev input devices", .{this.devices.items.len});
+    std.log.debug("Found {} evdev input devices", .{this.devices.len});
 }
 
 const Device = struct {
+    gpa: std.mem.Allocator,
     fd: std.posix.fd_t,
+    completion: xev.Completion,
     name: Name,
     id: InputId,
     mapping: ?seizer.Gamepad.Mapping,
@@ -67,12 +67,21 @@ const Device = struct {
     axis_count: u16,
     hat_count: u16,
 
+    button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
+
     const Name = [256]u8;
 
     const AbsIndex = union(enum) {
         axis: u16,
         hat: struct { bool, u15 },
     };
+
+    pub fn destroy(device: *Device) void {
+        std.posix.close(device.fd);
+        device.button_code_to_index.deinit(device.gpa);
+        device.abs_to_index.deinit(device.gpa);
+        device.gpa.destroy(device);
+    }
 
     fn nameSlice(this: *const @This()) []const u8 {
         if (std.mem.indexOfScalar(u8, &this.name, 0)) |zero_index| {
@@ -82,7 +91,10 @@ const Device = struct {
         }
     }
 
-    pub fn fromFile(gpa: std.mem.Allocator, file: std.fs.File, mapping_db: *const seizer.Gamepad.DB) !Device {
+    pub fn fromFile(gpa: std.mem.Allocator, loop: *xev.Loop, file: std.fs.File, mapping_db: *const seizer.Gamepad.DB, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !*Device {
+        const device = try gpa.create(Device);
+        errdefer gpa.destroy(device);
+
         const fd = file.handle;
         var ev_bits = EV.Bits.initEmpty();
         _ = std.os.linux.ioctl(fd, IOCTL.GET_EV_BITS(0, @sizeOf(EV.Bits)), @intFromPtr(&ev_bits));
@@ -91,8 +103,10 @@ const Device = struct {
             return error.NotAGamepad;
         }
 
-        var device = Device{
+        device.* = Device{
+            .gpa = gpa,
             .fd = fd,
+            .completion = undefined,
             .name = undefined,
             .id = undefined,
             .mapping = null,
@@ -100,6 +114,8 @@ const Device = struct {
             .abs_to_index = .{},
             .hat_count = 0,
             .axis_count = 0,
+
+            .button_bindings = button_bindings,
         };
         _ = std.os.linux.ioctl(fd, IOCTL.GET_ID, @intFromPtr(&device.id));
         _ = std.os.linux.ioctl(fd, IOCTL.GET_NAME(@sizeOf(Device.Name)), @intFromPtr(&device.name));
@@ -175,6 +191,16 @@ const Device = struct {
 
             device.mapping = mapping_db.mappings.get(guid);
         }
+
+        device.completion = .{
+            .op = .{ .read = .{
+                .fd = device.fd,
+                .buffer = .{ .array = undefined },
+            } },
+            .userdata = device,
+            .callback = inputReadCallback,
+        };
+        loop.add(&device.completion);
 
         return device;
     }
@@ -407,102 +433,102 @@ const InputEvent = extern struct {
     value: c_int,
 };
 
-pub fn updateEventDevices(this: *EvDev) !void {
-    if (this.devices.items.len == 0) return;
-    if (this.pollfds.items.len < this.devices.items.len and
-        this.pollfds.capacity < this.devices.items.len)
-    {
-        std.debug.panic("pollfds not large enough!", .{});
+fn inputReadCallback(userdata: ?*anyopaque, loop: *xev.Loop, completion: *xev.Completion, result: xev.Result) xev.CallbackAction {
+    std.debug.assert(@sizeOf(InputEvent) <= 32);
+    _ = loop;
+
+    const number_of_bytes_read = result.read catch |err| {
+        std.debug.panic("Error reading from evdev device: {}", .{err});
+    };
+    // TODO: handle partially read events.
+    const bytes_read = completion.op.read.buffer.array[0..number_of_bytes_read];
+    const events = std.mem.bytesAsSlice(InputEvent, bytes_read);
+
+    const device: *Device = @ptrCast(@alignCast(userdata));
+
+    for (events) |event| {
+        onInputEvent(device, event) catch |err| {
+            std.debug.panic("Failed to handle input event: {}", .{err});
+        };
     }
 
-    this.pollfds.items.len = this.devices.items.len;
-    for (this.pollfds.items, this.devices.items) |*pollfd, dev| {
-        pollfd.* = .{ .fd = dev.fd, .events = std.posix.POLL.IN, .revents = undefined };
-    }
-    while (try std.posix.poll(this.pollfds.items, 0) > 0) {
-        for (this.pollfds.items, this.devices.items) |pollfd, dev| {
-            if (pollfd.revents & std.posix.POLL.IN == std.posix.POLL.IN) {
-                var input_event: InputEvent = undefined;
-                const bytes_read = try std.posix.read(pollfd.fd, std.mem.asBytes(&input_event));
-                if (bytes_read != @sizeOf(InputEvent)) {
-                    continue;
+    return .rearm;
+}
+
+fn onInputEvent(device: *Device, input_event: InputEvent) !void {
+    if (device.mapping) |mapping| {
+        switch (input_event.type) {
+            .KEY => if (device.button_code_to_index.get(input_event.code)) |btn_index| do_output: {
+                const output = mapping.buttons[btn_index] orelse break :do_output;
+                switch (output) {
+                    .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                        for (actions.items) |action| {
+                            try action.on_event(input_event.value > 0);
+                        }
+                    },
+                    .axis => {
+                        // TODO: implement
+                    },
                 }
+            },
+            .ABS => if (device.abs_to_index.get(input_event.code)) |abs_index| {
+                switch (abs_index) {
+                    .axis => {
+                        // TODO: implement
+                    },
+                    .hat => |hat_isy_and_index| if (hat_isy_and_index[1] < mapping.hats.len) {
+                        const is_y = hat_isy_and_index[0];
+                        const hat_index = hat_isy_and_index[1];
 
-                if (dev.mapping) |mapping| {
-                    switch (input_event.type) {
-                        .KEY => if (dev.button_code_to_index.get(input_event.code)) |btn_index| do_output: {
-                            const output = mapping.buttons[btn_index] orelse break :do_output;
-                            switch (output) {
-                                .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                                    for (actions.items) |action| {
-                                        try action.on_event(input_event.value > 0);
-                                    }
-                                },
-                                .axis => {
-                                    // TODO: implement
-                                },
-                            }
-                        },
-                        .ABS => if (dev.abs_to_index.get(input_event.code)) |abs_index| {
-                            switch (abs_index) {
-                                .axis => {
-                                    // TODO: implement
-                                },
-                                .hat => |hat_isy_and_index| if (hat_isy_and_index[1] < mapping.hats.len) {
-                                    const is_y = hat_isy_and_index[0];
-                                    const hat_index = hat_isy_and_index[1];
+                        const hat_subindex: u2 =
+                            if (is_y and input_event.value <= 0)
+                            0
+                        else if (!is_y and input_event.value > 0)
+                            1
+                        else if (is_y and input_event.value > 0)
+                            2
+                        else if (!is_y and input_event.value <= 0)
+                            3
+                        else blk: {
+                            std.log.warn("this shouldn't be called ever", .{});
+                            break :blk 0;
+                        };
+                        const hat_anti_index: u2 = hat_subindex +% 2;
 
-                                    const hat_subindex: u2 =
-                                        if (is_y and input_event.value <= 0)
-                                        0
-                                    else if (!is_y and input_event.value > 0)
-                                        1
-                                    else if (is_y and input_event.value > 0)
-                                        2
-                                    else if (!is_y and input_event.value <= 0)
-                                        3
-                                    else blk: {
-                                        std.log.warn("this shouldn't be called ever", .{});
-                                        break :blk 0;
-                                    };
-                                    const hat_anti_index: u2 = hat_subindex +% 2;
+                        const output = mapping.hats[hat_index][hat_subindex] orelse return;
+                        switch (output) {
+                            .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(input_event.value != 0);
+                                }
+                            },
+                            .axis => {
+                                // TODO: implement
+                            },
+                        }
 
-                                    const output = mapping.hats[hat_index][hat_subindex] orelse continue;
-                                    switch (output) {
-                                        .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                                            for (actions.items) |action| {
-                                                try action.on_event(input_event.value != 0);
-                                            }
-                                        },
-                                        .axis => {
-                                            // TODO: implement
-                                        },
-                                    }
-
-                                    const anti_output = mapping.hats[hat_index][hat_anti_index] orelse continue;
-                                    switch (anti_output) {
-                                        .button => |gamepad_btn_code| if (this.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                                            for (actions.items) |action| {
-                                                try action.on_event(false);
-                                            }
-                                        },
-                                        .axis => {
-                                            // TODO: implement
-                                        },
-                                    }
-                                },
-                            }
-                        },
-                        else => break,
-                    }
+                        const anti_output = mapping.hats[hat_index][hat_anti_index] orelse return;
+                        switch (anti_output) {
+                            .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                                for (actions.items) |action| {
+                                    try action.on_event(false);
+                                }
+                            },
+                            .axis => {
+                                // TODO: implement
+                            },
+                        }
+                    },
                 }
-            }
+            },
+            else => return,
         }
     }
 }
 
 const log = std.log.scoped(.seizer);
 
+const xev = @import("xev");
 const gl = seizer.gl;
 const EGL = @import("EGL");
 const seizer = @import("../../seizer.zig");
