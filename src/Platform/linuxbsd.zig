@@ -65,6 +65,7 @@ pub fn main() anyerror!void {
         .allocator = gpa.allocator(),
         .egl = &egl,
         .key_bindings = &key_bindings,
+        .loop = &loop,
     });
     defer window_manager.deinit();
 
@@ -77,7 +78,7 @@ pub fn main() anyerror!void {
         return;
     };
     while (!window_manager.shouldClose()) {
-        try loop.run(.no_wait);
+        try loop.run(.once);
         try window_manager.update();
     }
 }
