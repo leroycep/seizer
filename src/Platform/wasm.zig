@@ -16,7 +16,7 @@ var next_window_id: u32 = 1;
 var button_inputs = std.SegmentedList(seizer.Platform.AddButtonInputOptions, 16){};
 var button_bindings = std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(*seizer.Platform.AddButtonInputOptions)){};
 
-var seizer_context: seizer.Context = undefined;
+var loop: xev.Loop = undefined;
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -24,6 +24,8 @@ pub fn main() anyerror!void {
     if (!@hasDecl(root, "init")) {
         @compileError("root module must contain init function");
     }
+
+    loop = try xev.Loop.init(.{});
 
     // Call root module's `init()` function
     root.init() catch |err| {
@@ -94,6 +96,12 @@ pub const Surface = opaque {
 };
 
 pub export fn _render() void {
+    loop.run(.no_wait) catch |err| {
+        std.log.warn("{s}", .{@errorName(err)});
+        if (@errorReturnTrace()) |trace| {
+            std.debug.dumpStackTrace(trace.*);
+        }
+    };
     for (windows.values()) |window| {
         if (window.on_render) |render| {
             window.surface.surface_make_gl_context_current();
@@ -294,5 +302,6 @@ pub export fn _dispatch_read_file_completion(callback_opaque_fn: *const anyopaqu
     }
 }
 
+const xev = @import("xev");
 const seizer = @import("../seizer.zig");
 const std = @import("std");
