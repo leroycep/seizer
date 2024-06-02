@@ -53,16 +53,24 @@ function getWasiSnapshotPreview1WasmImport(getMemory) {
       throw "unimplemented";
     },
     clock_time_get: function(id, precision, timeOut) {
-        if (id !== 0) return ERR.INVAL;
-
-        const view = new DataView(getMemory().buffer);
-
+      const view = new DataView(getMemory().buffer);
+      if (id === 0) {
         const now = new Date().getTime();
 
         view.setUint32(timeOut, (now * 1000000.0) % 0x100000000, true);
         view.setUint32(timeOut + 4, (now * 1000000.0) / 0x100000000, true);
 
         return ERR.SUCCESS;
+      } else if (id === 1) {
+        const now = window.performance.now();
+
+        view.setUint32(timeOut, (now * 1000.0) % 0x100000000, true);
+        view.setUint32(timeOut + 4, (now * 1000.0) / 0x100000000, true);
+
+        return ERR.SUCCESS;
+      } else {
+        return ERR.INVAL;
+      }
     },
   };
 }
