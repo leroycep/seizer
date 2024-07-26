@@ -591,8 +591,8 @@ pub const Conn = struct {
             .send_buffer = send_buffer,
 
             .recv_iov = .{.{
-                .iov_base = recv_buffer.unusedCapacitySlice().ptr,
-                .iov_len = recv_buffer.unusedCapacitySlice().len,
+                .base = recv_buffer.unusedCapacitySlice().ptr,
+                .len = recv_buffer.unusedCapacitySlice().len,
             }},
 
             .recv_msghdr = .{
@@ -721,8 +721,8 @@ pub const Conn = struct {
         const msg_bytes = std.mem.sliceAsBytes(msg);
         const msg_iov = [_]std.posix.iovec_const{
             .{
-                .iov_base = msg_bytes.ptr,
-                .iov_len = msg_bytes.len,
+                .base = msg_bytes.ptr,
+                .len = msg_bytes.len,
             },
         };
 
@@ -814,8 +814,8 @@ pub const Conn = struct {
             // update the iovec to point to the unused capacity slice.
             const unused_slice = conn.recv_buffer.unusedCapacitySlice();
             conn.recv_iov[0] = .{
-                .iov_base = unused_slice.ptr,
-                .iov_len = unused_slice.len,
+                .base = unused_slice.ptr,
+                .len = unused_slice.len,
             };
 
             return .rearm;
