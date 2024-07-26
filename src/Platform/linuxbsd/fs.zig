@@ -15,7 +15,7 @@ fn writeFileWithError(allocator: std.mem.Allocator, options: seizer.Platform.Wri
     var app_data_dir = try std.fs.cwd().makeOpenPath(app_data_dir_path, .{});
     defer app_data_dir.close();
 
-    try app_data_dir.writeFile2(.{
+    try app_data_dir.writeFile(.{
         .sub_path = options.path,
         .data = options.data,
     });

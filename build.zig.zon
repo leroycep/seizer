@@ -4,21 +4,20 @@
     .paths = .{""},
     .dependencies = .{
         .zigimg = .{
-            .url = "https://github.com/zigimg/zigimg/archive/637974e2d31dcdbc33f1e9cc8ffb2e46abd2e215.tar.gz",
-            .hash = "122012026c3a65ff1d4acba3b3fe80785f7cee9c6b4cdaff7ed0fbf23b0a6c803989",
+            .url = "https://github.com/zigimg/zigimg/archive/d9dbbe22b5f7b5f1f4772169ed93ffeed8e8124d.tar.gz",
+            .hash = "122013646f7038ecc71ddf8a0d7de346d29a6ec40140af57f838b0a975c69af512b0",
         },
         .tinyvg = .{
-            .url = "https://github.com/leroycep/tinyvg-sdk/archive/e658956803588bdbcbb5de98c77380e50305c481.tar.gz",
-            .hash = "12204097e887cf1a7fa09e7d7877fd8af1733f5390ba59ccfe09080e2275fb47daa9",
+            .url = "https://github.com/TinyVG/sdk/archive/d103ec3ec461a2f96b8a7e7c1dda8ff54d4c8825.tar.gz",
+            .hash = "12202e4803c43c3513b27cd8d993da79fc459ab21ab4d0aa4aa2b6bf32b08d29bd44",
         },
         .@"zig-xml" = .{
-            .url = "https://github.com/leroycep/zig-xml/archive/5cad843d1eb342b3612ec8b358bc2ae264ed5cb9.tar.gz",
-            .hash = "12204444e86f7d166431874f68ec03363566a003840b15b840e2be9e351391f5f523",
-            .lazy = true,
+            .url = "https://github.com/leroycep/zig-xml/archive/fa6d8b231ec2c7cc0d73f8c082ecdb29ef2b8f8f.tar.gz",
+            .hash = "1220ca9d15f77fdca814f3667286fcda2fbdb727df32e7e6fe9042fc51e65a138382",
         },
         .libxev = .{
-            .url = "https://github.com/mitchellh/libxev/archive/b3f9918776b8700b337b7ebe769060328fe246b0.tar.gz",
-            .hash = "122044caf67c7833c7110dc93531031899e459a6818ed125a0bcfdb0b5243bd7700b",
+            .url = "https://github.com/mitchellh/libxev/archive/1dd3c9015a542757b049f6d33beb8941f57bce1f.tar.gz",
+            .hash = "1220b644b45718a869b37bc37bbc476e69922b21090003b38c1b68a7218fc365771a",
         },
     },
 }

@@ -32,15 +32,15 @@ pub fn build(b: *Builder) !void {
     });
 
     const gl_module = b.addModule("gl", .{
-        .root_source_file = .{ .path = "dep/gles3v0.zig" },
+        .root_source_file = b.path("dep/gles3v0.zig"),
     });
 
     const egl_module = b.addModule("EGL", .{
-        .root_source_file = .{ .path = "dep/EGL.zig" },
+        .root_source_file = b.path("dep/EGL.zig"),
     });
 
     const wayland_module = b.addModule("wayland", .{
-        .root_source_file = .{ .path = "dep/wayland/src/main.zig" },
+        .root_source_file = b.path("dep/wayland/src/main.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -49,7 +49,7 @@ pub fn build(b: *Builder) !void {
     });
 
     const wayland_protocols_module = b.addModule("wayland-protocols", .{
-        .root_source_file = .{ .path = "dep/wayland-protocols/protocols.zig" },
+        .root_source_file = b.path("dep/wayland-protocols/protocols.zig"),
         .target = target,
         .optimize = optimize,
         .imports = &.{
@@ -67,7 +67,7 @@ pub fn build(b: *Builder) !void {
         })) |xml| {
             const generate_wayland_exe = b.addExecutable(.{
                 .name = "generate-wayland",
-                .root_source_file = .{ .path = "tools/generate-wayland.zig" },
+                .root_source_file = b.path("tools/generate-wayland.zig"),
                 .target = target,
                 .optimize = optimize,
             });
@@ -122,14 +122,14 @@ pub fn build(b: *Builder) !void {
     // a tool that bundles a wasm binary into an html file
     const bundle_webpage_exe = b.addExecutable(.{
         .name = "bundle-webpage",
-        .root_source_file = .{ .path = "tools/bundle-webpage.zig" },
+        .root_source_file = b.path("tools/bundle-webpage.zig"),
         .target = b.graph.host,
     });
     b.installArtifact(bundle_webpage_exe);
 
     // seizer
     const module = b.addModule("seizer", .{
-        .root_source_file = .{ .path = "src/seizer.zig" },
+        .root_source_file = b.path("src/seizer.zig"),
         .imports = &.{
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
@@ -164,7 +164,7 @@ pub fn build(b: *Builder) !void {
         const tag_name = tag.name;
         const exe = b.addExecutable(.{
             .name = tag_name,
-            .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
+            .root_source_file = b.path("examples/" ++ tag_name ++ ".zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -204,7 +204,7 @@ pub fn build(b: *Builder) !void {
     const test_all = b.step("test-all", "run all tests");
 
     const test_gamepad_exe = b.addTest(.{
-        .root_source_file = .{ .path = "src/Gamepad.zig" },
+        .root_source_file = b.path("src/Gamepad.zig"),
         .target = target,
         .optimize = optimize,
     });
