@@ -33,6 +33,8 @@ fn render(window: seizer.Window) !void {
     });
     canvas.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
     canvas.end();
+
+    try window.swapBuffers();
 }
 
 const shield_icon_tvg = [_]u8{

@@ -28,6 +28,8 @@ fn render(window: seizer.Window) !void {
     });
     _ = canvas.writeText(.{ 50, 50 }, "Hello, world!", .{});
     canvas.end();
+
+    try window.swapBuffers();
 }
 
 const seizer = @import("seizer");

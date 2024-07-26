@@ -90,6 +90,8 @@ fn render(window: seizer.Window) !void {
         .baseline = .middle,
     });
     canvas.end();
+
+    try window.swapBuffers();
 }
 
 const seizer = @import("seizer");

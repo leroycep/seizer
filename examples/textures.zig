@@ -92,7 +92,6 @@ pub fn init() !void {
 }
 
 fn render(window: seizer.Window) !void {
-    _ = window;
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
@@ -110,6 +109,8 @@ fn render(window: seizer.Window) !void {
     gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(VERTS.len)) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+    try window.swapBuffers();
 }
 
 const seizer = @import("seizer");

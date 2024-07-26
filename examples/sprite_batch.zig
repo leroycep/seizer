@@ -127,6 +127,8 @@ fn render(window: seizer.Window) !void {
     _ = canvas.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{});
 
     canvas.end();
+
+    try window.swapBuffers();
 }
 
 const seizer = @import("seizer");

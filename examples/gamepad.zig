@@ -150,6 +150,8 @@ fn render(window: seizer.Window) !void {
     try console.print("dpleft = {}\n", .{dpad_left});
 
     canvas.end();
+
+    try window.swapBuffers();
 }
 
 const seizer = @import("seizer");

@@ -53,6 +53,12 @@ pub const WindowManager = union(enum) {
         }
     }
 
+    pub fn swapBuffers(this: @This()) void {
+        switch (this) {
+            inline else => |manager| try manager.swapBuffers(),
+        }
+    }
+
     pub fn update(this: @This()) !void {
         switch (this) {
             inline else => |manager| try manager.update(),
@@ -286,6 +292,7 @@ const Wayland = struct {
         should_close: bool,
         should_render: bool = true,
 
+        current_buffer: ?*Framebuffer = null,
         free_framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
         framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
 
@@ -299,12 +306,18 @@ const Wayland = struct {
         pub const INTERFACE = seizer.Window.Interface{
             .getSize = getSize,
             .getFramebufferSize = getSize,
+            .swapBuffers = swapBuffers,
             .setShouldClose = setShouldClose,
         };
 
         pub fn destroy(this: *@This()) void {
             if (this.on_destroy) |on_destroy| {
                 on_destroy(this.window());
+            }
+
+            if (this.current_buffer) |current_buffer| {
+                current_buffer.destroy(this.egl_display);
+                this.current_buffer = null;
             }
 
             for (this.framebuffers.slice()) |f| {
@@ -377,7 +390,8 @@ const Wayland = struct {
 
             gl.makeBindingCurrent(&this_window.gl_binding);
 
-            const framebuffer = this_window.getFramebuffer(this_window.window_size) catch |e| {
+            std.debug.assert(this_window.current_buffer == null);
+            this_window.current_buffer = this_window.getFramebuffer(this_window.window_size) catch |e| {
                 std.log.warn("Failed to get framebuffer: {}; window_size = {}x{}", .{ e, this_window.window_size[0], this_window.window_size[1] });
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
@@ -385,7 +399,7 @@ const Wayland = struct {
                 this_window.should_close = true;
                 return;
             };
-            framebuffer.bind();
+            this_window.current_buffer.?.bind();
             gl.viewport(0, 0, this_window.window_size[0], this_window.window_size[1]);
 
             this_window.on_render(this_window.window()) catch |err| {
@@ -397,16 +411,27 @@ const Wayland = struct {
                 return;
             };
 
-            gl.flush();
-
-            try this_window.setupFrameCallback();
-
-            try this_window.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
-            try this_window.wl_surface.attach(framebuffer.wl_buffer.?, 0, 0);
-            try this_window.wl_surface.damage_buffer(0, 0, framebuffer.size[0], framebuffer.size[1]);
-            try this_window.wl_surface.commit();
-
+            if (this_window.current_buffer) |current_buffer| {
+                current_buffer.release();
+                this_window.current_buffer = null;
+            }
             this_window.should_render = false;
+        }
+
+        fn swapBuffers(userdata: ?*anyopaque) anyerror!void {
+            const this: *@This() = @ptrCast(@alignCast(userdata.?));
+            if (this.current_buffer) |framebuffer| {
+                gl.flush();
+
+                try this.setupFrameCallback();
+
+                try this.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
+                try this.wl_surface.attach(framebuffer.wl_buffer.?, 0, 0);
+                try this.wl_surface.damage_buffer(0, 0, framebuffer.size[0], framebuffer.size[1]);
+                try this.wl_surface.commit();
+
+                this.current_buffer = null;
+            }
         }
 
         fn onFrameCallback(callback: *wayland.wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wayland.wl_callback.Event) void {
@@ -517,12 +542,16 @@ const Wayland = struct {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
             _ = buffer;
             switch (event) {
-                .release => {
-                    this.window.free_framebuffers.append(this) catch {};
-                    if (std.mem.indexOfScalar(*Framebuffer, this.window.framebuffers.slice(), this)) |index| {
-                        _ = this.window.framebuffers.swapRemove(index);
-                    }
-                },
+                .release => this.release(),
+            }
+        }
+
+        fn release(this: (*@This())) void {
+            this.window.free_framebuffers.append(this) catch {
+                // this.destroy();
+            };
+            if (std.mem.indexOfScalar(*Framebuffer, this.window.framebuffers.slice(), this)) |index| {
+                _ = this.window.framebuffers.swapRemove(index);
             }
         }
     };
@@ -635,7 +664,6 @@ pub const BareEGL = struct {
                 }
                 return;
             };
-            window.swapBuffers();
         }
     }
 
@@ -713,6 +741,7 @@ pub const BareEGL = struct {
             .getSize = getSize,
             .getFramebufferSize = getSize,
             .setShouldClose = setShouldClose,
+            .swapBuffers = swapBuffers,
         };
 
         pub fn destroy(this: *@This()) void {
@@ -739,7 +768,8 @@ pub const BareEGL = struct {
             return .{ @floatFromInt(width), @floatFromInt(height) };
         }
 
-        pub fn swapBuffers(this: *@This()) void {
+        pub fn swapBuffers(userdata: ?*anyopaque) anyerror!void {
+            const this: *@This() = @ptrCast(@alignCast(userdata.?));
             this.egl_display.swapBuffers(this.surface) catch |err| {
                 std.log.warn("failed to swap buffers: {}", .{err});
             };
