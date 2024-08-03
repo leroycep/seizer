@@ -422,6 +422,7 @@ const Wayland = struct {
         pub fn getFramebuffer(this: *Window, size: [2]c_int) !*Framebuffer {
             while (this.free_framebuffers.popOrNull()) |framebuffer| {
                 if (std.mem.eql(c_int, &framebuffer.size, &size)) {
+                    try this.framebuffers.append(framebuffer);
                     return framebuffer;
                 }
                 framebuffer.destroy(this.egl_display);
