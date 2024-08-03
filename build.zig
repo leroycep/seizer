@@ -150,6 +150,8 @@ pub fn build(b: *Builder) !void {
         module.addImport("wayland-protocols", wayland_protocols_module);
     }
 
+    const check_step = b.step("check", "check that everything compiles");
+
     const example_fields = @typeInfo(Example).Enum.fields;
     inline for (example_fields) |tag| {
         const tag_name = tag.name;
@@ -190,6 +192,18 @@ pub fn build(b: *Builder) !void {
         }
         const run_step = b.step("example-" ++ tag_name ++ "-run", "Run the " ++ tag_name ++ " example");
         run_step.dependOn(&run_cmd.step);
+
+        // check that this example compiles, but skip llvm output that takes a while to run
+        const exe_check = b.addExecutable(.{
+            .name = tag_name,
+            .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
+            .target = target,
+            .optimize = optimize,
+        });
+        exe_check.root_module.addImport("seizer", module);
+        exe_check.step.dependOn(generate_wayland_step);
+
+        check_step.dependOn(&exe_check.step);
     }
 
     const test_all = b.step("test-all", "run all tests");
