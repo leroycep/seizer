@@ -770,9 +770,7 @@ pub const BareEGL = struct {
 
         pub fn swapBuffers(userdata: ?*anyopaque) anyerror!void {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
-            this.egl_display.swapBuffers(this.surface) catch |err| {
-                std.log.warn("failed to swap buffers: {}", .{err});
-            };
+            try this.egl_display.swapBuffers(this.surface);
         }
 
         pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
