@@ -205,7 +205,7 @@ pub fn build(b: *Builder) !void {
         // check that this example compiles, but skip llvm output that takes a while to run
         const exe_check = b.addExecutable(.{
             .name = tag_name,
-            .root_source_file = .{ .path = "examples/" ++ tag_name ++ ".zig" },
+            .root_source_file = b.path("examples/" ++ tag_name ++ ".zig"),
             .target = target,
             .optimize = optimize,
         });
