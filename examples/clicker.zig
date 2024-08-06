@@ -80,11 +80,11 @@ fn render(window: seizer.Window) !void {
 
     const window_size = window.getSize();
 
-    canvas.begin(.{
+    const c = canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
-    _ = canvas.printText(.{ window_size[0] / 2, window_size[1] / 2 }, "Clicks: {?}", .{clicks}, .{
+    _ = c.printText(.{ window_size[0] / 2, window_size[1] / 2 }, "Clicks: {?}", .{clicks}, .{
         .scale = 3,
         .@"align" = .center,
         .baseline = .middle,

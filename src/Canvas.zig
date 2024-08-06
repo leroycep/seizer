@@ -5,8 +5,6 @@ program: gl.Uint,
 uniforms: UniformLocations,
 current_texture: ?gl.Uint,
 vertices: std.ArrayListUnmanaged(Vertex),
-transform_stack: std.ArrayListUnmanaged([4][4]f32),
-scissor_stack: std.ArrayListUnmanaged([2][2]f32),
 
 window_size: [2]f32 = .{ 1, 1 },
 framebuffer_size: [2]f32 = .{ 1, 1 },
@@ -19,12 +17,42 @@ vbo: gl.Uint,
 
 const Canvas = @This();
 
+pub const RectOptions = struct {
+    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
+    texture: ?gl.Uint = null,
+    /// The top left and bottom right coordinates
+    uv: geometry.AABB(f32) = .{ .min = .{ 0, 0 }, .max = .{ 1, 1 } },
+};
+
+pub const TextOptions = struct {
+    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
+    scale: f32 = 1,
+    @"align": Align = .left,
+    baseline: Baseline = .top,
+    font: ?*const Font = null,
+
+    const Align = enum {
+        left,
+        center,
+        right,
+    };
+
+    const Baseline = enum {
+        top,
+        middle,
+        bottom,
+    };
+};
+
+pub const LineOptions = struct {
+    width: f32 = 1,
+    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
+};
+
 pub fn init(
     allocator: std.mem.Allocator,
     options: struct {
         vertex_buffer_size: usize = 16_384,
-        transform_stack_size: usize = 128,
-        scissor_stack_size: usize = 32,
     },
 ) !@This() {
     // Text shader
@@ -89,12 +117,6 @@ pub fn init(
 
     var vertices = try std.ArrayListUnmanaged(Vertex).initCapacity(allocator, options.vertex_buffer_size);
     errdefer vertices.deinit(allocator);
-
-    var transform_stack = try std.ArrayListUnmanaged([4][4]f32).initCapacity(allocator, options.transform_stack_size);
-    errdefer transform_stack.deinit(allocator);
-
-    var scissor_stack = try std.ArrayListUnmanaged([2][2]f32).initCapacity(allocator, options.scissor_stack_size);
-    errdefer scissor_stack.deinit(allocator);
 
     var blank_texture: gl.Uint = undefined;
     gl.genTextures(1, &blank_texture);
@@ -187,8 +209,6 @@ pub fn init(
         },
         .current_texture = null,
         .vertices = vertices,
-        .transform_stack = transform_stack,
-        .scissor_stack = scissor_stack,
 
         .blank_texture = blank_texture,
         .font = font,
@@ -201,8 +221,6 @@ pub fn init(
 pub fn deinit(this: *@This()) void {
     gl.deleteProgram(this.program);
     this.vertices.deinit(this.allocator);
-    this.transform_stack.deinit(this.allocator);
-    this.scissor_stack.deinit(this.allocator);
     this.font.deinit();
 
     var page_name_iter = this.font_pages.iterator();
@@ -220,7 +238,7 @@ pub const BeginOptions = struct {
     invert_y: bool = false,
 };
 
-pub fn begin(this: *@This(), options: BeginOptions) void {
+pub fn begin(this: *@This(), options: BeginOptions) Transformed {
     this.window_size = options.window_size;
     this.framebuffer_size = options.framebuffer_size;
 
@@ -234,31 +252,10 @@ pub fn begin(this: *@This(), options: BeginOptions) void {
         1,
     );
 
-    this.transform_stack.shrinkRetainingCapacity(0);
-    this.transform_stack.appendAssumeCapacity(projection);
-
-    const scissor = [2][2]f32{
-        .{ 0, 0 },
-        this.window_size,
-    };
-    const pixel_size = [2]f32{
-        this.framebuffer_size[0] / this.window_size[0],
-        this.framebuffer_size[1] / this.window_size[1],
-    };
-    gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(
-        @intFromFloat(scissor[0][0] * pixel_size[0]),
-        @intFromFloat((this.window_size[1] - scissor[0][1] - scissor[1][1]) * pixel_size[1]),
-        @intFromFloat(scissor[1][0] * pixel_size[0]),
-        @intFromFloat(scissor[1][1] * pixel_size[1]),
-    );
-    this.scissor_stack.shrinkRetainingCapacity(0);
-    this.scissor_stack.appendAssumeCapacity(scissor);
-
     // TEXTURE_UNIT0
     gl.useProgram(this.program);
     gl.uniform1i(this.uniforms.texture, 0);
-    gl.uniformMatrix4fv(this.uniforms.projection, 1, gl.FALSE, &this.transform_stack.items[0][0]);
+    gl.uniformMatrix4fv(this.uniforms.projection, 1, gl.FALSE, &projection[0][0]);
 
     this.vertices.shrinkRetainingCapacity(0);
 
@@ -266,297 +263,43 @@ pub fn begin(this: *@This(), options: BeginOptions) void {
     gl.disable(gl.DEPTH_TEST);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.activeTexture(gl.TEXTURE0);
-}
 
-/// Multiplies transform by the previous transform and pushes the resulting transform to the stack.
-/// It then uploads the new transform. Will flush vertices using the current transform.
-pub fn pushTransform(this: *@This(), transform: [4][4]f32) void {
-    std.debug.assert(this.transform_stack.items.len > 0);
-    if (this.vertices.items.len > 0) {
-        this.flush();
-    }
-    const transform_multiplied = geometry.mat4.mul(f32, this.transform_stack.items[this.transform_stack.items.len - 1], transform);
-    this.transform_stack.appendAssumeCapacity(transform_multiplied);
-    gl.uniformMatrix4fv(this.uniforms.projection, 1, gl.FALSE, &transform_multiplied[0]);
-}
-
-/// Pops the current transform and applies the previous transform. Will flush vertices using the
-/// current transform.
-pub fn popTransform(this: *@This()) void {
-    std.debug.assert(this.transform_stack.items.len > 0);
-    if (this.vertices.items.len > 0) {
-        this.flush();
-    }
-    _ = this.transform_stack.pop();
-    gl.uniformMatrix4fv(this.uniforms.projection, 1, gl.FALSE, &this.transform_stack.items[this.transform_stack.items.len - 1][0]);
-}
-
-pub fn pushScissor(this: *@This(), pos: [2]f32, size: [2]f32) void {
-    std.debug.assert(this.scissor_stack.items.len > 0);
-    if (this.vertices.items.len > 0) {
-        this.flush();
-    }
-
-    // constrain scissor to previous scissor
-    const prev_scissor = this.scissor_stack.items[this.scissor_stack.items.len - 1];
-    const prev_bottom_right = [2]f32{
-        prev_scissor[0][0] + prev_scissor[1][0],
-        prev_scissor[0][1] + prev_scissor[1][1],
+    return Transformed{
+        .canvas = this,
+        .transform = geometry.mat4.identity(f32),
     };
-    const top_left = .{
-        std.math.clamp(pos[0], prev_scissor[0][0], prev_bottom_right[0]),
-        std.math.clamp(pos[1], prev_scissor[0][1], prev_bottom_right[1]),
-    };
-    const bottom_right = .{
-        std.math.clamp(pos[0] + size[0], prev_scissor[0][0], prev_bottom_right[0]),
-        std.math.clamp(pos[1] + size[1], prev_scissor[0][1], prev_bottom_right[1]),
-    };
-    const scissor = .{
-        top_left,
-        .{
-            bottom_right[0] - top_left[0],
-            bottom_right[1] - top_left[1],
-        },
-    };
-
-    // update gl.scissor
-    const pixel_size = [2]f32{
-        this.framebuffer_size[0] / this.window_size[0],
-        this.framebuffer_size[1] / this.window_size[1],
-    };
-    gl.scissor(
-        @intFromFloat(scissor[0][0] * pixel_size[0]),
-        @intFromFloat((this.window_size[1] - scissor[0][1] - scissor[1][1]) * pixel_size[1]),
-        @intFromFloat(scissor[1][0] * pixel_size[0]),
-        @intFromFloat(scissor[1][1] * pixel_size[1]),
-    );
-    this.scissor_stack.appendAssumeCapacity(scissor);
-}
-
-pub fn popScissor(this: *@This()) void {
-    std.debug.assert(this.scissor_stack.items.len > 0);
-    if (this.vertices.items.len > 0) {
-        this.flush();
-    }
-    _ = this.scissor_stack.pop();
-    const pixel_size = [2]f32{
-        this.framebuffer_size[0] / this.window_size[0],
-        this.framebuffer_size[1] / this.window_size[1],
-    };
-    const scissor = this.scissor_stack.items[this.scissor_stack.items.len - 1];
-    gl.scissor(
-        @intFromFloat(scissor[0][0] * pixel_size[0]),
-        @intFromFloat((this.window_size[1] - scissor[0][1] - scissor[1][1]) * pixel_size[1]),
-        @intFromFloat(scissor[1][0] * pixel_size[0]),
-        @intFromFloat(scissor[1][1] * pixel_size[1]),
-    );
-}
-
-pub fn getScissor(this: *@This()) struct { pos: [2]f32, size: [2]f32 } {
-    return .{
-        .pos = this.scissor_stack.items[this.scissor_stack.items.len - 1][0],
-        .size = this.scissor_stack.items[this.scissor_stack.items.len - 1][1],
-    };
-}
-
-pub const RectOptions = struct {
-    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-    texture: ?gl.Uint = null,
-    /// The top left and bottom right coordinates
-    uv: geometry.AABB(f32) = .{ .min = .{ 0, 0 }, .max = .{ 1, 1 } },
-};
-
-pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-    this.vertices.ensureUnusedCapacity(this.allocator, 6) catch {
-        this.flush();
-    };
-    if (!std.meta.eql(options.texture, this.current_texture)) {
-        this.flush();
-        this.current_texture = options.texture;
-    }
-
-    this.vertices.appendSliceAssumeCapacity(&.{
-        // triangle 1
-        .{
-            .pos = pos,
-            .uv = options.uv.min,
-            .color = options.color,
-        },
-        .{
-            .pos = .{
-                pos[0] + size[0],
-                pos[1],
-            },
-            .uv = .{
-                options.uv.max[0],
-                options.uv.min[1],
-            },
-            .color = options.color,
-        },
-        .{
-            .pos = .{
-                pos[0],
-                pos[1] + size[1],
-            },
-            .uv = .{
-                options.uv.min[0],
-                options.uv.max[1],
-            },
-            .color = options.color,
-        },
-
-        // triangle 2
-        .{
-            .pos = .{
-                pos[0] + size[0],
-                pos[1] + size[1],
-            },
-            .uv = options.uv.max,
-            .color = options.color,
-        },
-        .{
-            .pos = .{
-                pos[0],
-                pos[1] + size[1],
-            },
-            .uv = .{
-                options.uv.min[0],
-                options.uv.max[1],
-            },
-            .color = options.color,
-        },
-        .{
-            .pos = .{
-                pos[0] + size[0],
-                pos[1],
-            },
-            .uv = .{
-                options.uv.max[0],
-                options.uv.min[1],
-            },
-            .color = options.color,
-        },
-    });
-}
-
-pub const TriangleOptions = struct {
-    pos: [3][2]f32,
-    color: [4]u8 = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
-    texture: ?gl.Uint = null,
-    /// The top left and bottom right coordinates
-    uv: [3][2]f32 = .{ .{ 0, 0 }, .{ 0, 0 }, .{ 0, 0 } },
-};
-
-pub fn triangle(this: *@This(), options: TriangleOptions) void {
-    this.vertices.ensureUnusedCapacity(this.allocator, 3) catch {
-        this.flush();
-    };
-    if (!std.meta.eql(options.texture, this.current_texture)) {
-        this.flush();
-        this.current_texture = options.texture;
-    }
-
-    this.vertices.appendSliceAssumeCapacity(&.{
-        .{
-            .pos = options.pos[0],
-            .uv = options.uv[0],
-            .color = options.color,
-            .shape = options.shape,
-            .bary = options.bary[0],
-        },
-        .{
-            .pos = options.pos[1],
-            .uv = options.uv[1],
-            .color = options.color,
-            .shape = options.shape,
-            .bary = options.bary[1],
-        },
-        .{
-            .pos = options.pos[2],
-            .uv = options.uv[2],
-            .color = options.color,
-            .shape = options.shape,
-            .bary = options.bary[2],
-        },
-    });
-}
-
-pub const TextOptions = struct {
-    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-    scale: f32 = 1,
-    @"align": Align = .left,
-    baseline: Baseline = .top,
-    font: ?*const Font = null,
-
-    const Align = enum {
-        left,
-        center,
-        right,
-    };
-
-    const Baseline = enum {
-        top,
-        middle,
-        bottom,
-    };
-};
-
-pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
-    const font = options.font orelse &this.font;
-    const text_size = font.textSize(text, options.scale);
-
-    const x: f32 = switch (options.@"align") {
-        .left => pos[0],
-        .center => pos[0] - text_size[0] / 2,
-        .right => pos[0] - text_size[0],
-    };
-    const y: f32 = switch (options.baseline) {
-        .top => pos[1],
-        .middle => pos[1] - text_size[1] / 2,
-        .bottom => pos[1] - text_size[1],
-    };
-    var text_writer = this.textWriter(.{
-        .pos = .{ x, y },
-        .scale = options.scale,
-        .color = options.color,
-    });
-    text_writer.writer().writeAll(text) catch {};
-    return text_writer.size;
-}
-
-pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
-    const font = options.font orelse &this.font;
-    const text_size = font.fmtTextSize(fmt, args, options.scale);
-
-    const x: f32 = switch (options.@"align") {
-        .left => pos[0],
-        .center => pos[0] - text_size[0] / 2,
-        .right => pos[0] - text_size[0],
-    };
-    const y: f32 = switch (options.baseline) {
-        .top => pos[1],
-        .middle => pos[1] - text_size[1] / 2,
-        .bottom => pos[1] - text_size[1],
-    };
-
-    var text_writer = this.textWriter(.{
-        .pos = .{ x, y },
-        .scale = options.scale,
-        .color = options.color,
-    });
-    text_writer.writer().print(fmt, args) catch {};
-
-    return text_writer.size;
 }
 
 pub fn end(this: *@This()) void {
     this.flush();
-    this.transform_stack.shrinkRetainingCapacity(0);
+}
+
+pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
+    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+    return transformed.rect(pos, size, options);
+}
+
+pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
+    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+    return transformed.line(pos1, pos2, options);
+}
+
+pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
+    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+    return transformed.writeText(pos, text, options);
+}
+
+pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
+    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+    return transformed.writeText(pos, fmt, args, options);
 }
 
 pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {
     return TextWriter{
-        .canvas = this,
+        .transformed = .{
+            .canvas = this,
+            .transform = geometry.mat4.identity(f32),
+        },
         .options = options,
         .direction = 1,
         .current_pos = options.pos,
@@ -564,7 +307,7 @@ pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {
 }
 
 pub const TextWriter = struct {
-    canvas: *Canvas,
+    transformed: Transformed,
     options: Options,
     direction: f32,
     current_pos: [2]f32,
@@ -578,16 +321,16 @@ pub const TextWriter = struct {
 
     pub fn addCharacter(this: *@This(), character: u21) void {
         if (character == '\n') {
-            this.current_pos[1] += this.canvas.font.lineHeight * this.options.scale;
+            this.current_pos[1] += this.transformed.canvas.font.lineHeight * this.options.scale;
             this.current_pos[0] = this.options.pos[0];
 
             this.size = .{
                 @max(this.current_pos[0] - this.options.pos[0], this.size[0]),
-                @max(this.current_pos[1] - this.options.pos[1] + this.canvas.font.lineHeight * this.options.scale, this.size[1]),
+                @max(this.current_pos[1] - this.options.pos[1] + this.transformed.canvas.font.lineHeight * this.options.scale, this.size[1]),
             };
             return;
         }
-        const glyph = this.canvas.font.glyphs.get(character) orelse {
+        const glyph = this.transformed.canvas.font.glyphs.get(character) orelse {
             log.warn("No glyph found for character \"{}\"", .{std.fmt.fmtSliceHexLower(std.mem.asBytes(&character))});
             return;
         };
@@ -598,12 +341,12 @@ pub const TextWriter = struct {
             glyph.offset[1] * this.options.scale,
         };
 
-        const font_page = this.canvas.font_pages.get(glyph.page) orelse {
+        const font_page = this.transformed.canvas.font_pages.get(glyph.page) orelse {
             log.warn("Unknown font page {} for glyph \"{}\"", .{ glyph.page, std.fmt.fmtSliceHexLower(std.mem.asBytes(&character)) });
             return;
         };
 
-        this.canvas.rect(
+        this.transformed.canvas.rect(
             .{
                 this.current_pos[0] + offset[0],
                 this.current_pos[1] + offset[1],
@@ -631,7 +374,7 @@ pub const TextWriter = struct {
         this.current_pos[0] += this.direction * xadvance;
         this.size = .{
             @max(this.current_pos[0] - this.options.pos[0], this.size[0]),
-            @max(this.current_pos[1] - this.options.pos[1] + this.canvas.font.lineHeight * this.options.scale, this.size[1]),
+            @max(this.current_pos[1] - this.options.pos[1] + this.transformed.canvas.font.lineHeight * this.options.scale, this.size[1]),
         };
     }
 
@@ -654,101 +397,6 @@ pub const TextWriter = struct {
         return bytes.len;
     }
 };
-
-pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: struct {
-    width: f32 = 1,
-    color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-}) void {
-    this.vertices.ensureUnusedCapacity(this.allocator, 6) catch {
-        this.flush();
-    };
-    if (this.current_texture != null) {
-        this.flush();
-        this.current_texture = null;
-    }
-
-    const half_width = options.width / 2;
-    const half_length = geometry.vec.magnitude(2, f32, .{
-        pos2[0] - pos1[0],
-        pos2[1] - pos1[1],
-    }) / 2;
-
-    const forward = geometry.vec.normalize(2, f32, .{
-        pos2[0] - pos1[0],
-        pos2[1] - pos1[1],
-    });
-    const right = geometry.vec.normalize(2, f32, .{
-        forward[1],
-        -forward[0],
-    });
-    const midpoint = [2]f32{
-        (pos1[0] + pos2[0]) / 2,
-        (pos1[1] + pos2[1]) / 2,
-    };
-
-    const back_left = [2]f32{
-        midpoint[0] - half_length * forward[0] - half_width * right[0],
-        midpoint[1] - half_length * forward[1] - half_width * right[1],
-    };
-    const back_right = [2]f32{
-        midpoint[0] - half_length * forward[0] + half_width * right[0],
-        midpoint[1] - half_length * forward[1] + half_width * right[1],
-    };
-    const fore_left = [2]f32{
-        midpoint[0] + half_length * forward[0] - half_width * right[0],
-        midpoint[1] + half_length * forward[1] - half_width * right[1],
-    };
-    const fore_right = [2]f32{
-        midpoint[0] + half_length * forward[0] + half_width * right[0],
-        midpoint[1] + half_length * forward[1] + half_width * right[1],
-    };
-
-    this.vertices.appendSliceAssumeCapacity(&.{
-        .{
-            .pos = back_left,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, -1 },
-        },
-        .{
-            .pos = fore_left,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, -1 },
-        },
-        .{
-            .pos = back_right,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, 1 },
-        },
-
-        .{
-            .pos = back_right,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, 1 },
-        },
-        .{
-            .pos = fore_left,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, -1 },
-        },
-        .{
-            .pos = fore_right,
-            .uv = .{ 0, 0 },
-            .color = options.color,
-            .shape = .triangle,
-            .bary = .{ 0, 0, 1 },
-        },
-    });
-}
 
 pub fn flush(this: *@This()) void {
     gl.activeTexture(gl.TEXTURE0);
@@ -775,6 +423,251 @@ pub fn flush(this: *@This()) void {
     this.vertices.shrinkRetainingCapacity(0);
     this.current_texture = null;
 }
+
+/// A transformed canvas
+pub const Transformed = struct {
+    canvas: *Canvas,
+    transform: [4][4]f32,
+
+    pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
+        if (!std.meta.eql(options.texture, this.canvas.current_texture)) {
+            this.canvas.flush();
+            this.canvas.current_texture = options.texture;
+        }
+
+        this.addVertices(&.{
+            // triangle 1
+            .{
+                .pos = pos,
+                .uv = options.uv.min,
+                .color = options.color,
+            },
+            .{
+                .pos = .{
+                    pos[0] + size[0],
+                    pos[1],
+                },
+                .uv = .{
+                    options.uv.max[0],
+                    options.uv.min[1],
+                },
+                .color = options.color,
+            },
+            .{
+                .pos = .{
+                    pos[0],
+                    pos[1] + size[1],
+                },
+                .uv = .{
+                    options.uv.min[0],
+                    options.uv.max[1],
+                },
+                .color = options.color,
+            },
+
+            // triangle 2
+            .{
+                .pos = .{
+                    pos[0] + size[0],
+                    pos[1] + size[1],
+                },
+                .uv = options.uv.max,
+                .color = options.color,
+            },
+            .{
+                .pos = .{
+                    pos[0],
+                    pos[1] + size[1],
+                },
+                .uv = .{
+                    options.uv.min[0],
+                    options.uv.max[1],
+                },
+                .color = options.color,
+            },
+            .{
+                .pos = .{
+                    pos[0] + size[0],
+                    pos[1],
+                },
+                .uv = .{
+                    options.uv.max[0],
+                    options.uv.min[1],
+                },
+                .color = options.color,
+            },
+        });
+    }
+
+    pub fn writeText(this: @This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
+        const font = options.font orelse &this.canvas.font;
+        const text_size = font.textSize(text, options.scale);
+
+        const x: f32 = switch (options.@"align") {
+            .left => pos[0],
+            .center => pos[0] - text_size[0] / 2,
+            .right => pos[0] - text_size[0],
+        };
+        const y: f32 = switch (options.baseline) {
+            .top => pos[1],
+            .middle => pos[1] - text_size[1] / 2,
+            .bottom => pos[1] - text_size[1],
+        };
+        var text_writer = this.textWriter(.{
+            .pos = .{ x, y },
+            .scale = options.scale,
+            .color = options.color,
+        });
+        text_writer.writer().writeAll(text) catch {};
+        return text_writer.size;
+    }
+
+    pub fn printText(this: @This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
+        const font = options.font orelse &this.canvas.font;
+        const text_size = font.fmtTextSize(fmt, args, options.scale);
+
+        const x: f32 = switch (options.@"align") {
+            .left => pos[0],
+            .center => pos[0] - text_size[0] / 2,
+            .right => pos[0] - text_size[0],
+        };
+        const y: f32 = switch (options.baseline) {
+            .top => pos[1],
+            .middle => pos[1] - text_size[1] / 2,
+            .bottom => pos[1] - text_size[1],
+        };
+
+        var text_writer = this.textWriter(.{
+            .pos = .{ x, y },
+            .scale = options.scale,
+            .color = options.color,
+        });
+        text_writer.writer().print(fmt, args) catch {};
+
+        return text_writer.size;
+    }
+
+    pub fn textWriter(this: @This(), options: TextWriter.Options) TextWriter {
+        return TextWriter{
+            .transformed = this,
+            .options = options,
+            .direction = 1,
+            .current_pos = options.pos,
+        };
+    }
+
+    pub fn line(this: @This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
+        if (this.canvas.current_texture != null) {
+            this.canvas.flush();
+            this.canvas.current_texture = null;
+        }
+
+        const half_width = options.width / 2;
+        const half_length = geometry.vec.magnitude(2, f32, .{
+            pos2[0] - pos1[0],
+            pos2[1] - pos1[1],
+        }) / 2;
+
+        const forward = geometry.vec.normalize(2, f32, .{
+            pos2[0] - pos1[0],
+            pos2[1] - pos1[1],
+        });
+        const right = geometry.vec.normalize(2, f32, .{
+            forward[1],
+            -forward[0],
+        });
+        const midpoint = [2]f32{
+            (pos1[0] + pos2[0]) / 2,
+            (pos1[1] + pos2[1]) / 2,
+        };
+
+        const back_left = [2]f32{
+            midpoint[0] - half_length * forward[0] - half_width * right[0],
+            midpoint[1] - half_length * forward[1] - half_width * right[1],
+        };
+        const back_right = [2]f32{
+            midpoint[0] - half_length * forward[0] + half_width * right[0],
+            midpoint[1] - half_length * forward[1] + half_width * right[1],
+        };
+        const fore_left = [2]f32{
+            midpoint[0] + half_length * forward[0] - half_width * right[0],
+            midpoint[1] + half_length * forward[1] - half_width * right[1],
+        };
+        const fore_right = [2]f32{
+            midpoint[0] + half_length * forward[0] + half_width * right[0],
+            midpoint[1] + half_length * forward[1] + half_width * right[1],
+        };
+
+        this.addVertices(&.{
+            .{
+                .pos = back_left,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, -1 },
+            },
+            .{
+                .pos = fore_left,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, -1 },
+            },
+            .{
+                .pos = back_right,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, 1 },
+            },
+
+            .{
+                .pos = back_right,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, 1 },
+            },
+            .{
+                .pos = fore_left,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, -1 },
+            },
+            .{
+                .pos = fore_right,
+                .uv = .{ 0, 0 },
+                .color = options.color,
+                .shape = .triangle,
+                .bary = .{ 0, 0, 1 },
+            },
+        });
+    }
+
+    /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
+    pub fn addVertices(this: @This(), vertices: []const Vertex) void {
+        this.canvas.vertices.ensureUnusedCapacity(this.canvas.allocator, vertices.len) catch {
+            this.canvas.flush();
+        };
+
+        const transformed_vertices = this.canvas.vertices.addManyAsSliceAssumeCapacity(vertices.len);
+        for (vertices, transformed_vertices) |vertex, *transformed_vertex| {
+            transformed_vertex.* = Vertex{
+                .pos = geometry.mat4.mulVec(f32, this.transform, vertex.pos ++ [2]f32{ 0, 1 })[0..2].*,
+                .uv = vertex.uv,
+                .color = vertex.color,
+            };
+        }
+    }
+
+    pub fn transformed(this: @This(), transform: [4][4]f32) Transformed {
+        return Transformed{
+            .canvas = this.canvas,
+            .transform = geometry.mat4.mul(f32, this.transform, transform),
+        };
+    }
+};
 
 const UniformLocations = struct {
     projection: c_int,

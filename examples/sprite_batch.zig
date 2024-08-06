@@ -103,13 +103,13 @@ fn render(window: seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    canvas.begin(.{
+    const c = canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
 
     for (sprites.items(.pos), sprites.items(.size)) |pos, size| {
-        canvas.rect(
+        c.rect(
             pos,
             size,
             .{ .texture = player_texture.glTexture },
@@ -117,14 +117,14 @@ fn render(window: seizer.Window) !void {
     }
 
     var text_pos = [2]f32{ 50, 50 };
-    const text_size = canvas.printText(text_pos, "sprite count = {}", .{sprites.len}, .{});
+    const text_size = c.printText(text_pos, "sprite count = {}", .{sprites.len}, .{});
     text_pos[1] += text_size[1];
 
     var frametime_total: f32 = 0;
     for (frametimes) |f| {
         frametime_total += @floatFromInt(f);
     }
-    _ = canvas.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{});
+    _ = c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{});
 
     canvas.end();
 

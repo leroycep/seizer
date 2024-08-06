@@ -131,11 +131,11 @@ fn render(window: seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    canvas.begin(.{
+    const c = canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
-    var text_writer = canvas.textWriter(.{});
+    var text_writer = c.textWriter(.{});
     const console = text_writer.writer();
 
     try console.print("Buttons\n", .{});

@@ -27,11 +27,11 @@ fn render(window: seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    canvas.begin(.{
+    const c = canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
-    canvas.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
+    c.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
     canvas.end();
 
     try window.swapBuffers();

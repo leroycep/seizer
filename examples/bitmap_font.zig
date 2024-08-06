@@ -22,11 +22,11 @@ fn render(window: seizer.Window) !void {
     gl.clearColor(0.7, 0.5, 0.5, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
-    canvas.begin(.{
+    const c = canvas.begin(.{
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
-    _ = canvas.writeText(.{ 50, 50 }, "Hello, world!", .{});
+    _ = c.writeText(.{ 50, 50 }, "Hello, world!", .{});
     canvas.end();
 
     try window.swapBuffers();
