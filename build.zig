@@ -3,7 +3,6 @@ const Builder = std.Build;
 
 const Example = enum {
     clear,
-    textures,
     bitmap_font,
     sprite_batch,
     tinyvg,
@@ -30,6 +29,8 @@ pub fn build(b: *Builder) !void {
         .target = target,
         .optimize = optimize,
     });
+
+    const zigwin32 = b.dependency("zigwin32", .{});
 
     const gl_module = b.addModule("gl", .{
         .root_source_file = b.path("dep/gles3v0.zig"),
@@ -157,6 +158,11 @@ pub fn build(b: *Builder) !void {
     if (import_wayland) {
         module.addImport("wayland", wayland_module);
         module.addImport("wayland-protocols", wayland_protocols_module);
+    }
+
+    const import_zigwin32 = target.result.os.tag == .windows;
+    if (import_zigwin32) {
+        module.addImport("zigwin32", zigwin32.module("zigwin32"));
     }
 
     const check_step = b.step("check", "check that everything compiles");

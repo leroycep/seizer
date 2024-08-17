@@ -19,5 +19,9 @@
             .url = "https://github.com/mitchellh/libxev/archive/1dd3c9015a542757b049f6d33beb8941f57bce1f.tar.gz",
             .hash = "1220b644b45718a869b37bc37bbc476e69922b21090003b38c1b68a7218fc365771a",
         },
+        .zigwin32 = .{
+            .url = "https://github.com/marlersoft/zigwin32/archive/407a4c7b869ee3d10db520fdfae8b9faf9b2adb5.tar.gz",
+            .hash = "1220cc9c9028e20f4ec2ece1155ae3479acc1cc509f9ab93acb74e8f5bbf8eefd2a9",
+        },
     },
 }

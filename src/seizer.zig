@@ -11,14 +11,16 @@ pub const NinePatch = @import("./NinePatch.zig");
 pub const Platform = @import("./Platform.zig");
 pub const Texture = @import("./Texture.zig");
 pub const Window = @import("./Window.zig");
+pub const Gfx = @import("./Gfx.zig");
 
 pub const main = platform.main;
-pub const gl = platform.gl;
 
 pub const platform: Platform = if (builtin.os.tag == .linux or builtin.os.tag.isBSD())
     Platform.linuxbsd.PLATFORM
 else if (builtin.os.tag == .wasi)
     Platform.wasm.PLATFORM
+else if (builtin.os.tag == .windows)
+    Platform.windows.PLATFORM
 else
     @compileError("Unsupported platform " ++ @tagName(builtin.os.tag));
 

@@ -1,12 +1,12 @@
 pub const wasm = @import("Platform/wasm.zig");
 pub const linuxbsd = @import("Platform/linuxbsd.zig");
+pub const windows = @import("Platform/windows.zig");
 
 const Platform = @This();
 
 name: []const u8,
 /// should return true if the next backend should be tried
 main: fn () anyerror!void,
-gl: type,
 allocator: fn () std.mem.Allocator,
 createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
 addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
