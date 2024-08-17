@@ -131,6 +131,8 @@ pub fn build(b: *Builder) !void {
     // seizer
     const module = b.addModule("seizer", .{
         .root_source_file = b.path("src/seizer.zig"),
+        .target = target,
+        .optimize = optimize,
         .imports = &.{
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
@@ -163,6 +165,10 @@ pub fn build(b: *Builder) !void {
     const import_zigwin32 = target.result.os.tag == .windows;
     if (import_zigwin32) {
         module.addImport("zigwin32", zigwin32.module("zigwin32"));
+    }
+
+    if (target.result.os.tag == .windows) {
+        module.linkSystemLibrary("opengl32", .{});
     }
 
     const check_step = b.step("check", "check that everything compiles");

@@ -14,6 +14,7 @@ pub const Window = @import("./Window.zig");
 pub const Gfx = @import("./Gfx.zig");
 
 pub const main = platform.main;
+pub const gl = platform.gl;
 
 pub const platform: Platform = if (builtin.os.tag == .linux or builtin.os.tag.isBSD())
     Platform.linuxbsd.PLATFORM

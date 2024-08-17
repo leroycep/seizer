@@ -7,6 +7,7 @@ const Platform = @This();
 name: []const u8,
 /// should return true if the next backend should be tried
 main: fn () anyerror!void,
+gl: type,
 allocator: fn () std.mem.Allocator,
 createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
 addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,

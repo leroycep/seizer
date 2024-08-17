@@ -1446,6 +1446,7 @@ pub const Binding = struct {
         @setEvalBranchQuota(1_000_000);
         inline for (std.meta.fields(Binding)) |field_info| {
             const feature_name = comptime nullTerminate(field_info.name);
+            std.log.debug("{s}:{} {s}", .{ @src().file, @src().line, feature_name });
             switch (@typeInfo(field_info.type)) {
                 .Pointer => |ptr_info| switch (@typeInfo(ptr_info.child)) {
                     .Fn => self.loadCommand(loader, &feature_name),
