@@ -30,6 +30,7 @@ pub const TextOptions = struct {
     @"align": Align = .left,
     baseline: Baseline = .top,
     font: ?*const Font = null,
+    background: ?[4]u8 = null,
 
     const Align = enum {
         left,
@@ -312,11 +313,13 @@ pub const TextWriter = struct {
     direction: f32,
     current_pos: [2]f32,
     size: [2]f32 = .{ 0, 0 },
+    bg_rect_start: ?[2]f32 = null,
 
     pub const Options = struct {
         pos: [2]f32 = .{ 0, 0 },
         color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
         scale: f32 = 1,
+        background: ?[4]u8 = null,
     };
 
     pub fn addCharacter(this: *@This(), character: u21) void {
@@ -340,6 +343,19 @@ pub const TextWriter = struct {
             glyph.offset[0] * this.options.scale,
             glyph.offset[1] * this.options.scale,
         };
+
+        if (this.options.background) |bg| {
+            this.transformed.canvas.rect(
+                this.current_pos,
+                .{
+                    xadvance,
+                    this.transformed.canvas.font.lineHeight * this.options.scale,
+                },
+                .{
+                    .color = bg,
+                },
+            );
+        }
 
         const font_page = this.transformed.canvas.font_pages.get(glyph.page) orelse {
             log.warn("Unknown font page {} for glyph \"{}\"", .{ glyph.page, std.fmt.fmtSliceHexLower(std.mem.asBytes(&character)) });
@@ -517,6 +533,7 @@ pub const Transformed = struct {
             .pos = .{ x, y },
             .scale = options.scale,
             .color = options.color,
+            .background = options.background,
         });
         text_writer.writer().writeAll(text) catch {};
         return text_writer.size;

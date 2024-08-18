@@ -26,7 +26,12 @@ fn render(window: seizer.Window) !void {
         .window_size = window.getSize(),
         .framebuffer_size = window.getFramebufferSize(),
     });
-    _ = c.writeText(.{ 50, 50 }, "Hello, world!", .{});
+
+    var pos = [2]f32{ 50, 50 };
+    pos[1] += c.writeText(pos, "Hello, world!", .{})[1];
+    pos[1] += c.writeText(pos, "Hello, world!", .{ .color = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
+    pos[1] += c.writeText(pos, "Hello, world!", .{ .background = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
+
     canvas.end();
 
     try window.swapBuffers();
