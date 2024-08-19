@@ -12,7 +12,10 @@ createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
 addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
 writeFile: fn (options: WriteFileOptions) void,
 readFile: fn (options: ReadFileOptions) void,
+setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
+
+pub const DeinitFn = *const fn () void;
 
 pub const CreateWindowOptions = struct {
     title: [:0]const u8,

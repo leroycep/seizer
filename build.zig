@@ -10,6 +10,7 @@ const Example = enum {
     gamepad,
     clicker,
     ui_stage,
+    multi_window,
 };
 
 pub fn build(b: *Builder) !void {

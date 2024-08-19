@@ -2501,7 +2501,7 @@ pub const wl_surface = struct {
     /// remove the surface content.
     pub fn attach(
         this: @This(),
-        buffer: *wayland.wayland.wl_buffer,
+        buffer: ?*wayland.wayland.wl_buffer,
         x: i32,
         y: i32,
     ) !void {
@@ -2509,7 +2509,7 @@ pub const wl_surface = struct {
             Request,
             this.id,
             .{ .attach = .{
-                .buffer = buffer.id,
+                .buffer = if (buffer) |b| b.id else 0,
                 .x = x,
                 .y = y,
             } },

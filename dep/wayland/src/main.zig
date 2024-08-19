@@ -301,19 +301,24 @@ pub fn serializeArguments(comptime Signature: type, buffer: []u32, message: Sign
             .Optional => |opt| switch (@typeInfo(opt.child)) {
                 .Pointer => |ptr| switch (ptr.size) {
                     .Slice => if (ptr.child == u8) {
-                        const str = @field(message, field.name);
-                        if (str.len >= std.math.maxInt(u32)) return error.StringTooLong;
+                        const str_opt = @field(message, field.name);
 
-                        buffer[pos] = @intCast(str.len + 1);
-                        pos += 1;
+                        if (str_opt) |str| {
+                            if (str.len >= std.math.maxInt(u32)) return error.StringTooLong;
+                            buffer[pos] = @intCast(str.len + 1);
+                            pos += 1;
 
-                        const str_len_aligned = std.mem.alignForward(usize, str.len + 1, @sizeOf(u32));
-                        const padding_len = str_len_aligned - str.len;
-                        if (str_len_aligned / @sizeOf(u32) >= buffer[pos..].len) return error.OutOfMemory;
-                        const buffer_bytes = std.mem.sliceAsBytes(buffer[pos..]);
-                        @memcpy(buffer_bytes[0..str.len], str);
-                        @memset(buffer_bytes[str.len..][0..padding_len], 0);
-                        pos += str_len_aligned / @sizeOf(u32);
+                            const str_len_aligned = std.mem.alignForward(usize, str.len + 1, @sizeOf(u32));
+                            const padding_len = str_len_aligned - str.len;
+                            if (str_len_aligned / @sizeOf(u32) >= buffer[pos..].len) return error.OutOfMemory;
+                            const buffer_bytes = std.mem.sliceAsBytes(buffer[pos..]);
+                            @memcpy(buffer_bytes[0..str.len], str);
+                            @memset(buffer_bytes[str.len..][0..padding_len], 0);
+                            pos += str_len_aligned / @sizeOf(u32);
+                        } else {
+                            buffer[pos] = 0;
+                            pos += 1;
+                        }
                     } else @compileError("Unsupported type " ++ @typeName(field.type)),
                     else => @compileError("Unsupported type " ++ @typeName(field.type)),
                 },

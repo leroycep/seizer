@@ -7,16 +7,17 @@ pub const PLATFORM = seizer.Platform{
     .addButtonInput = addButtonInput,
     .writeFile = writeFile,
     .readFile = readFile,
+    .setDeinitCallback = setDeinitFn,
     .setEventCallback = setEventCallback,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var egl: EGL = undefined;
 var loop: xev.Loop = undefined;
-var display: EGL.Display = undefined;
 var evdev: EvDev = undefined;
 var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
 var window_manager: WindowManager = undefined;
+var deinit_fn: ?seizer.Platform.DeinitFn = null;
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -43,7 +44,7 @@ pub fn main() anyerror!void {
     loop = try xev.Loop.init(.{});
     defer loop.deinit();
 
-    display = egl.getDisplay(null) orelse {
+    var display = egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
         return error.NoDisplay;
     };
@@ -65,6 +66,7 @@ pub fn main() anyerror!void {
     window_manager = try WindowManager.init(.{
         .allocator = gpa.allocator(),
         .egl = &egl,
+        .display = display,
         .key_bindings = &key_bindings,
         .loop = &loop,
     });
@@ -78,6 +80,11 @@ pub fn main() anyerror!void {
         }
         return;
     };
+    defer {
+        if (deinit_fn) |deinit| {
+            deinit();
+        }
+    }
     while (!window_manager.shouldClose()) {
         try loop.run(.once);
         try window_manager.update();
@@ -89,7 +96,7 @@ pub fn getAllocator() std.mem.Allocator {
 }
 
 pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
-    return window_manager.createWindow(options, display);
+    return window_manager.createWindow(options);
 }
 
 pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
@@ -112,6 +119,10 @@ pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
 
 fn setEventCallback(new_on_event_callback: ?*const fn (event: seizer.input.Event) anyerror!void) void {
     window_manager.setEventCallback(new_on_event_callback);
+}
+
+fn setDeinitFn(new_deinit_fn: ?seizer.Platform.DeinitFn) void {
+    deinit_fn = new_deinit_fn;
 }
 
 const LibraryPaths = struct {
