@@ -292,7 +292,7 @@ pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOpt
 
 pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-    return transformed.writeText(pos, fmt, args, options);
+    return transformed.printText(pos, fmt, args, options);
 }
 
 pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {

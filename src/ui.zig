@@ -1,25 +1,20 @@
-pub const Button = @import("./ui/Button.zig");
-pub const FlexBox = @import("./ui/FlexBox.zig");
-pub const Frame = @import("./ui/Frame.zig");
-pub const Label = @import("./ui/Label.zig");
-pub const TextField = @import("./ui/TextField.zig");
+pub const Element = @import("./ui/Element.zig");
 
 pub const Stage = struct {
     gpa: std.mem.Allocator,
-
     default_style: Style,
 
-    root: ?*Element = null,
-    popups: std.AutoArrayHashMapUnmanaged(*Element, void) = .{},
+    root: ?Element = null,
+    popups: std.AutoArrayHashMapUnmanaged(Element, void) = .{},
 
-    focused_element: ?*Element = null,
-    hovered_element: ?*Element = null,
-    pointer_capture_element: ?*Element = null,
+    focused_element: ?Element.Capture = null,
+    hovered_element: ?Element.Capture = null,
+    pointer_capture_element: ?Element.Capture = null,
 
     needs_layout: bool = true,
     cursor_shape: ?CursorShape = null,
 
-    pub fn init(gpa: std.mem.Allocator, default_style: Style) !*@This() {
+    pub fn create(gpa: std.mem.Allocator, default_style: Style) !*@This() {
         const this = try gpa.create(@This());
         this.* = .{
             .gpa = gpa,
@@ -29,8 +24,14 @@ pub const Stage = struct {
     }
 
     pub fn destroy(this: *@This()) void {
+        if (this.focused_element) |focused| {
+            focused.element.release();
+        }
+        if (this.hovered_element) |hovered| {
+            hovered.element.release();
+        }
         if (this.pointer_capture_element) |pce| {
-            pce.release();
+            pce.element.release();
         }
         if (this.root) |r| {
             r.release();
@@ -42,7 +43,7 @@ pub const Stage = struct {
         this.gpa.destroy(this);
     }
 
-    pub fn setRoot(this: *@This(), new_root_opt: ?*Element) void {
+    pub fn setRoot(this: *@This(), new_root_opt: ?Element) void {
         if (new_root_opt) |new_root| {
             new_root.acquire();
         }
@@ -50,13 +51,13 @@ pub const Stage = struct {
             r.release();
         }
         if (new_root_opt) |new_root| {
-            new_root.parent = null;
+            new_root.setParent(null);
         }
         this.root = new_root_opt;
         this.needs_layout = true;
     }
 
-    pub fn addPopup(this: *@This(), popup: *Element) !void {
+    pub fn addPopup(this: *@This(), popup: Element) !void {
         const gop = try this.popups.getOrPut(this.gpa, popup);
         if (!gop.found_existing) {
             popup.acquire();
@@ -65,7 +66,7 @@ pub const Stage = struct {
         }
     }
 
-    pub fn removePopup(this: *@This(), popup: *Element) bool {
+    pub fn removePopup(this: *@This(), popup: Element) bool {
         if (this.popups.swapRemove(popup)) {
             popup.release();
             return true;
@@ -73,160 +74,138 @@ pub const Stage = struct {
         return false;
     }
 
-    pub fn render(this: *Stage, canvas: *Canvas, window_size: [2]f32) void {
+    pub fn render(this: *Stage, canvas: Canvas.Transformed, window_size: [2]f32) void {
         if (this.needs_layout) {
-            if (this.root) |r| r.rect.size = r.layout(window_size, window_size);
+            if (this.root) |r| _ = r.layout(window_size, window_size);
             for (this.popups.keys()) |popup| {
-                popup.rect.size = popup.layout(.{ 0, 0 }, window_size);
+                _ = popup.layout(.{ 0, 0 }, window_size);
             }
             this.needs_layout = false;
         }
 
         if (this.root) |r| {
-            r.render(canvas, r.rect);
+            r.render(canvas, .{ .pos = .{ 0, 0 }, .size = window_size });
         }
         for (this.popups.keys()) |popup| {
-            popup.render(canvas, popup.rect);
+            popup.render(canvas, .{ .pos = .{ 0, 0 }, .size = window_size });
         }
     }
 
-    pub fn onHover(this: *Stage, pos: [2]f32) bool {
-        this.cursor_shape = null;
-        this.hovered_element = null;
-        if (this.pointer_capture_element) |pce| {
-            const transform = if (pce.parent) |parent| parent.getTransform() else seizer.geometry.mat4.identity(f32);
-            const transformed_pos = seizer.geometry.mat4.mulVec(f32, transform, .{
-                pos[0],
-                pos[1],
-                0,
-                1,
-            })[0..2].*;
-
-            if (pce.onHover(transformed_pos)) |hovered| {
-                this.hovered_element = hovered;
-                return true;
-            }
-        }
-        for (0..this.popups.keys().len) |i| {
-            const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
-            if (popup.rect.contains(pos)) {
-                if (popup.onHover(pos)) |hovered| {
-                    this.hovered_element = hovered;
-                    return true;
-                }
-            }
-        }
-        if (this.root) |r| {
-            if (r.onHover(pos)) |hovered| {
-                this.hovered_element = hovered;
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn onClick(this: *Stage, e: event.Click) bool {
-        if (e.pressed and e.button == .left) this.focused_element = null;
-        if (this.pointer_capture_element) |pce| {
-            const transform = if (pce.parent) |parent| parent.getTransform() else seizer.geometry.mat4.identity(f32);
-            const transformed_pos = seizer.geometry.mat4.mulVec(f32, transform, .{
-                e.pos[0],
-                e.pos[1],
-                0,
-                1,
-            })[0..2].*;
-            const transformed_event = event.Click{
-                .pos = transformed_pos,
-                .button = e.button,
-                .pressed = e.pressed,
-            };
-
-            if (pce.onClick(transformed_event)) {
-                return true;
-            }
-        }
-        for (0..this.popups.keys().len) |i| {
-            const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
-            if (popup.rect.contains(e.pos)) {
-                if (popup.onClick(e)) {
-                    if (this.popups.orderedRemove(popup)) {
-                        this.popups.putAssumeCapacity(popup, {});
+    pub fn processEvent(this: *Stage, event: seizer.input.Event) ?Element.Capture {
+        const IDENTITY_TRANSFORM = seizer.geometry.mat4.identity(f32);
+        switch (event) {
+            .hover => |hover| {
+                this.cursor_shape = null;
+                this.hovered_element = null;
+                if (this.pointer_capture_element) |pce| {
+                    if (pce.element.processEvent(event, pce.transform)) |hovered| {
+                        this.hovered_element = hovered;
+                        return hovered;
                     }
-                    return true;
                 }
-            }
+                for (0..this.popups.keys().len) |i| {
+                    const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
+                    if (popup.rect.contains(hover.pos)) {
+                        if (popup.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
+                            this.hovered_element = hovered;
+                            return hovered;
+                        }
+                    }
+                }
+                if (this.root) |r| {
+                    if (r.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
+                        this.hovered_element = hovered;
+                        return hovered;
+                    }
+                }
+                return null;
+            },
+
+            .click => |click| {
+                if (click.pressed and click.button == .left) this.focused_element = null;
+                if (this.pointer_capture_element) |pce| {
+                    if (pce.element.processEvent(event, pce.transform)) |clicked| {
+                        return clicked;
+                    }
+                }
+                // iterate backwards so orderedRemove works
+                for (0..this.popups.keys().len) |i| {
+                    const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
+                    if (popup.processEvent(event, IDENTITY_TRANSFORM)) |clicked| {
+                        if (this.popups.orderedRemove(popup)) {
+                            this.popups.putAssumeCapacity(popup, {});
+                        }
+                        return clicked;
+                    }
+                }
+                if (this.root) |r| {
+                    return r.processEvent(event, IDENTITY_TRANSFORM);
+                }
+                return null;
+            },
+
+            .scroll => |_| {
+                if (this.pointer_capture_element) |pce| {
+                    if (pce.element.processEvent(event, pce.transform)) |element| {
+                        return element;
+                    }
+                }
+
+                var current_opt = this.hovered_element;
+                while (current_opt) |current| : (current_opt = current.getParent()) {
+                    if (current.processEvent(event, IDENTITY_TRANSFORM)) |element| {
+                        return element;
+                    }
+                }
+
+                return null;
+            },
+
+            .text_input => |_| {
+                if (this.focused_element) |focused| {
+                    if (focused.element.processEvent(event, focused.transform)) |element| {
+                        return element;
+                    }
+                }
+                return null;
+            },
+
+            .key => |key| {
+                if (this.focused_element) |focused| {
+                    if (focused.element.processEvent(event, focused.transform)) |element| {
+                        return element;
+                    }
+                }
+
+                if (this.hovered_element) |hovered| {
+                    if (hovered.element.processEvent(event, hovered.transform)) |element| {
+                        return element;
+                    }
+                }
+
+                if (key.action != .press and key.action != .repeat) return null;
+                const direction = switch (key.key) {
+                    .up => [2]f32{ 0, -1 },
+                    .down => [2]f32{ 0, 1 },
+                    .left => [2]f32{ -1, 0 },
+                    .right => [2]f32{ 1, 0 },
+                    else => return null,
+                };
+
+                // If something is already hovered, ask it for the next element
+                if (this.hovered_element) |hovered| {
+                    if (hovered.element.getNextSelection(this.hovered_element, direction)) |next_selection| {
+                        this.hovered_element = next_selection;
+                        return next_selection;
+                    }
+                }
+
+                // If nothing is hovered, select the root element
+                this.hovered_element = this.root;
+
+                return this.hovered_element;
+            },
         }
-        if (this.root) |r| {
-            return r.onClick(e);
-        }
-        return false;
-    }
-
-    pub fn onScroll(this: *Stage, e: event.Scroll) bool {
-        if (this.pointer_capture_element) |pce| {
-            if (pce.onScroll(e)) {
-                return true;
-            }
-        }
-
-        var current_opt = this.hovered_element;
-        while (current_opt) |current| : (current_opt = current.parent) {
-            if (current.onScroll(e)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    pub fn onTextInput(this: *Stage, e: event.TextInput) bool {
-        if (this.focused_element) |focused| {
-            if (focused.onTextInput(e)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    pub fn onKey(this: *Stage, e: event.Key) bool {
-        if (this.focused_element) |focused| {
-            if (focused.onKey(e)) {
-                return true;
-            }
-        }
-
-        if (this.hovered_element) |hovered| {
-            if (hovered.onKey(e)) {
-                return true;
-            }
-        }
-
-        if (e.action != .press and e.action != .repeat) return false;
-        const direction = switch (e.key) {
-            .up => [2]f32{ 0, -1 },
-            .down => [2]f32{ 0, 1 },
-            .left => [2]f32{ -1, 0 },
-            .right => [2]f32{ 1, 0 },
-            else => return false,
-        };
-
-        // If something is already hovered, ask it for the next element
-        if (this.hovered_element) |hovered| {
-            if (hovered.getNextSelection(this.hovered_element, direction)) |next_selection| {
-                this.hovered_element = next_selection;
-                return true;
-            }
-        }
-
-        // If nothing is hovered, select the root element
-        if (this.root) |r| {
-            if (r.onSelect(direction)) |next_selection| {
-                this.hovered_element = next_selection;
-                return true;
-            }
-        }
-
-        return false;
     }
 
     pub fn capturePointer(this: *@This(), new_pointer_capture_element: *Element) void {
@@ -243,221 +222,6 @@ pub const Stage = struct {
                 pce.release();
                 this.pointer_capture_element = null;
             }
-        }
-    }
-};
-
-pub const event = struct {
-    pub const Hover = struct {
-        pos: [2]f32,
-        buttons: struct {
-            left: bool,
-            right: bool,
-            middle: bool,
-        },
-    };
-
-    pub const Click = struct {
-        pos: [2]f32,
-        button: enum {
-            left,
-            right,
-            middle,
-        },
-        pressed: bool,
-
-        pub fn translate(this: @This(), offset: [2]f32) @This() {
-            return @This(){
-                .pos = .{ this.pos[0] + offset[0], this.pos[1] + offset[1] },
-                .button = this.button,
-                .pressed = this.pressed,
-            };
-        }
-    };
-
-    pub const Scroll = struct {
-        offset: [2]f32,
-    };
-
-    pub const TextInput = struct {
-        text: std.BoundedArray(u8, 16),
-    };
-
-    // TODO: Make all of these fields enums; remove dependence on GLFW
-    pub const Key = struct {
-        key: enum(c_int) {
-            up = @intFromEnum(seizer.backend.glfw.Key.up),
-            left = @intFromEnum(seizer.backend.glfw.Key.left),
-            right = @intFromEnum(seizer.backend.glfw.Key.right),
-            down = @intFromEnum(seizer.backend.glfw.Key.down),
-            page_up = @intFromEnum(seizer.backend.glfw.Key.page_up),
-            page_down = @intFromEnum(seizer.backend.glfw.Key.page_down),
-            enter = @intFromEnum(seizer.backend.glfw.Key.enter),
-            backspace = @intFromEnum(seizer.backend.glfw.Key.backspace),
-            delete = @intFromEnum(seizer.backend.glfw.Key.delete),
-            space = @intFromEnum(seizer.backend.glfw.Key.space),
-            escape = @intFromEnum(seizer.backend.glfw.Key.escape),
-            _,
-        },
-        scancode: c_int,
-        action: enum(c_int) {
-            press = @intFromEnum(seizer.backend.glfw.Action.press),
-            repeat = @intFromEnum(seizer.backend.glfw.Action.repeat),
-            release = @intFromEnum(seizer.backend.glfw.Action.release),
-        },
-        mods: packed struct {
-            shift: bool,
-            control: bool,
-            alt: bool,
-            super: bool,
-            caps_lock: bool,
-            num_lock: bool,
-        },
-    };
-};
-
-pub const Element = struct {
-    interface: *const Interface,
-    stage: *Stage,
-    reference_count: usize = 1,
-    parent: ?*Element = null,
-    rect: Rect = .{ .pos = .{ 0, 0 }, .size = .{ 0, 0 } },
-
-    pub const Interface = struct {
-        destroy_fn: *const fn (*Element) void,
-        get_min_size_fn: *const fn (*Element) [2]f32,
-        layout_fn: *const fn (*Element, min_size: [2]f32, max_size: [2]f32) [2]f32 = layoutDefault,
-        render_fn: *const fn (*Element, *Canvas, Rect) void,
-        on_hover_fn: *const fn (*Element, pos: [2]f32) ?*Element = onHoverDefault,
-        on_click_fn: *const fn (*Element, event.Click) bool = onClickDefault,
-        on_scroll_fn: *const fn (*Element, event.Scroll) bool = onScrollDefault,
-        on_text_input_fn: *const fn (*Element, event.TextInput) bool = onTextInputDefault,
-        on_key_fn: *const fn (*Element, event.Key) bool = onKeyDefault,
-        get_transform_fn: *const fn (*Element) [4][4]f32 = getTransformDefault,
-        on_select_fn: *const fn (*Element, direction: [2]f32) ?*Element = onSelectDefault,
-        get_next_selection_fn: *const fn (*Element, current_selection: ?*Element, direction: [2]f32) ?*Element = getNextSelectionDefault,
-    };
-
-    pub fn acquire(element: *Element) void {
-        element.reference_count += 1;
-    }
-
-    pub fn release(element: *Element) void {
-        element.reference_count -= 1;
-        if (element.reference_count == 0) {
-            element.destroy();
-        }
-    }
-
-    pub fn destroy(element: *Element) void {
-        if (element.stage.pointer_capture_element == element) {
-            element.stage.pointer_capture_element = null;
-        }
-        return element.interface.destroy_fn(element);
-    }
-
-    pub fn getMinSize(element: *Element) [2]f32 {
-        return element.interface.get_min_size_fn(element);
-    }
-
-    pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
-        return element.interface.layout_fn(element, min_size, max_size);
-    }
-
-    pub fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-        return element.interface.render_fn(element, canvas, rect);
-    }
-
-    pub fn onHover(element: *Element, pos: [2]f32) ?*Element {
-        return element.interface.on_hover_fn(element, pos);
-    }
-
-    pub fn onClick(element: *Element, e: event.Click) bool {
-        return element.interface.on_click_fn(element, e);
-    }
-
-    pub fn onScroll(element: *Element, e: event.Scroll) bool {
-        return element.interface.on_scroll_fn(element, e);
-    }
-
-    pub fn onTextInput(element: *Element, e: event.TextInput) bool {
-        return element.interface.on_text_input_fn(element, e);
-    }
-
-    pub fn onKey(element: *Element, e: event.Key) bool {
-        return element.interface.on_key_fn(element, e);
-    }
-
-    pub fn getTransform(element: *Element) [4][4]f32 {
-        return element.interface.get_transform_fn(element);
-    }
-
-    pub fn onSelect(element: *Element, direction: [2]f32) ?*Element {
-        return element.interface.on_select_fn(element, direction);
-    }
-
-    pub fn getNextSelection(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
-        return element.interface.get_next_selection_fn(element, current_selection, direction);
-    }
-
-    // Default functions
-
-    pub fn layoutDefault(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
-        _ = min_size;
-        _ = max_size;
-        return element.getMinSize();
-    }
-
-    pub fn onHoverDefault(element: *Element, pos: [2]f32) ?*Element {
-        _ = pos;
-        return element;
-    }
-
-    pub fn onClickDefault(element: *Element, e: event.Click) bool {
-        _ = element;
-        _ = e;
-        return false;
-    }
-
-    pub fn onScrollDefault(element: *Element, e: event.Scroll) bool {
-        _ = element;
-        _ = e;
-        return false;
-    }
-
-    pub fn onTextInputDefault(this: *Element, e: event.TextInput) bool {
-        _ = this;
-        _ = e;
-        return false;
-    }
-
-    pub fn onKeyDefault(this: *Element, e: event.Key) bool {
-        _ = this;
-        _ = e;
-        return false;
-    }
-
-    pub fn getTransformDefault(this: *Element) [4][4]f32 {
-        const local = seizer.geometry.mat4.translate(f32, .{ -this.rect.pos[0], -this.rect.pos[1], 0 });
-        if (this.parent) |parent| {
-            return seizer.geometry.mat4.mul(f32, local, parent.getTransform());
-        } else {
-            return local;
-        }
-    }
-
-    pub fn onSelectDefault(element: *Element, direction: [2]f32) ?*Element {
-        _ = element;
-        _ = direction;
-        return null;
-    }
-
-    pub fn getNextSelectionDefault(element: *Element, current_selection: ?*Element, direction: [2]f32) ?*Element {
-        _ = current_selection;
-        if (element.parent) |parent| {
-            return parent.getNextSelection(element, direction);
-        } else {
-            return null;
         }
     }
 };
@@ -533,6 +297,7 @@ pub fn Callable(comptime CallbackFn: anytype) type {
     };
 }
 
+const input = @import("./input.zig");
 const Rect = seizer.geometry.Rect(f32);
 const seizer = @import("./seizer.zig");
 const std = @import("std");

@@ -1,14 +1,14 @@
 gpa: std.mem.Allocator,
 loop: *xev.Loop,
 devices: std.SegmentedList(*Device, 16),
-mapping_db: seizer.Gamepad.DB,
+mapping_db: seizer.input.gamepad.DB,
 input_device_dir: std.fs.Dir,
 button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
 const EvDev = @This();
 
 pub fn init(gpa: std.mem.Allocator, loop: *xev.Loop, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !EvDev {
-    var mapping_db = try seizer.Gamepad.DB.init(gpa, .{});
+    var mapping_db = try seizer.input.gamepad.DB.init(gpa, .{});
     errdefer mapping_db.deinit();
 
     var input_device_dir = try std.fs.cwd().openDir("/dev/input/", .{ .iterate = true });
@@ -61,7 +61,7 @@ const Device = struct {
     completion: xev.Completion,
     name: Name,
     id: InputId,
-    mapping: ?seizer.Gamepad.Mapping,
+    mapping: ?seizer.input.gamepad.Mapping,
     button_code_to_index: std.AutoHashMapUnmanaged(u16, u16),
     abs_to_index: std.AutoHashMapUnmanaged(u16, AbsIndex),
     axis_count: u16,
@@ -91,7 +91,7 @@ const Device = struct {
         }
     }
 
-    pub fn fromFile(gpa: std.mem.Allocator, loop: *xev.Loop, file: std.fs.File, mapping_db: *const seizer.Gamepad.DB, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !*Device {
+    pub fn fromFile(gpa: std.mem.Allocator, loop: *xev.Loop, file: std.fs.File, mapping_db: *const seizer.input.gamepad.DB, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !*Device {
         const device = try gpa.create(Device);
         errdefer gpa.destroy(device);
 

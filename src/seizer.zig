@@ -4,9 +4,9 @@ pub const mem = @import("./mem.zig");
 pub const tvg = @import("tvg");
 pub const ui = @import("./ui.zig");
 pub const zigimg = @import("zigimg");
+pub const input = @import("./input.zig");
 
 pub const Canvas = @import("./Canvas.zig");
-pub const Gamepad = @import("./Gamepad.zig");
 pub const NinePatch = @import("./NinePatch.zig");
 pub const Platform = @import("./Platform.zig");
 pub const Texture = @import("./Texture.zig");

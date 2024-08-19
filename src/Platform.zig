@@ -12,6 +12,7 @@ createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
 addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
 writeFile: fn (options: WriteFileOptions) void,
 readFile: fn (options: ReadFileOptions) void,
+setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
 pub const CreateWindowOptions = struct {
     title: [:0]const u8,
@@ -27,8 +28,8 @@ pub const AddButtonInputOptions = struct {
 };
 
 pub const Binding = union(enum) {
-    keyboard: linuxbsd.EvDev.KEY,
-    gamepad: seizer.Gamepad.Button,
+    keyboard: input.keyboard.Key,
+    gamepad: input.gamepad.Button,
 };
 
 pub const FileError = error{NotFound};
@@ -51,5 +52,6 @@ pub const ReadFileOptions = struct {
     userdata: ?*anyopaque,
 };
 
+const input = @import("./input.zig");
 const seizer = @import("./seizer.zig");
 const std = @import("std");

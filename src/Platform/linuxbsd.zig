@@ -7,6 +7,7 @@ pub const PLATFORM = seizer.Platform{
     .addButtonInput = addButtonInput,
     .writeFile = writeFile,
     .readFile = readFile,
+    .setEventCallback = setEventCallback,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -107,6 +108,10 @@ pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
 
 pub fn readFile(options: seizer.Platform.ReadFileOptions) void {
     linuxbsd_fs.readFile(gpa.allocator(), options);
+}
+
+fn setEventCallback(new_on_event_callback: ?*const fn (event: seizer.input.Event) anyerror!void) void {
+    window_manager.setEventCallback(new_on_event_callback);
 }
 
 const LibraryPaths = struct {

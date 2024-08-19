@@ -9,6 +9,7 @@ const Example = enum {
     tinyvg,
     gamepad,
     clicker,
+    ui_stage,
 };
 
 pub fn build(b: *Builder) !void {

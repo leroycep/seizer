@@ -122,10 +122,9 @@ fn onSelect(element: *Element, direction: [2]f32) ?*Element {
     return &this.element;
 }
 
-const seizer = @import("../seizer.zig");
+const seizer = @import("../../seizer.zig");
 const ui = seizer.ui;
 const Element = ui.Element;
 const Rect = seizer.geometry.Rect(f32);
 const Canvas = seizer.Canvas;
-const utils = @import("utils");
 const std = @import("std");

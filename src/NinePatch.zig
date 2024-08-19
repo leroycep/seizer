@@ -34,7 +34,7 @@ const DrawOptions = struct {
     scale: f32 = 1,
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
 };
-pub fn draw(this: @This(), canvas: *Canvas, rect: geom.Rect(f32), options: DrawOptions) void {
+pub fn draw(this: @This(), canvas: Canvas.Transformed, rect: geom.Rect(f32), options: DrawOptions) void {
     const uv_rects = this.getRectsUV();
     const tl = rect.topLeft();
     const size = rect.size;

@@ -64,6 +64,12 @@ pub const WindowManager = union(enum) {
             inline else => |manager| try manager.update(),
         }
     }
+
+    pub fn setEventCallback(this: @This(), new_on_event_callback: ?*const fn (event: seizer.input.Event) anyerror!void) void {
+        switch (this) {
+            inline else => |manager| manager.on_event_fn = new_on_event_callback,
+        }
+    }
 };
 
 const Wayland = struct {
@@ -80,6 +86,7 @@ const Wayland = struct {
     windows: std.ArrayListUnmanaged(*Window) = .{},
     seats: std.ArrayListUnmanaged(*Seat) = .{},
 
+    on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
     key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
     pub fn init(options: WindowManager.InitOptions) !*@This() {
@@ -186,7 +193,7 @@ const Wayland = struct {
                         return;
                     };
                     seat.* = .{
-                        .key_bindings = this.key_bindings,
+                        .wayland_manager = this,
                         .wl_seat = wl_seat,
                     };
                     seat.wl_seat.userdata = seat;
@@ -557,7 +564,7 @@ const Wayland = struct {
     };
 
     const Seat = struct {
-        key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
+        wayland_manager: *Wayland,
         wl_seat: *wayland.wayland.wl_seat,
         wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
 
@@ -566,8 +573,6 @@ const Wayland = struct {
             _ = seat;
             switch (event) {
                 .capabilities => |capabilities| {
-                    std.log.debug("seat capabilities = {}", .{capabilities});
-
                     if (capabilities.capabilities.keyboard) {
                         if (this.wl_keyboard == null) {
                             this.wl_keyboard = this.wl_seat.get_keyboard() catch return;
@@ -581,9 +586,7 @@ const Wayland = struct {
                         }
                     }
                 },
-                .name => |n| {
-                    std.log.debug("seat name = \"{}\"", .{std.zig.fmtEscapes(n.name orelse "")});
-                },
+                .name => {},
             }
         }
 
@@ -592,9 +595,26 @@ const Wayland = struct {
             _ = seat;
             switch (event) {
                 .key => |k| {
-                    const key: EvDev.KEY = @enumFromInt(@as(u16, @intCast(k.key)));
+                    const key: seizer.input.keyboard.Key = @enumFromInt(@as(u16, @intCast(k.key)));
 
-                    const actions = this.key_bindings.get(.{ .keyboard = key }) orelse return;
+                    if (this.wayland_manager.on_event_fn) |on_event| {
+                        on_event(seizer.input.Event{ .key = .{
+                            .key = key,
+                            .scancode = k.key,
+                            .action = switch (k.state) {
+                                .pressed => .press,
+                                .released => .release,
+                            },
+                            .mods = .{},
+                        } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
+
+                    const actions = this.wayland_manager.key_bindings.get(.{ .keyboard = key }) orelse return;
                     for (actions.items) |action| {
                         action.on_event(k.state == .pressed) catch |err| {
                             std.debug.print("{s}\n", .{@errorName(err)});
@@ -618,6 +638,7 @@ const Wayland = struct {
 pub const BareEGL = struct {
     allocator: std.mem.Allocator,
     egl: *const EGL,
+    on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
     key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
     windows: std.ArrayListUnmanaged(*Window) = .{},
