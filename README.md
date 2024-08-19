@@ -1,170 +1,67 @@
 # seizer
 
-`seizer` is a Zig library for making games that target the desktop and browser.
-It exposes an OpenGL ES 3.0 rendering context and cross platform file loading
-functions.
+`seizer` is a Zig library for making games and applications that target the desktop and browser.
+It exposes an OpenGL ES 3.0 rendering context. It is currently in an alpha state, and the APIs
+constantly break.
 
-## Features
+## Planned Features
 
--   [ ] Cross-platform windows and OpenGL ES 3.0
-    -   [x] Web (Firefox, Chrome)
-    -   [x] Linux
+-   [ ] Cross-platform Windowing
+    -   [ ] Linux (Wayland only, X11 is not planned at the moment, sorry)
     -   [ ] Windows
+    -   [ ] Web (Firefox, Chrome)
     -   [ ] MacOS
--   [x] Cross platform file loading
-    -   [x] Uses `fetch` to load files on the web
-    -   [x] Loads assets from the CWD on desktop
--   Listening for Mouse/Keyboard Events
--   Main loop based on Gaffer on Games' [Fix Your Timestep!][]
-
-[fix your timestep!]: https://www.gafferongames.com/post/fix_your_timestep/
-
-## Usage
-
-On any platform you want to build for, you need to add `seizer` as a
-dependency.  You can do this by copying the repository into your project folder
-or adding it using one of zig's unofficial package managers:
-
-### zigmod
-
-To add `seizer` as a dependency using [zigmod][], add the following to your `zig.mod`:
-
-```yaml
-dependencies:
-    - type: git
-      path: https://github.com/leroycep/seizer.git
-```
-
-Now run `zigmod fetch`.
-
-[zigmod]: https://github.com/nektro/zigmod
-
-### gyro
-
-To add `seizer` as a dependency using [gyro][]:
-
-```
-gyro add --github leroycep/seizer
-```
-
-[gyro]: https://github.com/mattnite/gyro
-
-after setting up your project's `build.zig` (see gyro docs), run
-
-```
-gyro build
-```
-
-to fetch dependencies and build your project.
-
-### Desktop
-
-`seizer` uses SDL2 to create a window and acquire an OpenGL context. In your
-`build.zig`, make sure that "SDL2" is added as a dependency and that libc is
-linked:
-
-```zig
-const Builder = @import("std").build.Builder;
-const deps = @import("./deps.zig");
-
-pub fn build(b: *Builder) void {
-    const target = b.standardTargetOptions(.{});
-    const mode = b.standardReleaseOptions();
-
-    const native = b.addExecutable("your-app-name-here", "path/to/main.zig");
-    native.setTarget(target);
-    native.setBuildMode(mode);
-    native.install();
-
-    // Link SDL2
-    native.linkLibC();
-    native.linkSystemLibrary("SDL2");
-
-    // Add seizer and all other dependencies in `zig.mod` to the native target
-    deps.addAllTo(native);
-}
-```
-
-Than we can build and run the game like so:
-
-```sh
-$ zig build install
-$ cd assets # If you have an assets folder and don't want to prepend "assets/" to every asset you load
-$ ../zig-cache/bin/your-app-name-here
-```
-
-Note: Building `seizer` for desktop platforms other than Linux hasn't been
-tested. You may want to follow [these instructions][sdl-zig-example] to build
-for other OSes.
-
-[sdl-zig-example]: https://github.com/MasterQ32/SDL.zig-Example
-
-### Web
-
-There are a couple of things you need to do to run your `seizer` app in the
-browser.
-
-1. Compile your app as a static library for the `wasm32-freestanding` target
-2. Copy the WASM binary to your webserver's `public` directory. I use
-   `zig-cache/www` for development.
-3. Copy `src/web/seizer.js` to your repository, and then have `build.zig` copy
-   it to `zig-cache/www`.
-4. Create an HTML file that loads the WASM binary and instantiates it (see the
-   [`clear.html`][] example for more details). Then have `build.zig` copy it to
-   `zig-cache/www`.
-5. If you have any assets, make sure to copy to have `build.zig` copy them to
-   `zig-cache/www`.
-
-[`clear.html`]: ./examples/clear.html
-
-A complete `build.zig` targeting web would look something like this:
-
-```zig
-const Builder = @import("std").build.Builder;
-const deps = @import("./deps.zig");
-
-pub fn build(b: *Builder) void {
-    const mode = b.standardReleaseOptions();
-
-    // 1. Compile app for wasm32
-    const web = b.addStaticLibrary("your-app-name-here-web", "path/to/main.zig");
-    web.setBuildMode(mode);
-    web.setTarget(.{
-        .cpu_arch = .wasm32,
-        .os_tag = .freestanding,
-    });
-    
-    // Add seizer and all other dependencies in `zig.mod` to the web target
-    deps.addAllTo(web);
-    
-    // 2. Output the WASM binary to `zig-cache/www` when it is built
-    web.setOutputDir(b.fmt("{s}/www", .{b.install_prefix}));
-    
-    // 3. Install `seizer.js` to "<prefix>/www". By default this means "zig-cache/www"
-    const install_seizerjs = b.addInstallFile("./seizer.js", "www/seizer.js");
-
-    // 4. Install `index.js` to "<prefix>/www". By default this means "zig-cache/www"
-    const install_index = b.addInstallFile("index.html", "www/index.html");
-
-    // 5. Install example assets to "<prefix>/www". By default this means "zig-cache/www"
-    const install_assets_web = b.addInstallDirectory(.{
-        .source_dir = "assets",
-        .install_dir = .Prefix,
-        .install_subdir = "www",
-    });
-
-    const build_web = b.step("your-app-name-here-web", "Build your app for the web");
-    build_web.dependOn(&web.step);
-    build_web.dependOn(&install_seizerjs.step);
-    build_web.dependOn(&install_index.step);
-    build_web.dependOn(&install_assets_web.step);
-}
-```
+-   [ ] Input handling
+    -   [ ] Gamepad
+    -   [ ] Mouse
+    -   [ ] Keyboard
+    -   [ ] Touch
+-   [ ] Hardware accelerated rendering
+    -   [ ] 2d sprite based rendering
+    -   [ ] shader effects
+    -   [ ] Multiple backends
+        -   [ ] WebGL 2.0/OpenGL ES 3.0
+        -   [ ] DirectX
+        -   [ ] Vulkan
+-   [ ] a built-in by optional GUI library
+-   [ ] specific device support
+    -   [ ] Steam Deck
+    -   [ ] Anbernic RG35XX H
+    -   [ ] Anbernic RG351M
+    -   [ ] Powkiddy RGB30
 
 ## FAQ
+
+> Why should I use `seizer` over SDL or GLFW?
+
+You probably shouldn't, at the moment. I'm using it for the following reasons:
+
+- I want to learn about low level details of the systems I'm deploying to!
+- I prefer using Zig. While I can use SDL and GLFW from Zig, it means diving into C code if I'm trying to figure out why something isn't working.
+- I use Wayland on Linux, and last I checked SDL2 and GLFW need to be configured to target Wayland instead of X11.
+- I want my games to run on gaming handhelds like the Anbernic RG35XX H. This requires learning the low level details, and if I'm relying on GLFW or SDL2, I would be forced to use C and its build systems. Not to mention that GLFW doesn't support systems without a window manager, which is not uncommon on retro gaming handhelds.
+
+But regardless of the personal insanity that drives me to make `seizer`, I would highly recommend [SDL2][] or [GLFW][]
+if you need something that is `stable` and `works`.
 
 > Why is it called "seizer"?
 
 It is a reference to the "Seizer Beam" from the game [Zero Wing][]. Move Zig!
 
 [zero wing]: https://en.wikipedia.org/wiki/Zero_Wing
+
+## Inspiration
+
+`seizer` doesn't exist in a void and there are many projects that have come before it. In fact, `seizer`
+was originally a wrapper over [SDL2][], then over [GLFW][], and now is its own thing.
+
+- [SDL2][]: A C library for windowing and obtaining a OpenGL context.
+- [GLFW][]: A C library for windowing and obtaining a OpenGL context.
+- [dvui][]: A zig immediate mode UI.
+- [bgfx][]: It is not yet implemented, but I want to have a graphics abstraction similar to `bgfx`. OpenGL ES 3.0 is nice, but unless I want to spend time bundling [ANGLE][], it is not supported well on MacOS or Windows.
+
+[dvui]: https://github.com/david-vanderson/dvui
+[SDL2]: https://www.libsdl.org/
+[GLFW]: https://www.glfw.org/
+[bgfx]: https://github.com/bkaradzic/bgfx
+[ANGLE]: https://github.com/google/angle
