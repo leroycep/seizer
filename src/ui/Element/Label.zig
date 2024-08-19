@@ -2,16 +2,22 @@ stage: *ui.Stage,
 reference_count: usize = 1,
 parent: ?Element = null,
 
-text: []const u8,
+text: std.ArrayListUnmanaged(u8),
 
 style: ui.Style,
 
 pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
     const this = try stage.gpa.create(@This());
+    errdefer stage.gpa.destroy(this);
+
+    var text_owned = std.ArrayListUnmanaged(u8){};
+    errdefer text_owned.deinit(stage.gpa);
+    try text_owned.appendSlice(stage.gpa, text);
+
     this.* = .{
         .stage = stage,
 
-        .text = text,
+        .text = text_owned,
         .style = stage.default_style,
     };
     return this;
@@ -42,6 +48,7 @@ fn acquire(this: *@This()) void {
 fn release(this: *@This()) void {
     this.reference_count -= 1;
     if (this.reference_count == 0) {
+        this.text.deinit(this.stage.gpa);
         this.stage.gpa.destroy(this);
     }
 }
@@ -62,7 +69,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32)
 }
 
 fn getMinSize(this: *@This()) [2]f32 {
-    const text_size = this.style.text_font.textSize(this.text, this.style.text_scale);
+    const text_size = this.style.text_font.textSize(this.text.items, this.style.text_scale);
     return .{
         text_size[0] + this.style.padding.size()[0],
         text_size[1] + this.style.padding.size()[1],
@@ -78,7 +85,7 @@ fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
     _ = canvas.writeText(.{
         rect.pos[0] + this.style.padding.min[0],
         rect.pos[1] + this.style.padding.min[1],
-    }, this.text, .{
+    }, this.text.items, .{
         .scale = this.style.text_scale,
         .color = this.style.text_color,
     });
