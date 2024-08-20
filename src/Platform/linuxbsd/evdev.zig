@@ -365,6 +365,16 @@ pub const KEY = enum(u16) {
     // misc buttons
     btn_0 = 0x100,
 
+    // mouse buttons
+    mouse_left = 0x110,
+    mouse_right = 0x111,
+    mouse_middle = 0x112,
+    mouse_side = 0x113,
+    mouse_extra = 0x114,
+    mouse_forward = 0x115,
+    mouse_back = 0x116,
+    mouse_task = 0x117,
+
     // joystick buttons
     btn_trigger = 0x120,
 

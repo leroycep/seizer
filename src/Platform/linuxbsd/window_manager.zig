@@ -622,7 +622,10 @@ const Wayland = struct {
     const Seat = struct {
         wayland_manager: *Wayland,
         wl_seat: *wayland.wayland.wl_seat,
+        wl_pointer: ?*wayland.wayland.wl_pointer = null,
         wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
+
+        pointer_pos: [2]f32 = .{ 0, 0 },
 
         fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
             const this: *@This() = @ptrCast(@alignCast(userdata));
@@ -639,6 +642,19 @@ const Wayland = struct {
                         if (this.wl_keyboard) |keyboard| {
                             keyboard.release() catch return;
                             this.wl_keyboard = null;
+                        }
+                    }
+
+                    if (capabilities.capabilities.pointer) {
+                        if (this.wl_pointer == null) {
+                            this.wl_pointer = this.wl_seat.get_pointer() catch return;
+                            this.wl_pointer.?.userdata = this;
+                            this.wl_pointer.?.on_event = onPointerCallback;
+                        }
+                    } else {
+                        if (this.wl_pointer) |pointer| {
+                            pointer.release() catch return;
+                            this.wl_pointer = null;
                         }
                     }
                 },
@@ -678,6 +694,42 @@ const Wayland = struct {
                                 std.debug.dumpStackTrace(trace.*);
                             }
                             break;
+                        };
+                    }
+                },
+                else => {},
+            }
+        }
+
+        fn onPointerCallback(seat: *wayland.wayland.wl_pointer, userdata: ?*anyopaque, event: wayland.wayland.wl_pointer.Event) void {
+            const this: *@This() = @ptrCast(@alignCast(userdata));
+            _ = seat;
+            switch (event) {
+                .motion => |motion| {
+                    if (this.wayland_manager.on_event_fn) |on_event| {
+                        this.pointer_pos = [2]f32{ motion.surface_x.toFloat(f32), motion.surface_y.toFloat(f32) };
+                        on_event(seizer.input.Event{ .hover = .{
+                            .pos = this.pointer_pos,
+                            .modifiers = .{ .left = false, .right = false, .middle = false },
+                        } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
+                },
+                .button => |button| {
+                    if (this.wayland_manager.on_event_fn) |on_event| {
+                        on_event(seizer.input.Event{ .click = .{
+                            .pos = this.pointer_pos,
+                            .button = @enumFromInt(button.button),
+                            .pressed = button.state == .pressed,
+                        } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
                         };
                     }
                 },

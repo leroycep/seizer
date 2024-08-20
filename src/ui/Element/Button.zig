@@ -1,5 +1,8 @@
-element: Element,
-text: []const u8,
+stage: *ui.Stage,
+reference_count: usize = 1,
+parent: ?Element = null,
+
+text: std.ArrayListUnmanaged(u8),
 
 default_style: ui.Style,
 hovered_style: ui.Style,
@@ -7,33 +10,26 @@ clicked_style: ui.Style,
 
 on_click: ?ui.Callable(fn (*@This()) void) = null,
 
-const INTERFACE = Element.Interface{
-    .destroy_fn = destroy,
-    .get_min_size_fn = getMinSize,
-    .render_fn = render,
-    .on_click_fn = onClick,
-    .on_key_fn = onKey,
-    .on_select_fn = onSelect,
-};
-
 const RECT_COLOR_DEFAULT = [4]u8{ 0x30, 0x30, 0x30, 0xFF };
 const RECT_COLOR_HOVERED = [4]u8{ 0x50, 0x50, 0x50, 0xFF };
 
 const TEXT_COLOR_DEFAULT = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF };
 const TEXT_COLOR_HOVERED = [4]u8{ 0xFF, 0xFF, 0x00, 0xFF };
 
-pub fn new(stage: *ui.Stage, text: []const u8) !*@This() {
+pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
     const this = try stage.gpa.create(@This());
     const hovered_style = stage.default_style.with(.{
         .text_color = TEXT_COLOR_HOVERED,
         .background_color = RECT_COLOR_HOVERED,
     });
+
+    var text_owned = std.ArrayListUnmanaged(u8){};
+    errdefer text_owned.deinit(stage.gpa);
+    try text_owned.appendSlice(stage.gpa, text);
+
     this.* = .{
-        .element = .{
-            .stage = stage,
-            .interface = &INTERFACE,
-        },
-        .text = text,
+        .stage = stage,
+        .text = text_owned,
         .default_style = stage.default_style.with(.{
             .text_color = TEXT_COLOR_DEFAULT,
             .background_color = RECT_COLOR_DEFAULT,
@@ -44,30 +40,96 @@ pub fn new(stage: *ui.Stage, text: []const u8) !*@This() {
     return this;
 }
 
-pub fn destroy(element: *Element) void {
-    const this: *@This() = @fieldParentPtr("element", element);
-    this.element.stage.gpa.destroy(this);
+pub fn element(this: *@This()) Element {
+    return .{
+        .ptr = this,
+        .interface = &INTERFACE,
+    };
 }
 
-pub fn getMinSize(element: *Element) [2]f32 {
-    const this: *@This() = @fieldParentPtr("element", element);
+const INTERFACE = Element.Interface.getTypeErasedFunctions(@This(), .{
+    .acquire_fn = acquire,
+    .release_fn = release,
+    .set_parent_fn = setParent,
+    .get_parent_fn = getParent,
 
-    const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
-    const is_hovered = this.element.stage.hovered_element == &this.element;
+    .process_event_fn = processEvent,
+    .get_min_size_fn = getMinSize,
+    .render_fn = render,
+});
+
+fn acquire(this: *@This()) void {
+    this.reference_count += 1;
+}
+
+fn release(this: *@This()) void {
+    this.reference_count -= 1;
+    if (this.reference_count == 0) {
+        this.text.deinit(this.stage.gpa);
+        this.stage.gpa.destroy(this);
+    }
+}
+
+fn setParent(this: *@This(), new_parent: ?Element) void {
+    this.parent = new_parent;
+}
+
+fn getParent(this: *@This()) ?Element {
+    return this.parent;
+}
+
+fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?Element.Capture {
+    switch (event) {
+        .hover => return .{ .element = this.element(), .transform = transform },
+        .click => |click| {
+            if (click.button == .left) {
+                if (click.pressed) {
+                    this.stage.capturePointer(.{ .element = this.element(), .transform = transform });
+
+                    if (this.on_click) |on_click| {
+                        on_click.call(.{this});
+                    }
+                } else {
+                    this.stage.releasePointer(this.element());
+                }
+                return .{ .element = this.element(), .transform = transform };
+            }
+        },
+        .key => |key| {
+            switch (key.key) {
+                .space, .enter => if (key.action == .press) {
+                    this.stage.capturePointer(.{ .element = this.element(), .transform = transform });
+                    if (this.on_click) |on_click| {
+                        on_click.call(.{this});
+                    }
+                    return .{ .element = this.element(), .transform = transform };
+                } else {
+                    this.stage.releasePointer(this.element());
+                },
+                else => {},
+            }
+        },
+        else => {},
+    }
+
+    return null;
+}
+
+pub fn getMinSize(this: *@This()) [2]f32 {
+    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.element.ptr == this.element().ptr else false;
+    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.element.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
-    const text_size = style.text_font.textSize(this.text, style.text_scale);
+    const text_size = style.text_font.textSize(this.text.items, style.text_scale);
     return .{
         text_size[0] + style.padding.size()[0],
         text_size[1] + style.padding.size()[1],
     };
 }
 
-fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-    const this: *@This() = @fieldParentPtr("element", element);
-
-    const is_pressed = this.element.stage.pointer_capture_element != null and this.element.stage.pointer_capture_element.? == &this.element;
-    const is_hovered = this.element.stage.hovered_element == &this.element;
+fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
+    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.element.ptr == this.element().ptr else false;
+    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.element.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
     style.background_image.draw(canvas, rect, .{
@@ -78,48 +140,10 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
     _ = canvas.writeText(.{
         rect.pos[0] + style.padding.min[0],
         rect.pos[1] + style.padding.min[1],
-    }, this.text, .{
+    }, this.text.items, .{
         .scale = style.text_scale,
         .color = style.text_color,
     });
-}
-
-fn onClick(element: *Element, event: ui.event.Click) bool {
-    const this: *@This() = @fieldParentPtr("element", element);
-    if (event.button == .left) {
-        if (event.pressed) {
-            this.element.stage.capturePointer(&this.element);
-
-            if (this.on_click) |on_click| {
-                on_click.call(.{this});
-            }
-        } else {
-            this.element.stage.releasePointer(&this.element);
-        }
-        return true;
-    }
-
-    return false;
-}
-
-fn onKey(element: *Element, event: ui.event.Key) bool {
-    const this: *@This() = @fieldParentPtr("element", element);
-    switch (event.key) {
-        .space, .enter => if (event.action == .press or event.action == .repeat) {
-            if (this.on_click) |on_click| {
-                on_click.call(.{this});
-            }
-            return true;
-        },
-        else => {},
-    }
-    return false;
-}
-
-fn onSelect(element: *Element, direction: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr("element", element);
-    _ = direction;
-    return &this.element;
 }
 
 const seizer = @import("../../seizer.zig");

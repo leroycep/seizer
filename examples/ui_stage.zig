@@ -41,13 +41,47 @@ pub fn init() !void {
     defer frame.element().release();
     try flexbox.appendChild(frame.element());
 
+    var frame_flexbox = try seizer.ui.Element.FlexBox.create(stage);
+    defer frame_flexbox.element().release();
+    frame_flexbox.justification = .center;
+    frame_flexbox.cross_align = .center;
+    frame.setChild(frame_flexbox.element());
+
     const hello_world_label = try seizer.ui.Element.Label.create(stage, "Hello, world!");
     defer hello_world_label.element().release();
     hello_world_label.style = stage.default_style.with(.{
         .text_color = .{ 0x00, 0x00, 0x00, 0xFF },
         .background_image = seizer.NinePatch.initv(ui_texture, .{ .pos = .{ 48, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 }),
     });
-    frame.setChild(hello_world_label.element());
+    try frame_flexbox.appendChild(hello_world_label.element());
+
+    const hello_button = try seizer.ui.Element.Button.create(stage, "Hello");
+    defer hello_button.element().release();
+    hello_button.default_style = stage.default_style.with(.{
+        .padding = .{
+            .min = .{ 8, 7 },
+            .max = .{ 8, 9 },
+        },
+        .text_color = .{ 0x00, 0x00, 0x00, 0xFF },
+        .background_image = seizer.NinePatch.initv(ui_texture, .{ .pos = .{ 120, 24 }, .size = .{ 24, 24 } }, .{ 8, 8 }),
+    });
+    hello_button.hovered_style = stage.default_style.with(.{
+        .padding = .{
+            .min = .{ 8, 8 },
+            .max = .{ 8, 8 },
+        },
+        .text_color = .{ 0x00, 0x00, 0x00, 0xFF },
+        .background_image = seizer.NinePatch.initv(ui_texture, .{ .pos = .{ 96, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 }),
+    });
+    hello_button.clicked_style = stage.default_style.with(.{
+        .padding = .{
+            .min = .{ 8, 9 },
+            .max = .{ 8, 7 },
+        },
+        .text_color = .{ 0x00, 0x00, 0x00, 0xFF },
+        .background_image = seizer.NinePatch.initv(ui_texture, .{ .pos = .{ 120, 0 }, .size = .{ 24, 24 } }, .{ 8, 8 }),
+    });
+    try frame_flexbox.appendChild(hello_button.element());
 }
 
 pub fn deinit(window: seizer.Window) void {
@@ -58,11 +92,8 @@ pub fn deinit(window: seizer.Window) void {
 }
 
 fn onEvent(event: seizer.input.Event) !void {
-    switch (event) {
-        .key => |key| if (key.action == .press) {
-            std.log.debug("key press \'{}\'", .{key.key});
-        },
-        else => {},
+    if (stage.processEvent(event) == null) {
+        // add game control here, as the event wasn't applicable to the GUI
     }
 }
 

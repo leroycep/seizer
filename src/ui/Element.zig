@@ -35,8 +35,6 @@ pub const Interface = struct {
         get_min_size_fn: *const fn (*T) [2]f32,
         layout_fn: ?*const fn (*T, min_size: [2]f32, max_size: [2]f32) [2]f32 = null,
         render_fn: *const fn (*T, Canvas.Transformed, Rect) void,
-
-        get_next_selection_fn: ?*const fn (*T, current_selection: ?Element, direction: [2]f32) ?Element = null,
     }) Interface {
         const type_erased_fns = struct {
             fn acquire(element: Element) void {
@@ -136,15 +134,6 @@ pub fn layoutDefault(element: Element, min_size: [2]f32, max_size: [2]f32) [2]f3
     _ = min_size;
     _ = max_size;
     return element.getMinSize();
-}
-
-pub fn getNextSelectionDefault(element: Element, current_selection: ?Element, direction: [2]f32) ?Element {
-    _ = current_selection;
-    if (element.parent) |parent| {
-        return parent.getNextSelection(element, direction);
-    } else {
-        return null;
-    }
 }
 
 const Rect = seizer.geometry.Rect(f32);

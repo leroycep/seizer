@@ -10,6 +10,15 @@ pub const fixed = packed struct(u32) {
     fraction: u8,
     integer: u23,
     sign: u1,
+
+    pub fn toFloat(this: @This(), comptime T: type) T {
+        const fraction_t: T = @floatFromInt(this.fraction);
+        const denominator_t: T = @floatFromInt(std.math.maxInt(u8));
+        const integer_t: T = @floatFromInt(this.integer);
+        const sign: T = if (this.sign == 1) -1 else 1;
+
+        return sign * integer_t + fraction_t / denominator_t;
+    }
 };
 pub const GenericNewId = struct {
     interface: [:0]const u8,

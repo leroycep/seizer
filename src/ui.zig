@@ -94,7 +94,7 @@ pub const Stage = struct {
     pub fn processEvent(this: *Stage, event: seizer.input.Event) ?Element.Capture {
         const IDENTITY_TRANSFORM = seizer.geometry.mat4.identity(f32);
         switch (event) {
-            .hover => |hover| {
+            .hover => {
                 this.cursor_shape = null;
                 this.hovered_element = null;
                 if (this.pointer_capture_element) |pce| {
@@ -103,15 +103,16 @@ pub const Stage = struct {
                         return hovered;
                     }
                 }
-                for (0..this.popups.keys().len) |i| {
-                    const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
-                    if (popup.rect.contains(hover.pos)) {
-                        if (popup.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
-                            this.hovered_element = hovered;
-                            return hovered;
-                        }
+
+                var popup_index = this.popups.keys().len;
+                while (popup_index > 0) : (popup_index -= 1) {
+                    const popup = this.popups.keys()[popup_index - 1];
+                    if (popup.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
+                        this.hovered_element = hovered;
+                        return hovered;
                     }
                 }
+
                 if (this.root) |r| {
                     if (r.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
                         this.hovered_element = hovered;
@@ -128,9 +129,11 @@ pub const Stage = struct {
                         return clicked;
                     }
                 }
+
                 // iterate backwards so orderedRemove works
-                for (0..this.popups.keys().len) |i| {
-                    const popup = this.popups.keys()[this.popups.keys().len - 1 - i];
+                var popup_index = this.popups.keys().len;
+                while (popup_index > 0) : (popup_index -= 1) {
+                    const popup = this.popups.keys()[popup_index - 1];
                     if (popup.processEvent(event, IDENTITY_TRANSFORM)) |clicked| {
                         if (this.popups.orderedRemove(popup)) {
                             this.popups.putAssumeCapacity(popup, {});
@@ -138,9 +141,13 @@ pub const Stage = struct {
                         return clicked;
                     }
                 }
+
                 if (this.root) |r| {
-                    return r.processEvent(event, IDENTITY_TRANSFORM);
+                    if (r.processEvent(event, IDENTITY_TRANSFORM)) |clicked| {
+                        return clicked;
+                    }
                 }
+
                 return null;
             },
 
@@ -151,7 +158,7 @@ pub const Stage = struct {
                     }
                 }
 
-                var current_opt = this.hovered_element;
+                var current_opt = if (this.hovered_element) |hovered| hovered.element else null;
                 while (current_opt) |current| : (current_opt = current.getParent()) {
                     if (current.processEvent(event, IDENTITY_TRANSFORM)) |element| {
                         return element;
@@ -170,7 +177,7 @@ pub const Stage = struct {
                 return null;
             },
 
-            .key => |key| {
+            .key => {
                 if (this.focused_element) |focused| {
                     if (focused.element.processEvent(event, focused.transform)) |element| {
                         return element;
@@ -183,43 +190,23 @@ pub const Stage = struct {
                     }
                 }
 
-                if (key.action != .press and key.action != .repeat) return null;
-                const direction = switch (key.key) {
-                    .up => [2]f32{ 0, -1 },
-                    .down => [2]f32{ 0, 1 },
-                    .left => [2]f32{ -1, 0 },
-                    .right => [2]f32{ 1, 0 },
-                    else => return null,
-                };
-
-                // If something is already hovered, ask it for the next element
-                if (this.hovered_element) |hovered| {
-                    if (hovered.element.getNextSelection(this.hovered_element, direction)) |next_selection| {
-                        this.hovered_element = next_selection;
-                        return next_selection;
-                    }
-                }
-
-                // If nothing is hovered, select the root element
-                this.hovered_element = this.root;
-
-                return this.hovered_element;
+                return null;
             },
         }
     }
 
-    pub fn capturePointer(this: *@This(), new_pointer_capture_element: *Element) void {
-        new_pointer_capture_element.acquire();
+    pub fn capturePointer(this: *@This(), new_pointer_capture_element: Element.Capture) void {
+        new_pointer_capture_element.element.acquire();
         if (this.pointer_capture_element) |pce| {
-            pce.release();
+            pce.element.release();
         }
         this.pointer_capture_element = new_pointer_capture_element;
     }
 
-    pub fn releasePointer(this: *@This(), element: *Element) void {
+    pub fn releasePointer(this: *@This(), element: Element) void {
         if (this.pointer_capture_element) |pce| {
-            if (pce == element) {
-                pce.release();
+            if (pce.element.ptr == element.ptr) {
+                pce.element.release();
                 this.pointer_capture_element = null;
             }
         }
@@ -268,7 +255,6 @@ pub fn PrependParameterToFn(comptime Fn: anytype, comptime param: std.builtin.Ty
         .Fn = .{
             // Copy data from input function type
             .calling_convention = info.Fn.calling_convention,
-            .alignment = info.Fn.alignment,
             .is_generic = info.Fn.is_generic,
             .is_var_args = info.Fn.is_var_args,
             .return_type = info.Fn.return_type,
