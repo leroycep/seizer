@@ -254,15 +254,13 @@ const FileBrowserElement = struct {
         return this.parent;
     }
 
-    fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?seizer.ui.Element.Capture {
+    fn processEvent(this: *@This(), event: seizer.input.Event) ?seizer.ui.Element {
         const font = this.stage.default_style.text_font;
         const scale = this.stage.default_style.text_scale;
 
         switch (event) {
             .hover => |hover| {
                 this.hovered = null;
-                const hover_pos = seizer.geometry.mat4.mulVec(f32, transform, hover.pos ++ .{ 0, 1 })[0..2].*;
-
                 const top_bar_elements = &[_]std.meta.Tuple(&.{ seizer.ui.Element, seizer.geometry.Rect(f32) }){
                     .{ this.top_bar_back_button.element(), this.top_bar_back_button_rect },
                     .{ this.top_bar_forward_button.element(), this.top_bar_forward_button_rect },
@@ -271,8 +269,10 @@ const FileBrowserElement = struct {
                     .{ this.top_bar_up_button.element(), this.top_bar_up_button_rect },
                 };
                 for (top_bar_elements) |top_bar_element| {
-                    if (top_bar_element[1].contains(hover_pos)) {
-                        return top_bar_element[0].processEvent(event, transform);
+                    if (top_bar_element[1].contains(hover.pos)) {
+                        return top_bar_element[0].processEvent(.{
+                            .hover = hover.transform(seizer.geometry.mat4.translate(f32, top_bar_element[1].pos ++ .{0})),
+                        });
                     }
                 }
 
@@ -284,17 +284,15 @@ const FileBrowserElement = struct {
                             .pos = pos,
                             .size = .{ this.entries_rect.size[0], font.textSize(entry.name, scale)[1] },
                         };
-                        if (rect.contains(hover_pos)) {
+                        if (rect.contains(hover.pos)) {
                             this.hovered = i;
-                            return .{ .element = this.element(), .transform = transform };
+                            return this.element();
                         }
                         pos[1] += rect.size[1];
                     }
                 }
             },
             .click => |click| if (click.button == .left and click.pressed) {
-                const click_pos = seizer.geometry.mat4.mulVec(f32, transform, click.pos ++ .{ 0, 1 })[0..2].*;
-
                 const top_bar_elements = &[_]std.meta.Tuple(&.{ seizer.ui.Element, seizer.geometry.Rect(f32) }){
                     .{ this.top_bar_back_button.element(), this.top_bar_back_button_rect },
                     .{ this.top_bar_forward_button.element(), this.top_bar_forward_button_rect },
@@ -303,8 +301,10 @@ const FileBrowserElement = struct {
                     .{ this.top_bar_up_button.element(), this.top_bar_up_button_rect },
                 };
                 for (top_bar_elements) |top_bar_element| {
-                    if (top_bar_element[1].contains(click_pos)) {
-                        return top_bar_element[0].processEvent(event, transform);
+                    if (top_bar_element[1].contains(click.pos)) {
+                        return top_bar_element[0].processEvent(.{
+                            .click = click.transform(seizer.geometry.mat4.translate(f32, top_bar_element[1].pos ++ .{0})),
+                        });
                     }
                 }
 
@@ -322,9 +322,9 @@ const FileBrowserElement = struct {
                             .pos = pos,
                             .size = .{ this.entries_rect.size[0], font.textSize(entry.name, scale)[1] },
                         };
-                        if (rect.contains(click_pos)) {
+                        if (rect.contains(click.pos)) {
                             entry.marked = true;
-                            return .{ .element = this.element(), .transform = transform };
+                            return this.element();
                         }
                         pos[1] += rect.size[1];
                     }
@@ -420,7 +420,7 @@ const FileBrowserElement = struct {
     fn fileBrowserRender(this: *@This(), canvas: seizer.Canvas.Transformed, rect: seizer.geometry.Rect(f32)) void {
         const entries = this.entries orelse return;
 
-        const element_hovered = if (this.stage.hovered_element) |hovered| hovered.element.ptr == this.element().ptr else false;
+        const element_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
 
         const top_bar_elements = &[_]std.meta.Tuple(&.{ seizer.ui.Element, seizer.geometry.Rect(f32) }){
             .{ this.top_bar_back_button.element(), this.top_bar_back_button_rect },

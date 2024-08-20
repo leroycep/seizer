@@ -626,6 +626,7 @@ const Wayland = struct {
         wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
 
         pointer_pos: [2]f32 = .{ 0, 0 },
+        scroll_vector: [2]f32 = .{ 0, 0 },
 
         fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
             const this: *@This() = @ptrCast(@alignCast(userdata));
@@ -732,6 +733,25 @@ const Wayland = struct {
                             }
                         };
                     }
+                },
+                .axis => |axis| {
+                    switch (axis.axis) {
+                        .horizontal_scroll => this.scroll_vector[0] += axis.value.toFloat(f32),
+                        .vertical_scroll => this.scroll_vector[1] += axis.value.toFloat(f32),
+                    }
+                },
+                .frame => {
+                    if (this.wayland_manager.on_event_fn) |on_event| {
+                        on_event(seizer.input.Event{ .scroll = .{
+                            .offset = this.scroll_vector,
+                        } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
+                    this.scroll_vector = .{ 0, 0 };
                 },
                 else => {},
             }

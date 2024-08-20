@@ -87,35 +87,33 @@ fn getParent(this: *@This()) ?Element {
     return this.parent;
 }
 
-fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?Element.Capture {
+fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
     switch (event) {
         .hover => |hover| {
-            const hover_pos = seizer.geometry.mat4.mulVec(f32, transform, hover.pos ++ .{ 0, 1 })[0..2].*;
             for (this.children.items) |child| {
-                if (child.rect.contains(hover_pos)) {
-                    const child_transform = seizer.geometry.mat4.mul(f32, transform, seizer.geometry.mat4.translate(f32, .{
+                if (child.rect.contains(hover.pos)) {
+                    const child_event = event.transform(seizer.geometry.mat4.translate(f32, .{
                         -child.rect.pos[0],
                         -child.rect.pos[1],
                         0,
                     }));
 
-                    if (child.element.processEvent(event, child_transform)) |hovered| {
+                    if (child.element.processEvent(child_event)) |hovered| {
                         return hovered;
                     }
                 }
             }
         },
         .click => |click| {
-            const click_pos = seizer.geometry.mat4.mulVec(f32, transform, click.pos ++ .{ 0, 1 })[0..2].*;
             for (this.children.items) |child| {
-                if (child.rect.contains(click_pos)) {
-                    const child_transform = seizer.geometry.mat4.mul(f32, transform, seizer.geometry.mat4.translate(f32, .{
+                if (child.rect.contains(click.pos)) {
+                    const child_event = event.transform(seizer.geometry.mat4.translate(f32, .{
                         -child.rect.pos[0],
                         -child.rect.pos[1],
                         0,
                     }));
 
-                    if (child.element.processEvent(event, child_transform)) |clicked| {
+                    if (child.element.processEvent(child_event)) |clicked| {
                         return clicked;
                     }
                 }

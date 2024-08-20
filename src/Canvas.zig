@@ -362,7 +362,7 @@ pub const TextWriter = struct {
             return;
         };
 
-        this.transformed.canvas.rect(
+        this.transformed.rect(
             .{
                 this.current_pos[0] + offset[0],
                 this.current_pos[1] + offset[1],

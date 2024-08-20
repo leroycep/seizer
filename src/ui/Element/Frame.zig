@@ -69,10 +69,10 @@ fn getParent(this: *@This()) ?Element {
     return this.parent;
 }
 
-fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?Element.Capture {
+fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
     if (this.child == null) return null;
 
-    const child_transform = seizer.geometry.mat4.mul(f32, transform, seizer.geometry.mat4.translate(f32, .{
+    const child_event = event.transform(seizer.geometry.mat4.translate(f32, .{
         -this.child_rect.pos[0],
         -this.child_rect.pos[1],
         0,
@@ -80,15 +80,13 @@ fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32)
 
     switch (event) {
         .hover => |hover| {
-            const hover_pos = seizer.geometry.mat4.mulVec(f32, transform, hover.pos ++ .{ 0, 1 })[0..2].*;
-            if (this.child_rect.contains(hover_pos)) {
-                return this.child.?.processEvent(event, child_transform);
+            if (this.child_rect.contains(hover.pos)) {
+                return this.child.?.processEvent(child_event);
             }
         },
         .click => |click| {
-            const click_pos = seizer.geometry.mat4.mulVec(f32, transform, click.pos ++ .{ 0, 1 })[0..2].*;
-            if (this.child_rect.contains(click_pos)) {
-                return this.child.?.processEvent(event, child_transform);
+            if (this.child_rect.contains(click.pos)) {
+                return this.child.?.processEvent(child_event);
             }
         },
         else => {},
@@ -111,14 +109,13 @@ fn getMinSize(this: *@This()) [2]f32 {
 }
 
 pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
-    _ = min_size;
-    _ = max_size;
-
     const padding_size = this.style.padding.size();
 
     if (this.child) |child| {
-        const child_size = child.getMinSize();
-        _ = child.layout(child_size, child_size);
+        const child_size = child.layout(min_size, .{
+            max_size[0] - padding_size[0],
+            max_size[1] - padding_size[1],
+        });
         this.child_rect = .{
             .pos = this.style.padding.min,
             .size = child_size,

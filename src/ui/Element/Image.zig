@@ -2,23 +2,21 @@ stage: *ui.Stage,
 reference_count: usize = 1,
 parent: ?Element = null,
 
-text: std.ArrayListUnmanaged(u8),
+texture: seizer.Texture,
+source_rect: seizer.geometry.Rect(f32),
 
-style: ui.Style,
-
-pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
+pub fn create(stage: *ui.Stage, texture: seizer.Texture) !*@This() {
     const this = try stage.gpa.create(@This());
     errdefer stage.gpa.destroy(this);
-
-    var text_owned = std.ArrayListUnmanaged(u8){};
-    errdefer text_owned.deinit(stage.gpa);
-    try text_owned.appendSlice(stage.gpa, text);
 
     this.* = .{
         .stage = stage,
 
-        .text = text_owned,
-        .style = stage.default_style,
+        .texture = texture,
+        .source_rect = .{
+            .pos = .{ 0, 0 },
+            .size = [2]f32{ @floatFromInt(texture.size[0]), @floatFromInt(texture.size[1]) },
+        },
     };
     return this;
 }
@@ -48,7 +46,6 @@ fn acquire(this: *@This()) void {
 fn release(this: *@This()) void {
     this.reference_count -= 1;
     if (this.reference_count == 0) {
-        this.text.deinit(this.stage.gpa);
         this.stage.gpa.destroy(this);
     }
 }
@@ -68,25 +65,20 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
 }
 
 fn getMinSize(this: *@This()) [2]f32 {
-    const text_size = this.style.text_font.textSize(this.text.items, this.style.text_scale);
-    return .{
-        text_size[0] + this.style.padding.size()[0],
-        text_size[1] + this.style.padding.size()[1],
-    };
+    return this.source_rect.size;
 }
 
 fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
-    this.style.background_image.draw(canvas, rect, .{
-        .scale = 1,
-        .color = this.style.background_color,
-    });
-
-    _ = canvas.writeText(.{
-        rect.pos[0] + this.style.padding.min[0],
-        rect.pos[1] + this.style.padding.min[1],
-    }, this.text.items, .{
-        .scale = this.style.text_scale,
-        .color = this.style.text_color,
+    const texture_size = [2]f32{
+        @floatFromInt(this.texture.size[0]),
+        @floatFromInt(this.texture.size[1]),
+    };
+    canvas.rect(rect.pos, this.source_rect.size, .{
+        .texture = this.texture.glTexture,
+        .uv = .{
+            .min = .{ this.source_rect.pos[0] / texture_size[0], this.source_rect.pos[1] / texture_size[1] },
+            .max = .{ (this.source_rect.pos[0] + this.source_rect.size[0]) / texture_size[0], (this.source_rect.pos[1] + this.source_rect.size[1]) / texture_size[1] },
+        },
     });
 }
 

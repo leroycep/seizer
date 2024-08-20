@@ -58,7 +58,15 @@ pub const Event = union(enum) {
         action: keyboard.Action,
         mods: keyboard.Modifiers,
     };
+
+    pub fn transform(this: Event, matrix: [4][4]f32) Event {
+        return switch (this) {
+            .hover => |hover| .{ .hover = hover.transform(matrix) },
+            .click => |click| .{ .click = click.transform(matrix) },
+            else => this,
+        };
+    }
 };
 
-const seizer = @import("seizer");
+const seizer = @import("./seizer.zig");
 const std = @import("std");

@@ -12,6 +12,7 @@ const Example = enum {
     ui_stage,
     multi_window,
     file_browser,
+    ui_view_image,
 };
 
 pub fn build(b: *Builder) !void {

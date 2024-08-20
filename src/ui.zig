@@ -1,5 +1,7 @@
 pub const Element = @import("./ui/Element.zig");
 
+pub const Rect = seizer.geometry.Rect(f32);
+
 pub const Stage = struct {
     gpa: std.mem.Allocator,
     default_style: Style,
@@ -7,9 +9,9 @@ pub const Stage = struct {
     root: ?Element = null,
     popups: std.AutoArrayHashMapUnmanaged(Element, void) = .{},
 
-    focused_element: ?Element.Capture = null,
-    hovered_element: ?Element.Capture = null,
-    pointer_capture_element: ?Element.Capture = null,
+    focused_element: ?Element = null,
+    hovered_element: ?Element = null,
+    pointer_capture_element: ?Element = null,
 
     needs_layout: bool = true,
     cursor_shape: ?CursorShape = null,
@@ -25,13 +27,13 @@ pub const Stage = struct {
 
     pub fn destroy(this: *@This()) void {
         if (this.focused_element) |focused| {
-            focused.element.release();
+            focused.release();
         }
         if (this.hovered_element) |hovered| {
-            hovered.element.release();
+            hovered.release();
         }
         if (this.pointer_capture_element) |pce| {
-            pce.element.release();
+            pce.release();
         }
         if (this.root) |r| {
             r.release();
@@ -91,14 +93,19 @@ pub const Stage = struct {
         }
     }
 
-    pub fn processEvent(this: *Stage, event: seizer.input.Event) ?Element.Capture {
-        const IDENTITY_TRANSFORM = seizer.geometry.mat4.identity(f32);
+    pub fn processEvent(this: *Stage, event: seizer.input.Event) ?Element {
         switch (event) {
-            .hover => {
+            .hover => |hover| {
                 this.cursor_shape = null;
                 this.hovered_element = null;
                 if (this.pointer_capture_element) |pce| {
-                    if (pce.element.processEvent(event, pce.transform)) |hovered| {
+                    var transformed_event = event;
+                    if (pce.getParent()) |parent| {
+                        if (parent.getChildRect(pce)) |transformed_rect| {
+                            transformed_event = seizer.input.Event{ .hover = hover.transform(transformed_rect.transform) };
+                        }
+                    }
+                    if (pce.processEvent(transformed_event)) |hovered| {
                         this.hovered_element = hovered;
                         return hovered;
                     }
@@ -107,14 +114,14 @@ pub const Stage = struct {
                 var popup_index = this.popups.keys().len;
                 while (popup_index > 0) : (popup_index -= 1) {
                     const popup = this.popups.keys()[popup_index - 1];
-                    if (popup.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
+                    if (popup.processEvent(event)) |hovered| {
                         this.hovered_element = hovered;
                         return hovered;
                     }
                 }
 
                 if (this.root) |r| {
-                    if (r.processEvent(event, IDENTITY_TRANSFORM)) |hovered| {
+                    if (r.processEvent(event)) |hovered| {
                         this.hovered_element = hovered;
                         return hovered;
                     }
@@ -125,7 +132,13 @@ pub const Stage = struct {
             .click => |click| {
                 if (click.pressed and click.button == .left) this.focused_element = null;
                 if (this.pointer_capture_element) |pce| {
-                    if (pce.element.processEvent(event, pce.transform)) |clicked| {
+                    var transformed_event = event;
+                    if (pce.getParent()) |parent| {
+                        if (parent.getChildRect(pce)) |transformed_rect| {
+                            transformed_event = seizer.input.Event{ .click = click.transform(transformed_rect.transform) };
+                        }
+                    }
+                    if (pce.processEvent(transformed_event)) |clicked| {
                         return clicked;
                     }
                 }
@@ -134,7 +147,7 @@ pub const Stage = struct {
                 var popup_index = this.popups.keys().len;
                 while (popup_index > 0) : (popup_index -= 1) {
                     const popup = this.popups.keys()[popup_index - 1];
-                    if (popup.processEvent(event, IDENTITY_TRANSFORM)) |clicked| {
+                    if (popup.processEvent(event)) |clicked| {
                         if (this.popups.orderedRemove(popup)) {
                             this.popups.putAssumeCapacity(popup, {});
                         }
@@ -143,7 +156,7 @@ pub const Stage = struct {
                 }
 
                 if (this.root) |r| {
-                    if (r.processEvent(event, IDENTITY_TRANSFORM)) |clicked| {
+                    if (r.processEvent(event)) |clicked| {
                         return clicked;
                     }
                 }
@@ -153,14 +166,14 @@ pub const Stage = struct {
 
             .scroll => |_| {
                 if (this.pointer_capture_element) |pce| {
-                    if (pce.element.processEvent(event, pce.transform)) |element| {
+                    if (pce.processEvent(event)) |element| {
                         return element;
                     }
                 }
 
-                var current_opt = if (this.hovered_element) |hovered| hovered.element else null;
+                var current_opt = this.hovered_element;
                 while (current_opt) |current| : (current_opt = current.getParent()) {
-                    if (current.processEvent(event, IDENTITY_TRANSFORM)) |element| {
+                    if (current.processEvent(event)) |element| {
                         return element;
                     }
                 }
@@ -170,7 +183,7 @@ pub const Stage = struct {
 
             .text_input => |_| {
                 if (this.focused_element) |focused| {
-                    if (focused.element.processEvent(event, focused.transform)) |element| {
+                    if (focused.processEvent(event)) |element| {
                         return element;
                     }
                 }
@@ -179,13 +192,13 @@ pub const Stage = struct {
 
             .key => {
                 if (this.focused_element) |focused| {
-                    if (focused.element.processEvent(event, focused.transform)) |element| {
+                    if (focused.processEvent(event)) |element| {
                         return element;
                     }
                 }
 
                 if (this.hovered_element) |hovered| {
-                    if (hovered.element.processEvent(event, hovered.transform)) |element| {
+                    if (hovered.processEvent(event)) |element| {
                         return element;
                     }
                 }
@@ -195,18 +208,18 @@ pub const Stage = struct {
         }
     }
 
-    pub fn capturePointer(this: *@This(), new_pointer_capture_element: Element.Capture) void {
-        new_pointer_capture_element.element.acquire();
+    pub fn capturePointer(this: *@This(), new_pointer_capture_element: Element) void {
+        new_pointer_capture_element.acquire();
         if (this.pointer_capture_element) |pce| {
-            pce.element.release();
+            pce.release();
         }
         this.pointer_capture_element = new_pointer_capture_element;
     }
 
     pub fn releasePointer(this: *@This(), element: Element) void {
         if (this.pointer_capture_element) |pce| {
-            if (pce.element.ptr == element.ptr) {
-                pce.element.release();
+            if (pce.ptr == element.ptr) {
+                pce.release();
                 this.pointer_capture_element = null;
             }
         }
@@ -284,7 +297,6 @@ pub fn Callable(comptime CallbackFn: anytype) type {
 }
 
 const input = @import("./input.zig");
-const Rect = seizer.geometry.Rect(f32);
 const seizer = @import("./seizer.zig");
 const std = @import("std");
 const Font = @import("./Canvas/Font.zig");

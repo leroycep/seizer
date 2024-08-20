@@ -78,13 +78,13 @@ fn getParent(this: *@This()) ?Element {
     return this.parent;
 }
 
-fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?Element.Capture {
+fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
     switch (event) {
-        .hover => return .{ .element = this.element(), .transform = transform },
+        .hover => return this.element(),
         .click => |click| {
             if (click.button == .left) {
                 if (click.pressed) {
-                    this.stage.capturePointer(.{ .element = this.element(), .transform = transform });
+                    this.stage.capturePointer(this.element());
 
                     if (this.on_click) |on_click| {
                         on_click.call(.{this});
@@ -92,17 +92,17 @@ fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32)
                 } else {
                     this.stage.releasePointer(this.element());
                 }
-                return .{ .element = this.element(), .transform = transform };
+                return this.element();
             }
         },
         .key => |key| {
             switch (key.key) {
                 .space, .enter => if (key.action == .press) {
-                    this.stage.capturePointer(.{ .element = this.element(), .transform = transform });
+                    this.stage.capturePointer(this.element());
                     if (this.on_click) |on_click| {
                         on_click.call(.{this});
                     }
-                    return .{ .element = this.element(), .transform = transform };
+                    return this.element();
                 } else {
                     this.stage.releasePointer(this.element());
                 },
@@ -116,8 +116,8 @@ fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32)
 }
 
 pub fn getMinSize(this: *@This()) [2]f32 {
-    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.element.ptr == this.element().ptr else false;
-    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.element.ptr == this.element().ptr else false;
+    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.ptr == this.element().ptr else false;
+    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
     const text_size = style.text_font.textSize(this.text.items, style.text_scale);
@@ -128,8 +128,8 @@ pub fn getMinSize(this: *@This()) [2]f32 {
 }
 
 fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
-    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.element.ptr == this.element().ptr else false;
-    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.element.ptr == this.element().ptr else false;
+    const is_pressed = if (this.stage.pointer_capture_element) |pce| pce.ptr == this.element().ptr else false;
+    const is_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
     style.background_image.draw(canvas, rect, .{
