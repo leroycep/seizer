@@ -11,6 +11,7 @@ const Example = enum {
     clicker,
     ui_stage,
     multi_window,
+    file_browser,
 };
 
 pub fn build(b: *Builder) !void {

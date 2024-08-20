@@ -88,39 +88,6 @@ fn getParent(this: *@This()) ?Element {
 }
 
 fn processEvent(this: *@This(), event: seizer.input.Event, transform: [4][4]f32) ?Element.Capture {
-    // fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
-    //     const this: *@This() = @fieldParentPtr("element", element);
-    //     const pos = .{
-    //         pos_parent[0] - this.element.rect.pos[0],
-    //         pos_parent[1] - this.element.rect.pos[1],
-    //     };
-
-    //     for (this.children.items) |child| {
-    //         if (child.rect.contains(pos)) {
-    //             if (child.onHover(pos)) |hovered| {
-    //                 return hovered;
-    //             }
-    //         }
-    //     }
-    //     return null;
-    // }
-
-    // fn onClick(element: *Element, event_parent: ui.event.Click) bool {
-    //     const this: *@This() = @fieldParentPtr("element", element);
-
-    //     const event = event_parent.translate(.{ -this.element.rect.pos[0], -this.element.rect.pos[1] });
-
-    //     for (this.children.items) |child| {
-    //         if (child.rect.contains(event.pos)) {
-    //             if (child.onClick(event)) {
-    //                 return true;
-    //             }
-    //         }
-    //     }
-
-    //     return false;
-    // }
-
     switch (event) {
         .hover => |hover| {
             const hover_pos = seizer.geometry.mat4.mulVec(f32, transform, hover.pos ++ .{ 0, 1 })[0..2].*;

@@ -25,6 +25,16 @@ pub fn Rect(comptime T: type) type {
                 this.pos[1] + this.size[1],
             };
         }
+
+        pub fn translate(this: @This(), amount: [2]T) @This() {
+            return @This(){
+                .pos = [2]T{
+                    this.pos[0] + amount[0],
+                    this.pos[1] + amount[1],
+                },
+                .size = this.size,
+            };
+        }
     };
 }
 
