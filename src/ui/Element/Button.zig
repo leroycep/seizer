@@ -4,24 +4,68 @@ parent: ?Element = null,
 
 text: std.ArrayListUnmanaged(u8),
 
-default_style: ui.Style,
-hovered_style: ui.Style,
-clicked_style: ui.Style,
+default_style: Style,
+hovered_style: Style,
+clicked_style: Style,
 
 on_click: ?ui.Callable(fn (*@This()) void) = null,
 
 const RECT_COLOR_DEFAULT = [4]u8{ 0x30, 0x30, 0x30, 0xFF };
 const RECT_COLOR_HOVERED = [4]u8{ 0x50, 0x50, 0x50, 0xFF };
+const RECT_COLOR_CLICKED = [4]u8{ 0x70, 0x70, 0x70, 0xFF };
 
 const TEXT_COLOR_DEFAULT = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF };
-const TEXT_COLOR_HOVERED = [4]u8{ 0xFF, 0xFF, 0x00, 0xFF };
+const TEXT_COLOR_HOVERED = [4]u8{ 0xFF, 0xFF, 0x80, 0xFF };
+const TEXT_COLOR_CLICKED = [4]u8{ 0xFF, 0xFF, 0x00, 0xFF };
+
+pub const Style = struct {
+    padding: seizer.geometry.Inset(f32),
+    font: *const seizer.Canvas.Font,
+    text_scale: f32,
+    text_color: [4]u8,
+    background_ninepatch: ?seizer.NinePatch = null,
+    background_color: [4]u8,
+};
 
 pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
     const this = try stage.gpa.create(@This());
-    const hovered_style = stage.default_style.with(.{
+
+    const pad = stage.default_style.text_font.lineHeight / 2;
+    const default_style = Style{
+        .padding = .{
+            .min = .{ pad, pad },
+            .max = .{ pad, pad },
+        },
+        .font = stage.default_style.text_font,
+        .text_scale = stage.default_style.text_scale,
+        .text_color = TEXT_COLOR_DEFAULT,
+        .background_ninepatch = null,
+        .background_color = RECT_COLOR_DEFAULT,
+    };
+
+    const hovered_style = Style{
+        .padding = .{
+            .min = .{ pad, pad },
+            .max = .{ pad, pad },
+        },
+        .font = stage.default_style.text_font,
+        .text_scale = stage.default_style.text_scale,
         .text_color = TEXT_COLOR_HOVERED,
+        .background_ninepatch = null,
         .background_color = RECT_COLOR_HOVERED,
-    });
+    };
+
+    const clicked_style = Style{
+        .padding = .{
+            .min = .{ pad, pad },
+            .max = .{ pad, pad },
+        },
+        .font = stage.default_style.text_font,
+        .text_scale = stage.default_style.text_scale,
+        .text_color = TEXT_COLOR_CLICKED,
+        .background_ninepatch = null,
+        .background_color = RECT_COLOR_CLICKED,
+    };
 
     var text_owned = std.ArrayListUnmanaged(u8){};
     errdefer text_owned.deinit(stage.gpa);
@@ -30,12 +74,9 @@ pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
     this.* = .{
         .stage = stage,
         .text = text_owned,
-        .default_style = stage.default_style.with(.{
-            .text_color = TEXT_COLOR_DEFAULT,
-            .background_color = RECT_COLOR_DEFAULT,
-        }),
+        .default_style = default_style,
         .hovered_style = hovered_style,
-        .clicked_style = hovered_style,
+        .clicked_style = clicked_style,
     };
     return this;
 }
@@ -120,7 +161,7 @@ pub fn getMinSize(this: *@This()) [2]f32 {
     const is_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
-    const text_size = style.text_font.textSize(this.text.items, style.text_scale);
+    const text_size = style.font.textSize(this.text.items, style.text_scale);
     return .{
         text_size[0] + style.padding.size()[0],
         text_size[1] + style.padding.size()[1],
@@ -132,10 +173,16 @@ fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
     const is_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
-    style.background_image.draw(canvas, rect, .{
-        .scale = 1,
-        .color = style.background_color,
-    });
+    if (style.background_ninepatch) |ninepatch| {
+        ninepatch.draw(canvas, rect, .{
+            .scale = 1,
+            .color = style.background_color,
+        });
+    } else {
+        canvas.rect(rect.pos, rect.size, .{
+            .color = style.background_color,
+        });
+    }
 
     _ = canvas.writeText(.{
         rect.pos[0] + style.padding.min[0],
