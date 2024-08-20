@@ -319,11 +319,15 @@ const Wayland = struct {
         new_window_size: [2]c_int,
         window_size: [2]c_int,
 
+        userdata: ?*anyopaque = null,
+
         pub const INTERFACE = seizer.Window.Interface{
             .getSize = getSize,
             .getFramebufferSize = getSize,
             .swapBuffers = swapBuffers,
             .setShouldClose = setShouldClose,
+            .setUserdata = setUserdata,
+            .getUserdata = getUserdata,
         };
 
         pub fn destroy(this: *@This()) void {
@@ -372,6 +376,16 @@ const Wayland = struct {
         pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
             this.should_close = should_close;
+        }
+
+        pub fn setUserdata(userdata: ?*anyopaque, user_userdata: ?*anyopaque) void {
+            const this: *@This() = @ptrCast(@alignCast(userdata.?));
+            this.userdata = user_userdata;
+        }
+
+        pub fn getUserdata(this_ptr: ?*anyopaque) ?*anyopaque {
+            const this: *@This() = @ptrCast(@alignCast(this_ptr.?));
+            return this.userdata;
         }
 
         fn onXdgSurfaceEvent(xdg_surface: *xdg_shell.xdg_surface, userdata: ?*anyopaque, event: xdg_shell.xdg_surface.Event) void {
@@ -802,11 +816,15 @@ pub const BareEGL = struct {
         on_render: *const fn (seizer.Window) anyerror!void,
         on_destroy: ?*const fn (seizer.Window) void,
 
+        userdata: ?*anyopaque = null,
+
         pub const INTERFACE = seizer.Window.Interface{
             .getSize = getSize,
             .getFramebufferSize = getSize,
             .setShouldClose = setShouldClose,
             .swapBuffers = swapBuffers,
+            .setUserdata = setUserdata,
+            .getUserdata = getUserdata,
         };
 
         pub fn destroy(this: *@This()) void {
@@ -841,6 +859,16 @@ pub const BareEGL = struct {
         pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
             this.should_close = should_close;
+        }
+
+        pub fn setUserdata(userdata: ?*anyopaque, user_userdata: ?*anyopaque) void {
+            const this: *@This() = @ptrCast(@alignCast(userdata.?));
+            this.userdata = user_userdata;
+        }
+
+        pub fn getUserdata(this_ptr: ?*anyopaque) ?*anyopaque {
+            const this: *@This() = @ptrCast(@alignCast(this_ptr.?));
+            return this.userdata;
         }
     };
 };
