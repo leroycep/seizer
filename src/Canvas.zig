@@ -15,6 +15,8 @@ font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 
 vbo: gl.Uint,
 
+scissor: ?seizer.geometry.Rect(f32) = null,
+
 const Canvas = @This();
 
 pub const RectOptions = struct {
@@ -237,6 +239,7 @@ pub const BeginOptions = struct {
     window_size: [2]f32,
     framebuffer_size: [2]f32,
     invert_y: bool = false,
+    scissor: ?seizer.geometry.Rect(f32) = null,
 };
 
 pub fn begin(this: *@This(), options: BeginOptions) Transformed {
@@ -265,6 +268,8 @@ pub fn begin(this: *@This(), options: BeginOptions) Transformed {
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.activeTexture(gl.TEXTURE0);
 
+    this.setScissor(options.scissor);
+
     return Transformed{
         .canvas = this,
         .transform = geometry.mat4.identity(f32),
@@ -273,6 +278,37 @@ pub fn begin(this: *@This(), options: BeginOptions) Transformed {
 
 pub fn end(this: *@This()) void {
     this.flush();
+    this.setScissor(null);
+}
+
+// TODO: Potentially rename? Might switch to using a stencil buffer instead of gl scissor
+pub fn setScissor(this: *@This(), new_scissor_rect: ?seizer.geometry.Rect(f32)) void {
+    if (this.scissor != null and new_scissor_rect != null) {
+        if (!this.scissor.?.eq(new_scissor_rect.?)) {
+            this.flush();
+            this.scissor = new_scissor_rect.?;
+            gl.scissor(
+                @intFromFloat(new_scissor_rect.?.pos[0]),
+                @intFromFloat(new_scissor_rect.?.pos[1]),
+                @intFromFloat(new_scissor_rect.?.size[0]),
+                @intFromFloat(new_scissor_rect.?.size[1]),
+            );
+        }
+    } else if (this.scissor == null and new_scissor_rect != null) {
+        this.flush();
+        gl.enable(gl.SCISSOR_TEST);
+        this.scissor = new_scissor_rect;
+        gl.scissor(
+            @intFromFloat(new_scissor_rect.?.pos[0]),
+            @intFromFloat(new_scissor_rect.?.pos[1]),
+            @intFromFloat(new_scissor_rect.?.size[0]),
+            @intFromFloat(new_scissor_rect.?.size[1]),
+        );
+    } else if (this.scissor != null and new_scissor_rect == null) {
+        this.flush();
+        gl.disable(gl.SCISSOR_TEST);
+        this.scissor = null;
+    }
 }
 
 pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
@@ -437,13 +473,13 @@ pub fn flush(this: *@This()) void {
     gl.drawArrays(gl.TRIANGLES, 0, @as(gl.Sizei, @intCast(this.vertices.items.len)));
 
     this.vertices.shrinkRetainingCapacity(0);
-    this.current_texture = null;
 }
 
 /// A transformed canvas
 pub const Transformed = struct {
     canvas: *Canvas,
     transform: [4][4]f32,
+    scissor: ?seizer.geometry.Rect(f32) = null,
 
     pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
         if (!std.meta.eql(options.texture, this.canvas.current_texture)) {
@@ -664,6 +700,7 @@ pub const Transformed = struct {
 
     /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
     pub fn addVertices(this: @This(), vertices: []const Vertex) void {
+        this.canvas.setScissor(this.scissor);
         this.canvas.vertices.ensureUnusedCapacity(this.canvas.allocator, vertices.len) catch {
             this.canvas.flush();
         };
@@ -682,6 +719,41 @@ pub const Transformed = struct {
         return Transformed{
             .canvas = this.canvas,
             .transform = geometry.mat4.mul(f32, this.transform, transform),
+            .scissor = this.scissor,
+        };
+    }
+
+    pub fn scissored(this: @This(), new_scissor_rect_opt: ?seizer.geometry.Rect(f32)) Transformed {
+        var scissor_rect_opt = new_scissor_rect_opt;
+        if (new_scissor_rect_opt) |new_scissor_rect| {
+            // TODO: the scissor doesn't work correctly if the canvas has been rotated or skewed
+            const top_left = new_scissor_rect.bottomLeft();
+            const bottom_right = new_scissor_rect.topRight();
+
+            const point1_transformed = geometry.mat4.mulVec(f32, this.transform, top_left ++ [2]f32{ 0, 1 })[0..2].*;
+            const point2_transformed = geometry.mat4.mulVec(f32, this.transform, bottom_right ++ [2]f32{ 0, 1 })[0..2].*;
+
+            const top_left_transformed = [2]f32{
+                @min(point1_transformed[0], point2_transformed[0]),
+                @min(point1_transformed[1], point2_transformed[1]),
+            };
+            const bottom_right_transformed = [2]f32{
+                @max(point1_transformed[0], point2_transformed[0]),
+                @max(point1_transformed[1], point2_transformed[1]),
+            };
+
+            scissor_rect_opt = seizer.geometry.Rect(f32){
+                .pos = top_left_transformed,
+                .size = [2]f32{
+                    bottom_right_transformed[0] - top_left_transformed[0],
+                    bottom_right_transformed[1] - top_left_transformed[1],
+                },
+            };
+        }
+        return Transformed{
+            .canvas = this.canvas,
+            .transform = this.transform,
+            .scissor = scissor_rect_opt,
         };
     }
 };

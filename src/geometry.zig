@@ -19,6 +19,20 @@ pub fn Rect(comptime T: type) type {
             return this.pos;
         }
 
+        pub fn topRight(this: @This()) [2]T {
+            return [2]T{
+                this.pos[0] + this.size[0],
+                this.pos[1],
+            };
+        }
+
+        pub fn bottomLeft(this: @This()) [2]T {
+            return [2]T{
+                this.pos[0],
+                this.pos[1] + this.size[1],
+            };
+        }
+
         pub fn bottomRight(this: @This()) [2]T {
             return [2]T{
                 this.pos[0] + this.size[0],
@@ -34,6 +48,13 @@ pub fn Rect(comptime T: type) type {
                 },
                 .size = this.size,
             };
+        }
+
+        pub fn eq(this: @This(), other: @This()) bool {
+            return this.pos[0] == other.pos[0] and
+                this.pos[1] == other.pos[1] and
+                this.size[0] == other.size[0] and
+                this.size[1] == other.size[1];
         }
     };
 }
