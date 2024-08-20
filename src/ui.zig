@@ -97,7 +97,7 @@ pub const Stage = struct {
         switch (event) {
             .hover => |hover| {
                 this.cursor_shape = null;
-                this.hovered_element = null;
+                this.setHoveredElement(null);
                 if (this.pointer_capture_element) |pce| {
                     var transformed_event = event;
                     if (pce.getParent()) |parent| {
@@ -106,7 +106,7 @@ pub const Stage = struct {
                         }
                     }
                     if (pce.processEvent(transformed_event)) |hovered| {
-                        this.hovered_element = hovered;
+                        this.setHoveredElement(hovered);
                         return hovered;
                     }
                 }
@@ -115,14 +115,14 @@ pub const Stage = struct {
                 while (popup_index > 0) : (popup_index -= 1) {
                     const popup = this.popups.keys()[popup_index - 1];
                     if (popup.processEvent(event)) |hovered| {
-                        this.hovered_element = hovered;
+                        this.setHoveredElement(hovered);
                         return hovered;
                     }
                 }
 
                 if (this.root) |r| {
                     if (r.processEvent(event)) |hovered| {
-                        this.hovered_element = hovered;
+                        this.setHoveredElement(hovered);
                         return hovered;
                     }
                 }
@@ -130,7 +130,7 @@ pub const Stage = struct {
             },
 
             .click => |click| {
-                if (click.pressed and click.button == .left) this.focused_element = null;
+                this.setFocusedElement(null);
                 if (this.pointer_capture_element) |pce| {
                     var transformed_event = event;
                     if (pce.getParent()) |parent| {
@@ -223,6 +223,26 @@ pub const Stage = struct {
                 this.pointer_capture_element = null;
             }
         }
+    }
+
+    pub fn setHoveredElement(this: *@This(), new_hover_opt: ?Element) void {
+        if (new_hover_opt) |new_hover| {
+            new_hover.acquire();
+        }
+        if (this.hovered_element) |focus| {
+            focus.release();
+        }
+        this.hovered_element = new_hover_opt;
+    }
+
+    pub fn setFocusedElement(this: *@This(), new_focus_opt: ?Element) void {
+        if (new_focus_opt) |new_focus| {
+            new_focus.acquire();
+        }
+        if (this.focused_element) |focus| {
+            focus.release();
+        }
+        this.focused_element = new_focus_opt;
     }
 };
 
