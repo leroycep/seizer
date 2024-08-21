@@ -4,6 +4,7 @@ pub const Frame = @import("./Element/Frame.zig");
 pub const Image = @import("./Element/Image.zig");
 pub const Label = @import("./Element/Label.zig");
 pub const PanZoom = @import("./Element/PanZoom.zig");
+pub const Plot = @import("./Element/Plot.zig");
 pub const TextField = @import("./Element/TextField.zig");
 
 ptr: ?*anyopaque,

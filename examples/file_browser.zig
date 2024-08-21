@@ -276,7 +276,7 @@ const FileBrowserElement = struct {
                     }
                 }
 
-                var pos: [2]f32 = .{ 0, this.top_bar_back_button_rect.size[1] };
+                var pos: [2]f32 = this.entries_rect.pos;
                 if (this.entries) |entries| {
                     for (entries.items, 0..) |entry, i| {
                         pos[1] += @floor((this.spacing - 1) * font.lineHeight);
@@ -314,7 +314,7 @@ const FileBrowserElement = struct {
                     }
                 }
 
-                var pos: [2]f32 = .{ 0, this.top_bar_back_button_rect.size[1] };
+                var pos: [2]f32 = this.entries_rect.pos;
                 if (this.entries) |entries| {
                     for (entries.items) |*entry| {
                         pos[1] += @floor((this.spacing - 1) * font.lineHeight);

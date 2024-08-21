@@ -13,6 +13,7 @@ const Example = enum {
     multi_window,
     file_browser,
     ui_view_image,
+    ui_plot_sine,
 };
 
 pub fn build(b: *Builder) !void {

@@ -1,7 +1,7 @@
 //! Defines geometry primitives
 
 pub const mat4 = @import("./geometry/mat4.zig");
-pub const vec = @import("./geometry/mat4.zig");
+pub const vec = @import("./geometry/vec.zig");
 
 pub fn Rect(comptime T: type) type {
     return struct {

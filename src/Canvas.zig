@@ -289,7 +289,7 @@ pub fn setScissor(this: *@This(), new_scissor_rect: ?seizer.geometry.Rect(f32)) 
             this.scissor = new_scissor_rect.?;
             gl.scissor(
                 @intFromFloat(new_scissor_rect.?.pos[0]),
-                @intFromFloat(new_scissor_rect.?.pos[1]),
+                @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
                 @intFromFloat(new_scissor_rect.?.size[0]),
                 @intFromFloat(new_scissor_rect.?.size[1]),
             );
@@ -300,7 +300,7 @@ pub fn setScissor(this: *@This(), new_scissor_rect: ?seizer.geometry.Rect(f32)) 
         this.scissor = new_scissor_rect;
         gl.scissor(
             @intFromFloat(new_scissor_rect.?.pos[0]),
-            @intFromFloat(new_scissor_rect.?.pos[1]),
+            @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
             @intFromFloat(new_scissor_rect.?.size[0]),
             @intFromFloat(new_scissor_rect.?.size[1]),
         );
@@ -656,44 +656,32 @@ pub const Transformed = struct {
                 .pos = back_left,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, -1 },
             },
             .{
                 .pos = fore_left,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, -1 },
             },
             .{
                 .pos = back_right,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, 1 },
             },
 
             .{
                 .pos = back_right,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, 1 },
             },
             .{
                 .pos = fore_left,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, -1 },
             },
             .{
                 .pos = fore_right,
                 .uv = .{ 0, 0 },
                 .color = options.color,
-                .shape = .triangle,
-                .bary = .{ 0, 0, 1 },
             },
         });
     }
