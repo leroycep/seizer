@@ -78,3 +78,11 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, so
 
     return shader;
 }
+
+// seizer.gl_utils.checkError(@src());
+pub fn checkError(src: std.builtin.SourceLocation) void {
+    switch (gl.getError()) {
+        gl.NO_ERROR => {},
+        else => |code| std.log.warn("{s}:{} {}", .{ src.file, src.line, code }),
+    }
+}

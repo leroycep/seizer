@@ -446,6 +446,7 @@ const Wayland = struct {
                 this_window.should_close = true;
                 return;
             };
+            if (builtin.mode == .Debug) seizer.glUtil.checkError(@src());
 
             if (this_window.current_buffer) |current_buffer| {
                 current_buffer.release();
@@ -960,6 +961,7 @@ pub const GlBindingLoader = struct {
     }
 };
 
+const builtin = @import("builtin");
 const xev = @import("xev");
 const EGL = @import("EGL");
 const gl = seizer.gl;
