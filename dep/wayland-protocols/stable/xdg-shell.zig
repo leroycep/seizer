@@ -641,7 +641,7 @@ pub const xdg_surface = struct {
     /// xdg_popup is and how it is used.
     pub fn get_popup(
         this: @This(),
-        parent: *xdg_surface,
+        parent: ?*xdg_surface,
         positioner: *xdg_positioner,
     ) !*xdg_popup {
         const new_object = try this.conn.createObject(xdg_popup);
@@ -650,7 +650,7 @@ pub const xdg_surface = struct {
             this.id,
             .{ .get_popup = .{
                 .id = new_object.id,
-                .parent = parent.id,
+                .parent = if (parent) |obj| obj.id else 0,
                 .positioner = positioner.id,
             } },
         );
@@ -960,13 +960,13 @@ pub const xdg_toplevel = struct {
     /// otherwise the invalid_parent protocol error is raised.
     pub fn set_parent(
         this: @This(),
-        parent: *xdg_toplevel,
+        parent: ?*xdg_toplevel,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_parent = .{
-                .parent = parent.id,
+                .parent = if (parent) |obj| obj.id else 0,
             } },
         );
     }
@@ -1320,13 +1320,13 @@ pub const xdg_toplevel = struct {
     /// visible below the fullscreened surface.
     pub fn set_fullscreen(
         this: @This(),
-        output: *wayland.wayland.wl_output,
+        output: ?*wayland.wayland.wl_output,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_fullscreen = .{
-                .output = output.id,
+                .output = if (output) |obj| obj.id else 0,
             } },
         );
     }

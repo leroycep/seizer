@@ -1556,18 +1556,18 @@ pub const wl_data_device = struct {
     /// may send a used_source error.
     pub fn start_drag(
         this: @This(),
-        source: *wl_data_source,
+        source: ?*wl_data_source,
         origin: *wayland.wayland.wl_surface,
-        icon: *wayland.wayland.wl_surface,
+        icon: ?*wayland.wayland.wl_surface,
         serial: u32,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .start_drag = .{
-                .source = source.id,
+                .source = if (source) |obj| obj.id else 0,
                 .origin = origin.id,
-                .icon = icon.id,
+                .icon = if (icon) |obj| obj.id else 0,
                 .serial = serial,
             } },
         );
@@ -1583,14 +1583,14 @@ pub const wl_data_device = struct {
     /// may send a used_source error.
     pub fn set_selection(
         this: @This(),
-        source: *wl_data_source,
+        source: ?*wl_data_source,
         serial: u32,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_selection = .{
-                .source = source.id,
+                .source = if (source) |obj| obj.id else 0,
                 .serial = serial,
             } },
         );
@@ -2132,7 +2132,7 @@ pub const wl_shell_surface = struct {
         this: @This(),
         method: Fullscreen_method,
         framerate: u32,
-        output: *wayland.wayland.wl_output,
+        output: ?*wayland.wayland.wl_output,
     ) !void {
         try this.conn.send(
             Request,
@@ -2140,7 +2140,7 @@ pub const wl_shell_surface = struct {
             .{ .set_fullscreen = .{
                 .method = method,
                 .framerate = framerate,
-                .output = output.id,
+                .output = if (output) |obj| obj.id else 0,
             } },
         );
     }
@@ -2207,13 +2207,13 @@ pub const wl_shell_surface = struct {
     /// The details depend on the compositor implementation.
     pub fn set_maximized(
         this: @This(),
-        output: *wayland.wayland.wl_output,
+        output: ?*wayland.wayland.wl_output,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_maximized = .{
-                .output = output.id,
+                .output = if (output) |obj| obj.id else 0,
             } },
         );
     }
@@ -2509,7 +2509,7 @@ pub const wl_surface = struct {
             Request,
             this.id,
             .{ .attach = .{
-                .buffer = if (buffer) |b| b.id else 0,
+                .buffer = if (buffer) |obj| obj.id else 0,
                 .x = x,
                 .y = y,
             } },
@@ -2628,13 +2628,13 @@ pub const wl_surface = struct {
     /// region to be set to empty.
     pub fn set_opaque_region(
         this: @This(),
-        region: *wl_region,
+        region: ?*wl_region,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_opaque_region = .{
-                .region = region.id,
+                .region = if (region) |obj| obj.id else 0,
             } },
         );
     }
@@ -2663,13 +2663,13 @@ pub const wl_surface = struct {
     /// to infinite.
     pub fn set_input_region(
         this: @This(),
-        region: *wl_region,
+        region: ?*wl_region,
     ) !void {
         try this.conn.send(
             Request,
             this.id,
             .{ .set_input_region = .{
-                .region = region.id,
+                .region = if (region) |obj| obj.id else 0,
             } },
         );
     }
@@ -3214,7 +3214,7 @@ pub const wl_pointer = struct {
     pub fn set_cursor(
         this: @This(),
         serial: u32,
-        surface: *wayland.wayland.wl_surface,
+        surface: ?*wayland.wayland.wl_surface,
         hotspot_x: i32,
         hotspot_y: i32,
     ) !void {
@@ -3223,7 +3223,7 @@ pub const wl_pointer = struct {
             this.id,
             .{ .set_cursor = .{
                 .serial = serial,
-                .surface = surface.id,
+                .surface = if (surface) |obj| obj.id else 0,
                 .hotspot_x = hotspot_x,
                 .hotspot_y = hotspot_y,
             } },

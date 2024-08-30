@@ -12,8 +12,8 @@
             .hash = "12202e4803c43c3513b27cd8d993da79fc459ab21ab4d0aa4aa2b6bf32b08d29bd44",
         },
         .@"zig-xml" = .{
-            .url = "https://github.com/leroycep/zig-xml/archive/fa6d8b231ec2c7cc0d73f8c082ecdb29ef2b8f8f.tar.gz",
-            .hash = "1220ca9d15f77fdca814f3667286fcda2fbdb727df32e7e6fe9042fc51e65a138382",
+            .url = "https://github.com/leroycep/zig-xml/archive/e89acff41d17f1a9b31bd64a8ca54682c81b832c.tar.gz",
+            .hash = "1220b7adb7430c32325b18edbb004f7d523dd0e66306e4985e7667ef7eef36c479a4",
         },
         .libxev = .{
             .url = "https://github.com/mitchellh/libxev/archive/1dd3c9015a542757b049f6d33beb8941f57bce1f.tar.gz",

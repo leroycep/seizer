@@ -19,6 +19,8 @@ pub fn main() !void {
 
     var document = try xml.parse(allocator, xml_file_path, xml_file.reader());
     defer document.deinit();
+    document.acquire();
+    defer document.release();
 
     const out = std.io.getStdOut();
     const writer = out.writer();
@@ -36,30 +38,30 @@ pub fn main() !void {
     var interfaces = std.ArrayList(Interface).init(gpa.allocator());
     defer interfaces.deinit();
 
-    const protocol_name = document.root.attr(&document, "name");
+    const protocol_name = document.root.attr("name");
     std.log.info("protocol name = {?s}", .{protocol_name});
-    for (document.root.children(&document)) |child| {
-        const child_element = switch (document.node(child)) {
+    for (document.root.children()) |child| {
+        const child_element = switch (document.nodes.get(@intFromEnum(child))) {
             .element => |elem| elem,
             else => continue,
         };
-        const child_tag = document.str(child_element.tag_name);
+        const child_tag = child_element.tag_name.slice();
 
         if (std.mem.eql(u8, child_tag, "interface")) {
             var interface = Interface{
-                .name = document.elem_attr(child_element, "name") orelse return error.InvalidFormat,
-                .version = try std.fmt.parseInt(u32, document.elem_attr(child_element, "version") orelse return error.InvalidFormat, 10),
+                .name = child_element.attr("name") orelse return error.InvalidFormat,
+                .version = try std.fmt.parseInt(u32, child_element.attr("version") orelse return error.InvalidFormat, 10),
                 .description = std.ArrayList([]const u8).init(arena.allocator()),
                 .enums = std.ArrayList(Interface.Enum).init(arena.allocator()),
                 .requests = std.ArrayList(Interface.Request).init(arena.allocator()),
                 .events = std.ArrayList(Interface.Event).init(arena.allocator()),
             };
-            for (child_element.children(&document)) |grandchild| {
-                const grandchild_element = switch (document.node(grandchild)) {
+            for (child_element.children()) |grandchild| {
+                const grandchild_element = switch (document.nodes.get(@intFromEnum(grandchild))) {
                     .element => |elem| elem,
                     else => continue,
                 };
-                const grandchild_tag = document.str(grandchild_element.tag_name);
+                const grandchild_tag = grandchild_element.tag_name.slice();
 
                 if (std.mem.eql(u8, grandchild_tag, "request")) {
                     const request = try parseRequest(arena.allocator(), &document, grandchild_element);
@@ -68,9 +70,9 @@ pub fn main() !void {
                     const event = try parseEvent(arena.allocator(), &document, grandchild_element);
                     try interface.events.append(event);
                 } else if (std.mem.eql(u8, grandchild_tag, "description")) {
-                    for (grandchild_element.children(&document)) |desc_child_id| {
-                        switch (document.node(desc_child_id)) {
-                            .text => |t| try interface.description.append(document.str(t)),
+                    for (grandchild_element.children()) |desc_child_id| {
+                        switch (document.nodes.get(@intFromEnum(desc_child_id))) {
+                            .text => |t| try interface.description.append(t.slice()),
                             else => continue,
                         }
                     }
@@ -82,9 +84,9 @@ pub fn main() !void {
 
             try interfaces.append(interface);
         } else if (std.mem.eql(u8, child_tag, "copyright")) {
-            for (child_element.children(&document)) |grandchild| {
-                const grandchild_node = document.node(grandchild);
-                const text = document.str(grandchild_node.text);
+            for (child_element.children()) |grandchild| {
+                const grandchild_node = document.nodes.get(@intFromEnum(grandchild));
+                const text = grandchild_node.text.slice();
                 var line_iter = std.mem.splitScalar(u8, text, '\n');
                 while (line_iter.next()) |line| {
                     try writer.writeAll("// ");
@@ -323,7 +325,9 @@ pub fn main() !void {
             }
             for (req.args.items, 0..) |arg, i| {
                 if (newid_index != null and newid_index == i) continue;
-                if (arg.type.kind == .object) {
+                if (arg.type.kind == .object and arg.type.allow_null) {
+                    try writer.print("        .{[name]s} = if ({[name]s}) |obj| obj.id else 0,\n", .{ .name = arg.name });
+                } else if (arg.type.kind == .object) {
                     try writer.print("        .{[name]s} = {[name]s}.id,\n", .{ .name = arg.name });
                 } else {
                     try writer.print("        .{[name]s} = {[name]s},\n", .{ .name = arg.name });
@@ -395,9 +399,9 @@ pub fn main() !void {
 }
 
 pub fn parseRequest(gpa: std.mem.Allocator, document: *const xml.Document, element: xml.Element) !Interface.Request {
-    const name = document.elem_attr(element, "name") orelse return error.InvalidFormat;
+    const name = element.attr("name") orelse return error.InvalidFormat;
 
-    const since_str = document.elem_attr(element, "since");
+    const since_str = element.attr("since");
     const since = if (since_str) |s| try std.fmt.parseInt(u32, s, 10) else 0;
 
     var descriptions = std.ArrayList([]const u8).init(gpa);
@@ -405,17 +409,17 @@ pub fn parseRequest(gpa: std.mem.Allocator, document: *const xml.Document, eleme
 
     var args = std.ArrayList(Interface.Arg).init(gpa);
     errdefer args.deinit();
-    for (element.children(document)) |child_id| {
-        const child_element = switch (document.node(child_id)) {
+    for (element.children()) |child_id| {
+        const child_element = switch (document.nodes.get(@intFromEnum(child_id))) {
             .element => |e| e,
             else => continue,
         };
-        if (std.mem.eql(u8, document.str(child_element.tag_name), "arg")) {
+        if (std.mem.eql(u8, child_element.tag_name.slice(), "arg")) {
             try args.append(try Interface.Arg.parse(document, child_element));
-        } else if (std.mem.eql(u8, document.str(child_element.tag_name), "description")) {
-            for (child_element.children(document)) |desc_child_id| {
-                switch (document.node(desc_child_id)) {
-                    .text => |t| try descriptions.append(document.str(t)),
+        } else if (std.mem.eql(u8, child_element.tag_name.slice(), "description")) {
+            for (child_element.children()) |desc_child_id| {
+                switch (document.nodes.get(@intFromEnum(desc_child_id))) {
+                    .text => |t| try descriptions.append(t.slice()),
                     else => continue,
                 }
             }
@@ -434,6 +438,7 @@ pub const Type = struct {
     kind: Kind,
     interface: ?[]const u8,
     enum_str: ?[]const u8,
+    allow_null: bool,
 
     pub const Kind = enum {
         uint,
@@ -487,6 +492,7 @@ pub const Type = struct {
         type_locations: *const std.StringHashMap([]const u8),
         pointer_str: []const u8,
     ) @TypeOf(writer).Error!void {
+        const null_str = if (this.allow_null) "?" else "";
         switch (this.kind) {
             .uint => if (this.enum_str) |s| {
                 if (std.mem.lastIndexOfScalar(u8, s, '.')) |dot_index| {
@@ -508,10 +514,10 @@ pub const Type = struct {
                 try writer.print("{s}{s}", .{ pointer_str, this.interface orelse "wayland.GenericNewId" });
             },
             .object => if (type_locations.get(this.interface orelse "")) |location| {
-                try writer.print("{s}{s}", .{ pointer_str, location });
+                try writer.print("{s}{s}{s}", .{ null_str, pointer_str, location });
             } else {
                 if (this.interface) |obj_type| {
-                    try writer.print("{s}{s}", .{ pointer_str, obj_type });
+                    try writer.print("{s}{s}{s}", .{ null_str, pointer_str, obj_type });
                 } else {
                     try writer.print("u32", .{});
                 }
@@ -550,13 +556,15 @@ const Interface = struct {
         type: Type,
 
         pub fn parse(document: *const xml.Document, element: xml.Element) !Arg {
-            const arg_name = document.elem_attr(element, "name") orelse return error.InvalidFormat;
-            const arg_type_str = document.elem_attr(element, "type") orelse return error.InvalidFormat;
+            _ = document;
+            const arg_name = element.attr("name") orelse return error.InvalidFormat;
+            const arg_type_str = element.attr("type") orelse return error.InvalidFormat;
             errdefer std.log.warn("unknown type = {s}", .{arg_type_str});
 
             const arg_type = std.meta.stringToEnum(Type.Kind, arg_type_str) orelse return error.InvalidFormat;
-            const arg_interface_str = document.elem_attr(element, "interface");
-            const enum_str = document.elem_attr(element, "enum");
+            const arg_interface_str = element.attr("interface");
+            const enum_str = element.attr("enum");
+            const allow_null = std.mem.eql(u8, element.attr("allow-null") orelse "false", "true");
 
             return Arg{
                 .name = arg_name,
@@ -564,6 +572,7 @@ const Interface = struct {
                     .kind = arg_type,
                     .interface = arg_interface_str,
                     .enum_str = enum_str,
+                    .allow_null = allow_null,
                 },
             };
         }
@@ -582,32 +591,32 @@ const Interface = struct {
         };
 
         pub fn parse(gpa: std.mem.Allocator, document: *const xml.Document, element: xml.Element) !Enum {
-            const name = document.elem_attr(element, "name") orelse return error.InvalidFormat;
+            const name = element.attr("name") orelse return error.InvalidFormat;
             const bitfield = blk: {
-                const bool_str = document.elem_attr(element, "bitfield") orelse break :blk false;
+                const bool_str = element.attr("bitfield") orelse break :blk false;
                 break :blk std.mem.eql(u8, bool_str, "true");
             };
 
             var entries = std.ArrayList(Entry).init(gpa);
             errdefer entries.deinit();
 
-            for (element.children(document)) |child_id| {
-                const child_element = switch (document.node(child_id)) {
+            for (element.children()) |child_id| {
+                const child_element = switch (document.nodes.get(@intFromEnum(child_id))) {
                     .element => |e| e,
                     else => continue,
                 };
-                if (std.mem.eql(u8, document.str(child_element.tag_name), "entry")) {
-                    const entry_name = document.elem_attr(child_element, "name") orelse return error.InvalidFormat;
-                    const entry_value_str = document.elem_attr(child_element, "value") orelse return error.InvalidFormat;
+                if (std.mem.eql(u8, child_element.tag_name.slice(), "entry")) {
+                    const entry_name = child_element.attr("name") orelse return error.InvalidFormat;
+                    const entry_value_str = child_element.attr("value") orelse return error.InvalidFormat;
 
                     const entry_value = if (std.mem.startsWith(u8, entry_value_str, "0x"))
                         try std.fmt.parseInt(u32, entry_value_str[2..], 16)
                     else
                         try std.fmt.parseInt(u32, entry_value_str, 10);
 
-                    const entry_summary = document.elem_attr(child_element, "summary");
+                    const entry_summary = child_element.attr("summary");
 
-                    const since_str = document.elem_attr(element, "since");
+                    const since_str = element.attr("since");
                     const since = if (since_str) |s| try std.fmt.parseInt(u32, s, 10) else 0;
 
                     try entries.append(Entry{
@@ -629,8 +638,8 @@ const Interface = struct {
 };
 
 pub fn parseEvent(gpa: std.mem.Allocator, document: *const xml.Document, element: xml.Element) !Interface.Event {
-    const name = document.elem_attr(element, "name") orelse return error.InvalidFormat;
-    const since_str = document.elem_attr(element, "since");
+    const name = element.attr("name") orelse return error.InvalidFormat;
+    const since_str = element.attr("since");
 
     const since = if (since_str) |s| try std.fmt.parseInt(u32, s, 10) else 0;
 
@@ -639,17 +648,17 @@ pub fn parseEvent(gpa: std.mem.Allocator, document: *const xml.Document, element
 
     var args = std.ArrayList(Interface.Arg).init(gpa);
     errdefer args.deinit();
-    for (element.children(document)) |child_id| {
-        const child_element = switch (document.node(child_id)) {
+    for (element.children()) |child_id| {
+        const child_element = switch (document.nodes.get(@intFromEnum(child_id))) {
             .element => |e| e,
             else => continue,
         };
-        if (std.mem.eql(u8, document.str(child_element.tag_name), "arg")) {
+        if (std.mem.eql(u8, child_element.tag_name.slice(), "arg")) {
             try args.append(try Interface.Arg.parse(document, child_element));
-        } else if (std.mem.eql(u8, document.str(child_element.tag_name), "description")) {
-            for (child_element.children(document)) |desc_child_id| {
-                switch (document.node(desc_child_id)) {
-                    .text => |t| try descriptions.append(document.str(t)),
+        } else if (std.mem.eql(u8, child_element.tag_name.slice(), "description")) {
+            for (child_element.children()) |desc_child_id| {
+                switch (document.nodes.get(@intFromEnum(desc_child_id))) {
+                    .text => |t| try descriptions.append(t.slice()),
                     else => continue,
                 }
             }
