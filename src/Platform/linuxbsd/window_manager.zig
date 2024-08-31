@@ -7,8 +7,6 @@ pub const WindowManager = union(enum) {
     pub const InitOptions = struct {
         allocator: std.mem.Allocator,
         loop: *xev.Loop,
-        egl: *const EGL,
-        display: EGL.Display,
         key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
     };
 
@@ -54,9 +52,9 @@ pub const WindowManager = union(enum) {
         }
     }
 
-    pub fn swapBuffers(this: @This()) void {
+    pub fn presentFrame(this: @This()) void {
         switch (this) {
-            inline else => |manager| try manager.swapBuffers(),
+            inline else => |manager| try manager.presentFrame(),
         }
     }
 
@@ -80,14 +78,6 @@ const Wayland = struct {
     registry: *wayland.wayland.wl_registry,
     globals: Globals = .{},
 
-    egl: *const EGL,
-    egl_mesa_image_dma_buf_export: EGL.MESA.image_dma_buf_export,
-    egl_khr_image_base: EGL.KHR.image_base,
-
-    egl_display: EGL.Display,
-    egl_context: EGL.Context,
-    gl_binding: gl.Binding,
-
     windows: std.ArrayListUnmanaged(*Window) = .{},
     seats: std.ArrayListUnmanaged(*Seat) = .{},
 
@@ -99,40 +89,6 @@ const Wayland = struct {
         const connection_path = try wayland.getDisplayPath(options.allocator);
         defer options.allocator.free(connection_path);
 
-        // Get required EGL extensions
-        const egl_mesa_image_dma_buf_export = try EGL.loadExtension(EGL.MESA.image_dma_buf_export, options.egl.functions);
-        const egl_khr_image_base = try EGL.loadExtension(EGL.KHR.image_base, options.egl.functions);
-
-        // create egl_context
-        var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-            @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
-            @intFromEnum(EGL.Attrib.red_size),        8,
-            @intFromEnum(EGL.Attrib.blue_size),       8,
-            @intFromEnum(EGL.Attrib.green_size),      8,
-            @intFromEnum(EGL.Attrib.none),
-        };
-        const num_configs = try options.display.chooseConfig(&attrib_list, null);
-
-        if (num_configs == 0) {
-            return error.NoSuitableConfigs;
-        }
-
-        const configs_buffer = try options.allocator.alloc(*EGL.Config.Handle, @intCast(num_configs));
-        defer options.allocator.free(configs_buffer);
-
-        const configs_len = try options.display.chooseConfig(&attrib_list, configs_buffer);
-        const configs = configs_buffer[0..configs_len];
-
-        try options.egl.bindAPI(.opengl_es);
-        var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
-            @intFromEnum(EGL.Attrib.context_major_version), 3,
-            @intFromEnum(EGL.Attrib.context_minor_version), 0,
-            @intFromEnum(EGL.Attrib.none),
-        };
-        const egl_context = try options.display.createContext(configs[0], null, &context_attrib_list);
-
-        try options.display.makeCurrent(null, null, egl_context);
-
         // allocate this
         const this = try options.allocator.create(@This());
         errdefer options.allocator.destroy(this);
@@ -142,22 +98,8 @@ const Wayland = struct {
             .connection = undefined,
             .registry = undefined,
 
-            .egl = options.egl,
-            .egl_mesa_image_dma_buf_export = egl_mesa_image_dma_buf_export,
-            .egl_khr_image_base = egl_khr_image_base,
-
-            .egl_display = options.display,
-            .egl_context = egl_context,
-            .gl_binding = undefined,
-
             .key_bindings = options.key_bindings,
         };
-
-        // load opengl functions
-        const loader = GlBindingLoader{ .egl = this.egl };
-        this.gl_binding.init(loader);
-        gl.makeBindingCurrent(&this.gl_binding);
-        errdefer gl.makeBindingCurrent(null);
 
         // open connection to wayland server
         try this.connection.connect(options.loop, options.allocator, connection_path);
@@ -309,9 +251,7 @@ const Wayland = struct {
         should_close: bool,
         should_render: bool = true,
 
-        current_buffer: ?*Framebuffer = null,
-        free_framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
-        framebuffers: std.BoundedArray(*Framebuffer, 16) = .{},
+        render_buffers: std.AutoHashMapUnmanaged(*wayland.wayland.wl_buffer, seizer.Graphics.RenderBuffer) = .{},
 
         on_render: *const fn (seizer.Window) anyerror!void,
         on_destroy: ?*const fn (seizer.Window) void,
@@ -324,7 +264,7 @@ const Wayland = struct {
         pub const INTERFACE = seizer.Window.Interface{
             .getSize = getSize,
             .getFramebufferSize = getSize,
-            .swapBuffers = swapBuffers,
+            .presentFrame = presentFrame,
             .setShouldClose = setShouldClose,
             .setUserdata = setUserdata,
             .getUserdata = getUserdata,
@@ -344,18 +284,14 @@ const Wayland = struct {
             this.xdg_surface.destroy() catch {};
             this.wl_surface.destroy() catch {};
 
-            // destroy framebuffers
-            if (this.current_buffer) |current_buffer| {
-                current_buffer.destroy();
-                this.current_buffer = null;
+            // destroy render buffers
+            var render_buffer_iter = this.render_buffers.iterator();
+            while (render_buffer_iter.next()) |entry| {
+                entry.key_ptr.*.on_event = null;
+                entry.key_ptr.*.userdata = null;
+                entry.value_ptr.release();
             }
-
-            for (this.framebuffers.slice()) |f| {
-                f.destroy();
-            }
-            for (this.free_framebuffers.slice()) |f| {
-                f.destroy();
-            }
+            this.render_buffers.deinit(this.wayland.allocator);
 
             this.wayland.allocator.destroy(this);
         }
@@ -367,10 +303,10 @@ const Wayland = struct {
             };
         }
 
-        pub fn getSize(userdata: ?*anyopaque) [2]f32 {
+        pub fn getSize(userdata: ?*anyopaque) [2]u32 {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
 
-            return .{ @floatFromInt(this.window_size[0]), @floatFromInt(this.window_size[1]) };
+            return .{ @intCast(this.window_size[0]), @intCast(this.window_size[1]) };
         }
 
         pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
@@ -426,18 +362,6 @@ const Wayland = struct {
         fn render(this_window: *Window) !void {
             if (this_window.window_size[0] == 0 and this_window.window_size[1] == 0) return;
 
-            std.debug.assert(this_window.current_buffer == null);
-            this_window.current_buffer = this_window.getFramebuffer(this_window.window_size) catch |e| {
-                std.log.warn("Failed to get framebuffer: {}; window_size = {}x{}", .{ e, this_window.window_size[0], this_window.window_size[1] });
-                if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
-                }
-                this_window.should_close = true;
-                return;
-            };
-            this_window.current_buffer.?.bind();
-            gl.viewport(0, 0, this_window.window_size[0], this_window.window_size[1]);
-
             this_window.on_render(this_window.window()) catch |err| {
                 std.debug.print("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -446,29 +370,57 @@ const Wayland = struct {
                 this_window.should_close = true;
                 return;
             };
-            if (builtin.mode == .Debug) seizer.glUtil.checkError(@src());
 
-            if (this_window.current_buffer) |current_buffer| {
-                current_buffer.release();
-                this_window.current_buffer = null;
-            }
             this_window.should_render = false;
         }
 
-        fn swapBuffers(userdata: ?*anyopaque) anyerror!void {
+        fn presentFrame(userdata: ?*anyopaque, render_buffer: seizer.Graphics.RenderBuffer) anyerror!void {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
-            if (this.current_buffer) |framebuffer| {
-                gl.flush();
 
-                try this.setupFrameCallback();
+            const wl_dmabuf_buffer_params = try this.wayland.globals.zwp_linux_dmabuf_v1.?.create_params();
+            defer wl_dmabuf_buffer_params.destroy() catch {};
 
-                try this.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
-                try this.wl_surface.attach(framebuffer.wl_buffer.?, 0, 0);
-                try this.wl_surface.damage_buffer(0, 0, framebuffer.size[0], framebuffer.size[1]);
-                try this.wl_surface.commit();
+            const dmabuf_format = render_buffer.getDmaBufFormat();
 
-                // we don't release this framebuffer, as the wayland surface now has a reference.
-                this.current_buffer = null;
+            var dmabuf_planes_buf: [10]seizer.Graphics.RenderBuffer.DmaBufPlane = undefined;
+            const dmabuf_planes = render_buffer.getDmaBufPlanes(dmabuf_planes_buf[0..]);
+            for (dmabuf_planes) |plane| {
+                try wl_dmabuf_buffer_params.add(
+                    @enumFromInt(plane.fd),
+                    @intCast(plane.index),
+                    @intCast(plane.offset),
+                    @intCast(plane.stride),
+                    @intCast((dmabuf_format.modifiers >> 32) & 0xFFFF_FFFF),
+                    @intCast((dmabuf_format.modifiers) & 0xFFFF_FFFF),
+                );
+            }
+
+            const wl_buffer = try wl_dmabuf_buffer_params.create_immed(
+                @intCast(render_buffer.getSize()[0]),
+                @intCast(render_buffer.getSize()[1]),
+                @intCast(dmabuf_format.fourcc),
+                .{ .y_invert = false, .interlaced = false, .bottom_first = false },
+            );
+            wl_buffer.userdata = this;
+            wl_buffer.on_event = onBufferEvent;
+
+            try this.render_buffers.put(this.wayland.allocator, wl_buffer, render_buffer);
+
+            try this.setupFrameCallback();
+
+            try this.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
+            try this.wl_surface.attach(wl_buffer, 0, 0);
+            try this.wl_surface.damage_buffer(0, 0, @intCast(render_buffer.getSize()[0]), @intCast(render_buffer.getSize()[1]));
+            try this.wl_surface.commit();
+        }
+
+        fn onBufferEvent(wl_buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque, event: wayland.wayland.wl_buffer.Event) void {
+            const this: *@This() = @ptrCast(@alignCast(userdata.?));
+            switch (event) {
+                .release => {
+                    const entry = this.render_buffers.fetchRemove(wl_buffer) orelse return;
+                    entry.value.release();
+                },
             }
         }
 
@@ -479,143 +431,6 @@ const Wayland = struct {
                 .done => {
                     this_window.should_render = true;
                 },
-            }
-        }
-
-        /// Returns a reference to a Framebuffer. The caller acquires a reference, and should call `framebuffer.release` when
-        /// they are no longer using it.
-        pub fn getFramebuffer(this: *Window, size: [2]c_int) !*Framebuffer {
-            // check framebuffers to see if any previously in use are now free
-            var i = this.framebuffers.len;
-            while (i > 0) : (i -= 1) {
-                const framebuffer = this.framebuffers.slice()[i - 1];
-                if (framebuffer.reference_count == 1) {
-                    _ = this.framebuffers.swapRemove(i - 1);
-                    this.free_framebuffers.append(framebuffer) catch {
-                        framebuffer.release();
-                    };
-                }
-            }
-
-            // check to see if any free framebuffers are the correct size
-            while (this.free_framebuffers.popOrNull()) |framebuffer| {
-                if (std.mem.eql(c_int, &framebuffer.size, &size)) {
-                    try this.framebuffers.append(framebuffer);
-                    // increase the reference count, as the caller of the function now has a reference
-                    framebuffer.acquire();
-                    std.debug.assert(framebuffer.reference_count == 2);
-                    return framebuffer;
-                }
-                // the framebuffer didn't match the size request, release it
-                framebuffer.release();
-            }
-
-            const framebuffer = try this.createFramebuffer(size);
-            try this.framebuffers.append(framebuffer);
-            framebuffer.acquire();
-            return framebuffer;
-        }
-
-        pub fn createFramebuffer(this: *Window, size: [2]c_int) !*Framebuffer {
-            const framebuffer = try this.wayland.allocator.create(Framebuffer);
-            framebuffer.* = .{
-                .allocator = this.wayland.allocator,
-                .reference_count = 1,
-                .wl_buffer = null,
-                .egl_khr_image_base = this.wayland.egl_khr_image_base,
-                .egl_display = this.wayland.egl_display,
-                .egl_image = undefined,
-                .size = size,
-            };
-            errdefer framebuffer.release();
-
-            gl.genRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
-            gl.genFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
-
-            gl.bindRenderbuffer(gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
-            gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGB8, size[0], size[1]);
-
-            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
-            gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
-
-            framebuffer.egl_image = try this.wayland.egl_khr_image_base.createImage(
-                this.wayland.egl_display,
-                this.wayland.egl_context,
-                .gl_renderbuffer,
-                @ptrFromInt(@as(usize, @intCast(framebuffer.gl_render_buffers[0]))),
-                null,
-            );
-
-            const dmabuf_image = try this.wayland.egl_mesa_image_dma_buf_export.exportImageAlloc(this.wayland.allocator, this.wayland.egl_display, framebuffer.egl_image);
-            defer dmabuf_image.deinit();
-
-            const wl_dmabuf_buffer_params = try this.wayland.globals.zwp_linux_dmabuf_v1.?.create_params();
-            defer wl_dmabuf_buffer_params.destroy() catch {};
-
-            for (0.., dmabuf_image.dmabuf_fds, dmabuf_image.offsets, dmabuf_image.strides) |plane, fd, offset, stride| {
-                try wl_dmabuf_buffer_params.add(
-                    @enumFromInt(fd),
-                    @intCast(plane),
-                    @intCast(offset),
-                    @intCast(stride),
-                    @intCast((dmabuf_image.modifiers >> 32) & 0xFFFF_FFFF),
-                    @intCast((dmabuf_image.modifiers) & 0xFFFF_FFFF),
-                );
-            }
-
-            framebuffer.wl_buffer = try wl_dmabuf_buffer_params.create_immed(
-                @intCast(size[0]),
-                @intCast(size[1]),
-                @intCast(dmabuf_image.fourcc),
-                .{ .y_invert = false, .interlaced = false, .bottom_first = false },
-            );
-            framebuffer.wl_buffer.?.userdata = framebuffer;
-            framebuffer.wl_buffer.?.on_event = Framebuffer.onBufferEvent;
-
-            return framebuffer;
-        }
-    };
-
-    const Framebuffer = struct {
-        allocator: std.mem.Allocator,
-        reference_count: u32,
-        gl_render_buffers: [1]gl.Uint = .{0},
-        gl_framebuffer_objects: [1]gl.Uint = .{0},
-        egl_khr_image_base: EGL.KHR.image_base,
-        egl_display: EGL.Display,
-        egl_image: EGL.KHR.image_base.Image,
-        wl_buffer: ?*wayland.wayland.wl_buffer,
-        size: [2]c_int,
-
-        pub fn bind(framebuffer: *Framebuffer) void {
-            gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer.gl_framebuffer_objects[0]);
-            gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, framebuffer.gl_render_buffers[0]);
-        }
-
-        pub fn destroy(framebuffer: *Framebuffer) void {
-            if (framebuffer.wl_buffer) |wl_buffer| wl_buffer.destroy() catch {};
-            framebuffer.egl_khr_image_base.destroyImage(framebuffer.egl_display, framebuffer.egl_image) catch {};
-            gl.deleteRenderbuffers(framebuffer.gl_render_buffers.len, &framebuffer.gl_render_buffers);
-            gl.deleteFramebuffers(framebuffer.gl_framebuffer_objects.len, &framebuffer.gl_framebuffer_objects);
-            framebuffer.allocator.destroy(framebuffer);
-        }
-
-        fn onBufferEvent(buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque, event: wayland.wayland.wl_buffer.Event) void {
-            const this: *@This() = @ptrCast(@alignCast(userdata.?));
-            _ = buffer;
-            switch (event) {
-                .release => this.release(),
-            }
-        }
-
-        pub fn acquire(this: *@This()) void {
-            this.reference_count += 1;
-        }
-
-        pub fn release(this: *@This()) void {
-            this.reference_count -= 1;
-            if (this.reference_count == 0) {
-                this.destroy();
             }
         }
     };
@@ -766,8 +581,6 @@ const Wayland = struct {
 
 pub const BareEGL = struct {
     allocator: std.mem.Allocator,
-    egl: *const EGL,
-    display: EGL.Display,
     on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
     key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
@@ -777,8 +590,6 @@ pub const BareEGL = struct {
         const this = try options.allocator.create(@This());
         this.* = .{
             .allocator = options.allocator,
-            .egl = options.egl,
-            .display = options.display,
             .key_bindings = options.key_bindings,
         };
         return this;
@@ -808,7 +619,6 @@ pub const BareEGL = struct {
         }
 
         for (this.windows.items) |window| {
-            gl.makeBindingCurrent(&window.gl_binding);
             window.on_render(window.window()) catch |err| {
                 std.debug.print("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
@@ -820,6 +630,7 @@ pub const BareEGL = struct {
     }
 
     fn createWindow(this: *@This(), options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
+        if (true) return error.Unimplemented;
         var attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
             @intFromEnum(EGL.Attrib.surface_type),    EGL.WINDOW_BIT,
             @intFromEnum(EGL.Attrib.renderable_type), EGL.OPENGL_ES2_BIT,
@@ -867,11 +678,11 @@ pub const BareEGL = struct {
             .on_destroy = options.on_destroy,
         };
 
-        const loader = GlBindingLoader{ .egl = this.egl };
-        window.gl_binding.init(loader);
-        gl.makeBindingCurrent(&window.gl_binding);
+        // const loader = GlBindingLoader{ .egl = this.egl };
+        // window.gl_binding.init(loader);
+        // gl.makeBindingCurrent(&window.gl_binding);
 
-        gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
+        // gl.viewport(0, 0, if (options.size) |s| @intCast(s[0]) else 640, if (options.size) |s| @intCast(s[1]) else 480);
 
         try this.windows.append(this.allocator, window);
 
@@ -885,7 +696,7 @@ pub const BareEGL = struct {
         egl_context: EGL.Context,
         should_close: bool,
 
-        gl_binding: gl.Binding,
+        // gl_binding: gl.Binding,
         on_render: *const fn (seizer.Window) anyerror!void,
         on_destroy: ?*const fn (seizer.Window) void,
 
@@ -895,7 +706,7 @@ pub const BareEGL = struct {
             .getSize = getSize,
             .getFramebufferSize = getSize,
             .setShouldClose = setShouldClose,
-            .swapBuffers = swapBuffers,
+            .presentFrame = presentFrame,
             .setUserdata = setUserdata,
             .getUserdata = getUserdata,
         };
@@ -915,17 +726,18 @@ pub const BareEGL = struct {
             };
         }
 
-        pub fn getSize(userdata: ?*anyopaque) [2]f32 {
+        pub fn getSize(userdata: ?*anyopaque) [2]u32 {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
 
             const width = this.egl_display.querySurface(this.surface, .width) catch unreachable;
             const height = this.egl_display.querySurface(this.surface, .height) catch unreachable;
 
-            return .{ @floatFromInt(width), @floatFromInt(height) };
+            return .{ @intCast(width), @intCast(height) };
         }
 
-        pub fn swapBuffers(userdata: ?*anyopaque) anyerror!void {
+        pub fn presentFrame(userdata: ?*anyopaque, render_buffer: seizer.Graphics.RenderBuffer) anyerror!void {
             const this: *@This() = @ptrCast(@alignCast(userdata.?));
+            _ = render_buffer;
             try this.egl_display.swapBuffers(this.surface);
         }
 
@@ -946,25 +758,9 @@ pub const BareEGL = struct {
     };
 };
 
-pub const GlBindingLoader = struct {
-    egl: *const EGL,
-    const AnyCFnPtr = *align(@alignOf(fn () callconv(.C) void)) const anyopaque;
-
-    pub fn getCommandFnPtr(this: @This(), command_name: [:0]const u8) ?AnyCFnPtr {
-        return this.egl.functions.eglGetProcAddress(command_name);
-    }
-
-    pub fn extensionSupported(this: @This(), extension_name: [:0]const u8) bool {
-        _ = this;
-        _ = extension_name;
-        return true;
-    }
-};
-
 const builtin = @import("builtin");
 const xev = @import("xev");
 const EGL = @import("EGL");
-const gl = seizer.gl;
 const seizer = @import("../../seizer.zig");
 const EvDev = @import("./evdev.zig");
 const std = @import("std");

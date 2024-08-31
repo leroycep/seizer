@@ -1,8 +1,8 @@
 pub const PLATFORM = seizer.Platform{
     .name = "linuxbsd",
     .main = main,
-    .gl = @import("gl"),
     .allocator = getAllocator,
+    .createGraphics = createGraphics,
     .createWindow = createWindow,
     .addButtonInput = addButtonInput,
     .writeFile = writeFile,
@@ -12,7 +12,6 @@ pub const PLATFORM = seizer.Platform{
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-var egl: EGL = undefined;
 var loop: xev.Loop = undefined;
 var evdev: EvDev = undefined;
 var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
@@ -28,28 +27,8 @@ pub fn main() anyerror!void {
 
     defer _ = gpa.deinit();
 
-    {
-        var library_prefixes = try getLibrarySearchPaths(gpa.allocator());
-        defer library_prefixes.arena.deinit();
-
-        egl = EGL.loadUsingPrefixes(library_prefixes.paths.items) catch |err| {
-            std.log.warn("Failed to load EGL: {}", .{err});
-            return err;
-        };
-    }
-    defer {
-        egl.deinit();
-    }
-
     loop = try xev.Loop.init(.{});
     defer loop.deinit();
-
-    var display = egl.getDisplay(null) orelse {
-        std.log.warn("Failed to get EGL display", .{});
-        return error.NoDisplay;
-    };
-    _ = try display.initialize();
-    defer display.terminate();
 
     defer {
         var iter = key_bindings.valueIterator();
@@ -65,8 +44,6 @@ pub fn main() anyerror!void {
 
     window_manager = try WindowManager.init(.{
         .allocator = gpa.allocator(),
-        .egl = &egl,
-        .display = display,
         .key_bindings = &key_bindings,
         .loop = &loop,
     });
@@ -93,6 +70,16 @@ pub fn main() anyerror!void {
 
 pub fn getAllocator() std.mem.Allocator {
     return gpa.allocator();
+}
+
+pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
+    if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
+        return graphics;
+    } else |err| {
+        std.log.warn("Failed to create gles3v0 context: {}", .{err});
+    }
+
+    return error.NoGraphicsBackendFound;
 }
 
 pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {
@@ -125,49 +112,12 @@ fn setDeinitFn(new_deinit_fn: ?seizer.Platform.DeinitFn) void {
     deinit_fn = new_deinit_fn;
 }
 
-const LibraryPaths = struct {
-    arena: std.heap.ArenaAllocator,
-    paths: std.ArrayListUnmanaged([]const u8),
-};
-
-pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
-    var path_arena_allocator = std.heap.ArenaAllocator.init(allocator);
-    errdefer path_arena_allocator.deinit();
-    const arena = path_arena_allocator.allocator();
-
-    var prefixes_to_try = std.ArrayList([]const u8).init(arena);
-
-    try prefixes_to_try.append(try arena.dupe(u8, "."));
-    try prefixes_to_try.append(try arena.dupe(u8, ""));
-    try prefixes_to_try.append(try arena.dupe(u8, "/usr/lib/"));
-    if (std.process.getEnvVarOwned(arena, "NIX_LD_LIBRARY_PATH")) |path_list| {
-        var path_list_iter = std.mem.tokenize(u8, path_list, ":");
-        while (path_list_iter.next()) |path| {
-            try prefixes_to_try.append(path);
-        }
-    } else |_| {}
-
-    var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-    const exe_dir_path = try std.fs.selfExeDirPath(&path_buf);
-    var dir_to_search_opt: ?[]const u8 = exe_dir_path;
-    while (dir_to_search_opt) |dir_to_search| : (dir_to_search_opt = std.fs.path.dirname(dir_to_search)) {
-        try prefixes_to_try.append(try std.fs.path.join(arena, &.{ dir_to_search, "lib" }));
-    }
-
-    return LibraryPaths{
-        .arena = path_arena_allocator,
-        .paths = prefixes_to_try.moveToUnmanaged(),
-    };
-}
-
 pub const EvDev = @import("./linuxbsd/evdev.zig");
 pub const WindowManager = @import("./linuxbsd/window_manager.zig").WindowManager;
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
 const xev = @import("xev");
-const gl = seizer.gl;
-const EGL = @import("EGL");
 const seizer = @import("../seizer.zig");
 const builtin = @import("builtin");
 const std = @import("std");

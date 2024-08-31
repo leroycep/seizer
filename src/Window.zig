@@ -7,15 +7,15 @@ interface: *const Interface,
 const Window = @This();
 
 pub const Interface = struct {
-    getSize: *const fn (?*anyopaque) [2]f32,
-    getFramebufferSize: *const fn (?*anyopaque) [2]f32,
+    getSize: *const fn (?*anyopaque) [2]u32,
+    getFramebufferSize: *const fn (?*anyopaque) [2]u32,
     setShouldClose: *const fn (?*anyopaque, should_close: bool) void,
-    swapBuffers: *const fn (?*anyopaque) anyerror!void,
+    presentFrame: *const fn (?*anyopaque, seizer.Graphics.RenderBuffer) anyerror!void,
     setUserdata: *const fn (?*anyopaque, ?*anyopaque) void,
     getUserdata: *const fn (?*anyopaque) ?*anyopaque,
 };
 
-pub fn getSize(this: @This()) [2]f32 {
+pub fn getSize(this: @This()) [2]u32 {
     return this.interface.getSize(this.pointer);
 }
 
@@ -27,8 +27,8 @@ pub fn setShouldClose(this: @This(), should_close: bool) void {
     return this.interface.setShouldClose(this.pointer, should_close);
 }
 
-pub fn swapBuffers(this: @This()) anyerror!void {
-    return this.interface.swapBuffers(this.pointer);
+pub fn presentFrame(this: @This(), render_buffer: seizer.Graphics.RenderBuffer) anyerror!void {
+    return this.interface.presentFrame(this.pointer, render_buffer);
 }
 
 pub fn setUserdata(this: @This(), user_userdata: ?*anyopaque) void {

@@ -236,15 +236,21 @@ pub fn deinit(this: *@This()) void {
 }
 
 pub const BeginOptions = struct {
-    window_size: [2]f32,
-    framebuffer_size: [2]f32,
+    command_buffer: seizer.Graphics.CommandBuffer,
+    window_size: [2]u32,
     invert_y: bool = false,
     scissor: ?seizer.geometry.Rect(f32) = null,
 };
 
 pub fn begin(this: *@This(), options: BeginOptions) Transformed {
-    this.window_size = options.window_size;
-    this.framebuffer_size = options.framebuffer_size;
+    this.window_size = [2]f32{
+        @floatFromInt(options.window_size[0]),
+        @floatFromInt(options.window_size[1]),
+    };
+    this.framebuffer_size = [2]f32{
+        @floatFromInt(options.window_size[0]),
+        @floatFromInt(options.window_size[1]),
+    };
 
     const projection = geometry.mat4.orthographic(
         f32,
@@ -764,7 +770,7 @@ const Vertex = struct {
 
 const log = std.log.scoped(.Canvas);
 const std = @import("std");
-const gl = seizer.gl;
+const gl = @import("gl");
 const seizer = @import("seizer.zig");
 const zigimg = @import("zigimg");
 const geometry = @import("./geometry.zig");

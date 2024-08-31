@@ -4,28 +4,8 @@ functions: Functions,
 const EGL = @This();
 
 pub fn loadUsingPrefixes(prefixes: []const []const u8) !@This() {
-    const library_name = "libEGL.so";
-    var dyn_lib = load_lib: for (prefixes) |prefix| {
-        var path_buffer: [std.fs.MAX_PATH_BYTES]u8 = undefined;
-        @memcpy(path_buffer[0..prefix.len], prefix);
-        path_buffer[prefix.len] = '/';
-        @memcpy(path_buffer[prefix.len + 1 ..][0..library_name.len], library_name);
-        const path = path_buffer[0 .. prefix.len + 1 + library_name.len];
-
-        const lib = std.DynLib.open(path) catch |err| switch (err) {
-            error.FileNotFound => continue,
-            else => |e| return e,
-        };
-        break :load_lib lib;
-    } else {
-        log.warn("could not load \"{s}\", searched paths:", .{library_name});
-        for (prefixes) |prefix| {
-            log.warn("\t{s}", .{prefix});
-        }
-        return error.NotFound;
-    };
-
-    const functions = try Functions.fromDynLib(&dyn_lib);
+    var dyn_lib = try @"dynamic-library-utils".loadFromPrefixes(prefixes, "libEGL.so");
+    const functions = try @"dynamic-library-utils".populateFunctionTable(&dyn_lib, Functions);
     return @This(){
         .dyn_lib = dyn_lib,
         .functions = functions,
@@ -50,20 +30,6 @@ pub const Functions = struct {
     eglReleaseThread: *const fn () Boolean,
     eglDestroySurface: *const fn (*Display.Handle, *Surface.Handle) Boolean,
     eglQuerySurface: *const fn (*Display.Handle, *Surface.Handle, Attrib, value_out: *Int) Boolean,
-
-    pub fn fromDynLib(dyn_lib: *std.DynLib) !@This() {
-        var this: @This() = undefined;
-
-        const fields = std.meta.fields(@This());
-        inline for (fields) |field| {
-            @field(this, field.name) = dyn_lib.lookup(field.type, field.name) orelse {
-                log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
-                return error.FunctionNotFound;
-            };
-        }
-
-        return this;
-    }
 };
 
 pub const EXT = struct {
@@ -160,6 +126,22 @@ pub const MESA = struct {
                 .strides = strides,
                 .offsets = offsets,
             };
+        }
+
+        pub fn exportImage(this: @This(), display: Display, image: KHR.image_base.Image, fds_buf: []c_int, strides_buf: []c_int, offsets_buf: []c_int) !void {
+            std.debug.assert(fds_buf.len == strides_buf.len);
+            std.debug.assert(fds_buf.len == offsets_buf.len);
+
+            switch (this.eglExportDMABUFImageMESA(
+                display.ptr,
+                image.ptr,
+                fds_buf.ptr,
+                strides_buf.ptr,
+                offsets_buf.ptr,
+            )) {
+                .true => {},
+                .false => return display.egl.functions.eglGetError().toZigError(),
+            }
         }
     };
 };
@@ -482,4 +464,5 @@ pub const Error = error{
 
 const log = std.log.scoped(.EGL);
 
+const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const std = @import("std");

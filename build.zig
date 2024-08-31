@@ -40,8 +40,15 @@ pub fn build(b: *Builder) !void {
         .root_source_file = b.path("dep/gles3v0.zig"),
     });
 
+    const dynamic_library_utils_module = b.addModule("dynamic-library-utils", .{
+        .root_source_file = b.path("dep/dynamic-library-utils.zig"),
+    });
+
     const egl_module = b.addModule("EGL", .{
         .root_source_file = b.path("dep/EGL.zig"),
+        .imports = &.{
+            .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
+        },
     });
 
     const wayland_module = b.addModule("wayland", .{
@@ -140,6 +147,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
             .{ .name = "gl", .module = gl_module },
             .{ .name = "xev", .module = libxev.module("xev") },
+            .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
         },
     });
 

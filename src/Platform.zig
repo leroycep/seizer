@@ -6,8 +6,8 @@ const Platform = @This();
 name: []const u8,
 /// should return true if the next backend should be tried
 main: fn () anyerror!void,
-gl: type,
 allocator: fn () std.mem.Allocator,
+createGraphics: fn (allocator: std.mem.Allocator, options: CreateGraphicsOptions) CreateGraphicsError!seizer.Graphics,
 createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
 addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
 writeFile: fn (options: WriteFileOptions) void,
@@ -16,6 +16,9 @@ setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
 pub const DeinitFn = *const fn () void;
+
+pub const CreateGraphicsError = error{ OutOfMemory, LibraryLoadFailed, NoGraphicsBackendFound, GraphicsInitializationFailed };
+pub const CreateGraphicsOptions = struct {};
 
 pub const CreateWindowOptions = struct {
     title: [:0]const u8,
