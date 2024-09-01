@@ -26,4 +26,11 @@ else
 // Non-core seizer sub libraries. This is code that is mostly used to implement seizer, and is not intended for external use.
 pub const @"dynamic-library-utils" = @import("dynamic-library-utils");
 
+pub const version = std.SemanticVersion{
+    .major = 0,
+    .minor = 1,
+    .patch = 0,
+};
+
 const builtin = @import("builtin");
+const std = @import("std");

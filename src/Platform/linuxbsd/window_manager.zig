@@ -398,7 +398,7 @@ const Wayland = struct {
             const wl_buffer = try wl_dmabuf_buffer_params.create_immed(
                 @intCast(render_buffer.getSize()[0]),
                 @intCast(render_buffer.getSize()[1]),
-                @intCast(dmabuf_format.fourcc),
+                @intFromEnum(dmabuf_format.fourcc),
                 .{ .y_invert = false, .interlaced = false, .bottom_first = false },
             );
             wl_buffer.userdata = this;

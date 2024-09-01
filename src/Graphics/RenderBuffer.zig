@@ -4,9 +4,18 @@ pointer: ?*anyopaque,
 interface: *const Interface,
 
 pub const DmaBufFormat = struct {
-    fourcc: u32,
+    fourcc: FourCC,
     plane_count: u32,
     modifiers: u64,
+
+    pub const FourCC = enum(u32) {
+        ARGB8888 = 'A' | 'R' << 8 | '2' << 16 | '4' << 24,
+        XRGB8888 = 'X' | 'R' << 8 | '2' << 16 | '4' << 24,
+        ABGR8888 = 'A' | 'B' << 8 | '2' << 16 | '4' << 24,
+        BGRX8888 = 'B' | 'X' << 8 | '2' << 16 | '4' << 24,
+        XBGR8888 = 'X' | 'B' << 8 | '2' << 16 | '4' << 24,
+        _,
+    };
 };
 
 pub fn release(render_buffer: RenderBuffer) void {

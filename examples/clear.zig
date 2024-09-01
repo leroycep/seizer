@@ -3,7 +3,9 @@ pub const main = seizer.main;
 var gfx: seizer.Graphics = undefined;
 
 pub fn init() !void {
-    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{
+        .app_name = "Clear - Seizer Example",
+    });
     errdefer gfx.destroy();
 
     _ = try seizer.platform.createWindow(.{

@@ -11,7 +11,7 @@ pub const PLATFORM = seizer.Platform{
     .setEventCallback = setEventCallback,
 };
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = builtin.mode == .Debug }){};
 var loop: xev.Loop = undefined;
 var evdev: EvDev = undefined;
 var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
@@ -73,13 +73,19 @@ pub fn getAllocator() std.mem.Allocator {
 }
 
 pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
+    if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
+        return graphics;
+    } else |err| {
+        std.log.warn("Failed to create vulkan context: {}", .{err});
+    }
+
     if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
         return graphics;
     } else |err| {
         std.log.warn("Failed to create gles3v0 context: {}", .{err});
     }
 
-    return error.NoGraphicsBackendFound;
+    return error.InitializationFailed;
 }
 
 pub fn createWindow(options: seizer.Platform.CreateWindowOptions) anyerror!seizer.Window {

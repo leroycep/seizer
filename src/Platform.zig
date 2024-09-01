@@ -17,8 +17,11 @@ setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void
 
 pub const DeinitFn = *const fn () void;
 
-pub const CreateGraphicsError = error{ OutOfMemory, LibraryLoadFailed, NoGraphicsBackendFound, GraphicsInitializationFailed };
-pub const CreateGraphicsOptions = struct {};
+pub const CreateGraphicsError = error{ OutOfMemory, OutOfDeviceMemory, LibraryLoadFailed, InitializationFailed };
+pub const CreateGraphicsOptions = struct {
+    app_name: ?[:0]const u8 = null,
+    app_version: ?std.SemanticVersion = null,
+};
 
 pub const CreateWindowOptions = struct {
     title: [:0]const u8,

@@ -36,6 +36,11 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
+    const vkzig_dep = b.dependency("vulkan_zig", .{
+        .registry = @as([]const u8, b.pathFromRoot("dep/vk.xml")),
+    });
+    const vkzig_bindings = vkzig_dep.module("vulkan-zig");
+
     const gl_module = b.addModule("gl", .{
         .root_source_file = b.path("dep/gles3v0.zig"),
     });
@@ -164,6 +169,11 @@ pub fn build(b: *Builder) !void {
     if (import_egl) {
         module.addImport("EGL", egl_module);
         module.link_libc = true;
+    }
+
+    const import_vulkan = true;
+    if (import_vulkan) {
+        module.addImport("vulkan", vkzig_bindings);
     }
 
     const import_wayland = target.result.os.tag == .linux;

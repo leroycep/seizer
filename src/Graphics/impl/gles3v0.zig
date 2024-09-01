@@ -37,9 +37,9 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
 
     var egl_display = fn_tables.egl.getDisplay(null) orelse {
         std.log.warn("Failed to get EGL display", .{});
-        return error.GraphicsInitializationFailed;
+        return error.InitializationFailed;
     };
-    _ = egl_display.initialize() catch return error.GraphicsInitializationFailed;
+    _ = egl_display.initialize() catch return error.InitializationFailed;
     errdefer egl_display.terminate();
 
     fn_tables.egl_mesa_image_dma_buf_export = EGL.loadExtension(EGL.MESA.image_dma_buf_export, fn_tables.egl.functions) catch |err| switch (err) {
@@ -58,28 +58,28 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
         @intFromEnum(EGL.Attrib.none),
     };
     const num_configs = egl_display.chooseConfig(&attrib_list, null) catch {
-        return error.GraphicsInitializationFailed;
+        return error.InitializationFailed;
     };
 
     if (num_configs == 0) {
-        return error.GraphicsInitializationFailed;
+        return error.InitializationFailed;
     }
 
     const configs_buffer = try allocator.alloc(*EGL.Config.Handle, @intCast(num_configs));
     defer allocator.free(configs_buffer);
 
-    const configs_len = egl_display.chooseConfig(&attrib_list, configs_buffer) catch return error.GraphicsInitializationFailed;
+    const configs_len = egl_display.chooseConfig(&attrib_list, configs_buffer) catch return error.InitializationFailed;
     const configs = configs_buffer[0..configs_len];
 
-    fn_tables.egl.bindAPI(.opengl_es) catch return error.GraphicsInitializationFailed;
+    fn_tables.egl.bindAPI(.opengl_es) catch return error.InitializationFailed;
     var context_attrib_list = [_:@intFromEnum(EGL.Attrib.none)]EGL.Int{
         @intFromEnum(EGL.Attrib.context_major_version), 3,
         @intFromEnum(EGL.Attrib.context_minor_version), 0,
         @intFromEnum(EGL.Attrib.none),
     };
-    const egl_context = egl_display.createContext(configs[0], null, &context_attrib_list) catch return error.GraphicsInitializationFailed;
+    const egl_context = egl_display.createContext(configs[0], null, &context_attrib_list) catch return error.InitializationFailed;
 
-    egl_display.makeCurrent(null, null, egl_context) catch return error.GraphicsInitializationFailed;
+    egl_display.makeCurrent(null, null, egl_context) catch return error.InitializationFailed;
 
     const this = try allocator.create(@This());
     errdefer allocator.destroy(this);
@@ -107,8 +107,11 @@ pub fn graphics(this: *@This()) seizer.Graphics {
 }
 
 pub const INTERFACE = seizer.Graphics.Interface.getTypeErasedFunctions(@This(), .{
+    .driver = .gles3v0,
     .destroy = destroy,
     .begin = _begin,
+    .createShader = _createShader,
+    .destroyShader = _destroyShader,
     .createTexture = _createTexture,
 });
 
@@ -148,6 +151,19 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
     const command_buffer = try CommandBuffer.create(this.allocator, render_buffer);
 
     return command_buffer.command_buffer();
+}
+
+fn _createShader(this: *@This(), allocator: std.mem.Allocator, options: seizer.Graphics.Shader.CreateOptions) seizer.Graphics.Shader.CreateError!*seizer.Graphics.Shader {
+    _ = this;
+    _ = allocator;
+    _ = options;
+    std.debug.panic("{s}:{} unimplemented", .{ @src().file, @src().line });
+}
+
+fn _destroyShader(this: *@This(), shader: *seizer.Graphics.Shader) void {
+    _ = this;
+    _ = shader;
+    std.debug.panic("{s}:{} unimplemented", .{ @src().file, @src().line });
 }
 
 fn _createTexture(this: *@This(), allocator: std.mem.Allocator, image: zigimg.Image, options: seizer.Graphics.CreateTextureOptions) seizer.Graphics.CreateTextureError!seizer.Graphics.Texture {
@@ -311,7 +327,7 @@ const RenderBuffer = struct {
     fn _getDmaBufFormat(this: *@This()) seizer.Graphics.RenderBuffer.DmaBufFormat {
         const result = this.backend.fn_tables.egl_mesa_image_dma_buf_export.?.queryImage(this.backend.egl_display, this.egl_image) catch |err| std.debug.panic("too lazy rn: {}", .{err});
         return seizer.Graphics.RenderBuffer.DmaBufFormat{
-            .fourcc = @bitCast(result.fourcc),
+            .fourcc = @enumFromInt(result.fourcc),
             .plane_count = @intCast(result.num_planes),
             .modifiers = result.modifiers,
         };
@@ -482,7 +498,6 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, so
     return shader;
 }
 
-// seizer.gl_utils.checkError(@src());
 pub fn checkError(src: std.builtin.SourceLocation) void {
     switch (gl.getError()) {
         gl.NO_ERROR => {},
