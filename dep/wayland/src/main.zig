@@ -145,75 +145,6 @@ pub fn readArray(comptime T: type, buffer: []const u32, parent_pos: *usize) ![]c
     return array;
 }
 
-pub fn deserializeArguments(comptime Signature: type, buffer: []const u32) !Signature {
-    if (Signature == void) return {};
-    var result: Signature = undefined;
-    var pos: usize = 0;
-    inline for (std.meta.fields(Signature)) |field| {
-        if (field.type == fd_t) continue;
-        switch (@typeInfo(field.type)) {
-            .Int => |int_info| switch (int_info.signedness) {
-                .signed => @field(result, field.name) = try readInt(buffer, &pos),
-                .unsigned => @field(result, field.name) = try readUInt(buffer, &pos),
-            },
-            .Enum => |enum_info| if (@sizeOf(enum_info.tag_type) == @sizeOf(u32)) {
-                @field(result, field.name) = @enumFromInt(try readInt(buffer, &pos));
-            } else {
-                @compileError("Unsupported type " ++ @typeName(field.type));
-            },
-            .Pointer => |ptr| switch (ptr.size) {
-                // TODO: Better way to differentiate between string and array
-                .Slice => if (ptr.child == u8 and ptr.sentinel != null) {
-                    // if (ptr.sentinel) |s| @compileLog(std.fmt.comptimePrint("pointer sentinel = {}", .{@as(*const ptr.child, @ptrCast(s)).*}));
-                    @field(result, field.name) = try readString(buffer, &pos) orelse return error.UnexpectedNullString;
-                } else {
-                    @field(result, field.name) = try readArray(ptr.child, buffer, &pos);
-                },
-                else => @compileError("Unsupported pointer size \"" ++ @tagName(ptr.size) ++ "\" (" ++ @typeName(field.type) ++ ")"),
-            },
-            .Optional => |opt| switch (@typeInfo(opt.child)) {
-                .Pointer => |ptr| switch (ptr.size) {
-                    .Slice => if (ptr.child == u8) {
-                        @field(result, field.name) = try readString(buffer, &pos);
-                    } else @compileError("Unsupported type " ++ @typeName(field.type)),
-                    else => @compileError("Unsupported type " ++ @typeName(field.type)),
-                },
-                else => @compileError("Unsupported type " ++ @typeName(field.type)),
-            },
-            .Struct => |struct_info| switch (struct_info.layout) {
-                .@"packed" => if (struct_info.backing_integer) |backing_int| {
-                    switch (backing_int) {
-                        u32 => {
-                            @field(result, field.name) = @bitCast(try readUInt(buffer, &pos));
-                        },
-                        else => @compileError("unsupported backing integer for packed struct: " ++ @typeName(backing_int)),
-                    }
-                } else @compileError(@typeName(field.type) ++ "packed struct must have backing integer"),
-                .auto => if (@hasDecl(field.type, "_WAYLAND_IS_NEW_ID") and field.type._WAYLAND_IS_NEW_ID) {
-                    @field(result, field.name) = .{ .new_id = try readUInt(buffer, &pos) };
-                } else {
-                    @compileError("Structs are not supported in wayland protocol " ++ @typeName(field.type));
-                },
-                else => @compileError("Unsupported struct layout " ++ @tagName(struct_info.layout)),
-            },
-            else => @compileError("Unsupported type " ++ @typeName(field.type)),
-        }
-    }
-    return result;
-}
-
-pub fn deserialize(comptime Union: type, header: Header, buffer: []const u32) !Union {
-    if (std.meta.fields(Union).len == 0) std.debug.panic("Event has no tags!", .{});
-    const op = try std.meta.intToEnum(std.meta.Tag(Union), header.size_and_opcode.opcode);
-    switch (op) {
-        inline else => |f| {
-            const Payload = std.meta.TagPayload(Union, f);
-            const payload = try deserializeArguments(Payload, buffer);
-            return @unionInit(Union, @tagName(f), payload);
-        },
-    }
-}
-
 /// Returns the length of the serialized message in `u32` words.
 pub fn calculateSerializedWordLen(comptime Signature: type, message: Signature) usize {
     var pos: usize = 0;
@@ -351,6 +282,7 @@ pub fn serializeArguments(comptime Signature: type, buffer: []u32, message: Sign
 }
 
 pub fn serialize(comptime Union: type, buffer: []u32, object_id: u32, message: Union) ![]u32 {
+    if (@typeInfo(Union).Union.fields.len == 0) @compileError(@typeName(Union) ++ " has no valid messages!");
     const header_wordlen = @sizeOf(Header) / @sizeOf(u32);
     const header: *Header = @ptrCast(buffer[0..header_wordlen]);
     header.object_id = object_id;
@@ -364,84 +296,6 @@ pub fn serialize(comptime Union: type, buffer: []u32, object_id: u32, message: U
 
     header.size_and_opcode.size = @intCast(@sizeOf(Header) + arguments.len * @sizeOf(u32));
     return buffer[0 .. header.size_and_opcode.size / @sizeOf(u32)];
-}
-
-test "deserialize Registry.Event.Global" {
-    const words = [_]u32{
-        1,
-        7,
-        @bitCast(@as([4]u8, "wl_s".*)),
-        @bitCast(@as([4]u8, "hm\x00\x00".*)),
-        3,
-    };
-    const parsed = try deserializeArguments(wayland.wl_registry.Event.Global, &words);
-    try std.testing.expectEqualDeep(wayland.wl_registry.Event.Global{
-        .name = 1,
-        .interface = "wl_shm",
-        .version = 3,
-    }, parsed);
-}
-
-test "deserialize Registry.Event" {
-    const header = Header{
-        .object_id = 123,
-        .size_and_opcode = .{
-            .size = 28,
-            .opcode = @intFromEnum(wayland.Registry.Event.Tag.global),
-        },
-    };
-    const words = [_]u32{
-        1,
-        7,
-        @bitCast(@as([4]u8, "wl_s".*)),
-        @bitCast(@as([4]u8, "hm\x00\x00".*)),
-        3,
-    };
-    const parsed = try deserialize(wayland.Registry.Event, header, &words);
-    try std.testing.expectEqualDeep(
-        wayland.Registry.Event{
-            .global = .{
-                .name = 1,
-                .interface = "wl_shm",
-                .version = 3,
-            },
-        },
-        parsed,
-    );
-
-    const header2 = Header{
-        .object_id = 1,
-        .size_and_opcode = .{
-            .size = 14 * @sizeOf(u32),
-            .opcode = @intFromEnum(wayland.Display.Event.Tag.@"error"),
-        },
-    };
-    const words2 = [_]u32{
-        1,
-        15,
-        40,
-        @bitCast(@as([4]u8, "inva".*)),
-        @bitCast(@as([4]u8, "lid ".*)),
-        @bitCast(@as([4]u8, "argu".*)),
-        @bitCast(@as([4]u8, "ment".*)),
-        @bitCast(@as([4]u8, "s to".*)),
-        @bitCast(@as([4]u8, " wl_".*)),
-        @bitCast(@as([4]u8, "regi".*)),
-        @bitCast(@as([4]u8, "stry".*)),
-        @bitCast(@as([4]u8, "@2.b".*)),
-        @bitCast(@as([4]u8, "ind\x00".*)),
-    };
-    const parsed2 = try deserialize(wayland.Display.Event, header2, &words2);
-    try std.testing.expectEqualDeep(
-        wayland.Display.Event{
-            .@"error" = .{
-                .object_id = 1,
-                .code = 15,
-                .message = "invalid arguments to wl_registry@2.bind",
-            },
-        },
-        parsed2,
-    );
 }
 
 test "serialize Registry.Event.Global" {
@@ -525,13 +379,13 @@ pub const Object = struct {
         /// Called when the compositor sends the `delete_id` event
         delete: *const fn (Object) void,
         /// Called when message is received for this id
-        event_received: *const fn (Object, header: Header, body: []const u32) void,
+        event_received: ?*const fn (Object, header: Header, body: []const u32) void,
 
         pub fn fromStruct(comptime T: type, comptime typed: struct {
             name: [:0]const u8,
             version: u32,
             delete: *const fn (*T) void,
-            event_received: *const fn (*T, header: Header, body: []const u32) void,
+            event_received: ?*const fn (*T, header: Header, body: []const u32) void,
         }) Interface {
             const generic = struct {
                 pub fn delete(obj: Object) void {
@@ -541,14 +395,14 @@ pub const Object = struct {
 
                 pub fn event_received(obj: Object, header: Header, body: []const u32) void {
                     const t: *T = @ptrCast(@alignCast(obj.pointer));
-                    typed.event_received(t, header, body);
+                    typed.event_received.?(t, header, body);
                 }
             };
             return Interface{
                 .name = typed.name,
                 .version = typed.version,
                 .delete = &generic.delete,
-                .event_received = &generic.event_received,
+                .event_received = if (typed.event_received) |_| &generic.event_received else null,
             };
         }
     };
@@ -612,8 +466,8 @@ pub const Conn = struct {
                 .namelen = 0,
                 .iov = &conn.recv_iov,
                 .iovlen = conn.recv_iov.len,
-                .control = control_recv_buffer.items.ptr,
-                .controllen = @intCast(control_recv_buffer.items.len),
+                .control = control_recv_buffer.unusedCapacitySlice().ptr,
+                .controllen = @intCast(control_recv_buffer.unusedCapacitySlice().len),
                 .flags = 0,
             },
 
@@ -635,6 +489,10 @@ pub const Conn = struct {
     }
 
     pub fn deinit(conn: *Conn) void {
+        conn.flushRecvQueue() catch |err| {
+            std.log.warn("error flushing wayland connect receive queue: {}", .{err});
+        };
+
         var obj_iter = conn.objects.valueIterator();
         while (obj_iter.next()) |obj| {
             obj.interface.delete(obj.*);
@@ -694,9 +552,17 @@ pub const Conn = struct {
 
     pub fn dispatchMessage(conn: *Conn, header: Header, body: []const u32) !void {
         if (conn.objects.get(header.object_id)) |object| {
-            object.interface.event_received(object, header, body);
+            const event_received = object.interface.event_received orelse {
+                std.log.warn("Received event for object with no known events: {}@{s}, opcode = {}", .{
+                    header.object_id,
+                    "unknown",
+                    header.size_and_opcode.opcode,
+                });
+                return;
+            };
+            event_received(object, header, body);
         } else if (header.object_id == DISPLAY_ID) {
-            const event = try deserialize(wayland.wl_display.Event, header, body);
+            const event = try conn.deserialize(wayland.wl_display.Event, header, body);
             switch (event) {
                 .@"error" => |e| {
                     log.err("{}: {} {?s}", .{ e.object_id, e.code, e.message });
@@ -710,6 +576,37 @@ pub const Conn = struct {
             }
         } else {
             log.warn("Unknown object id = {}", .{header.object_id});
+        }
+    }
+
+    pub fn flushRecvQueue(conn: *Conn) !void {
+        // read and dispatch received messages
+        var position: usize = 0;
+        while (position + @sizeOf(Header) <= conn.recv_buffer.items.len) {
+            const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[position..][0..@sizeOf(Header)]);
+
+            if (position + header.size_and_opcode.size > conn.recv_buffer.items.len) {
+                break;
+            }
+
+            const message_bytes = conn.recv_buffer.items[position..][0..header.size_and_opcode.size][@sizeOf(Header)..];
+            const message_words = std.mem.bytesAsSlice(u32, message_bytes);
+            try conn.dispatchMessage(header, @alignCast(message_words));
+
+            position += header.size_and_opcode.size;
+        }
+
+        // move bytes remaining in the buffer to the start of the buffer.
+        const remaining_byte_count = conn.recv_buffer.items.len - position;
+        for (conn.recv_buffer.items[0..remaining_byte_count], conn.recv_buffer.items[position..][0..remaining_byte_count]) |*dest, src| {
+            dest.* = src;
+        }
+        conn.recv_buffer.items.len = remaining_byte_count;
+
+        // if there is a header in the remaining bytes (or rather, if the remaining bytes are >= @sizeOf(Header)), ensure that the recv_buffer is large enough to receive the entire message.
+        if (conn.recv_buffer.items.len >= @sizeOf(Header)) {
+            const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[0..@sizeOf(Header)]);
+            try conn.recv_buffer.ensureTotalCapacity(conn.allocator, header.size_and_opcode.size);
         }
     }
 
@@ -771,13 +668,14 @@ pub const Conn = struct {
 
         if (result.recvmsg) |num_bytes_read| {
             conn.recv_buffer.items.len += num_bytes_read;
+            conn.control_recv_buffer.items.len = conn.recv_msghdr.controllen;
 
             // check for control messages
             const control_msg = conn.control_recv_buffer.items;
             var control_pos: usize = 0;
             while (control_pos + @sizeOf(cmsg_header_t) < control_msg.len) {
                 const control_header = std.mem.bytesToValue(cmsg_header_t, control_msg[control_pos..][0..@sizeOf(cmsg_header_t)]);
-                const control_data = control_msg[control_pos..][@sizeOf(cmsg_header_t) .. control_header.len - @sizeOf(cmsg_header_t)];
+                const control_data = control_msg[control_pos..][@sizeOf(cmsg_header_t)..control_header.len];
 
                 if (control_header.level == std.posix.SOL.SOCKET and control_header.type == SCM.RIGHTS) {
                     const fds = std.mem.bytesAsSlice(std.posix.fd_t, control_data);
@@ -787,41 +685,16 @@ pub const Conn = struct {
                     for (fds) |fd| {
                         conn.recv_fd_queue.appendAssumeCapacity(fd);
                     }
+                } else {
+                    std.log.warn("Unknown control message received: {}, {}", .{ control_header.level, control_header.type });
                 }
 
                 control_pos += control_header.size();
             }
 
-            // read and dispatch received messages
-            var position: usize = 0;
-            while (position + @sizeOf(Header) < conn.recv_buffer.items.len) {
-                const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[position..][0..@sizeOf(Header)]);
-
-                if (position + header.size_and_opcode.size >= conn.recv_buffer.items.len) {
-                    break;
-                }
-
-                const message_bytes = conn.recv_buffer.items[position..][0..header.size_and_opcode.size][@sizeOf(Header)..];
-                const message_words = std.mem.bytesAsSlice(u32, message_bytes);
-                conn.dispatchMessage(header, @alignCast(message_words)) catch |err| {
-                    std.debug.panic("Failed to dispatch wayland message: {}", .{err});
-                };
-
-                position += header.size_and_opcode.size;
-            }
-
-            // move bytes remaining in the buffer to the start of the buffer.
-            const remaining_byte_count = conn.recv_buffer.items.len - position;
-            for (conn.recv_buffer.items[0..remaining_byte_count], conn.recv_buffer.items[position..][0..remaining_byte_count]) |*dest, src| {
-                dest.* = src;
-            }
-            conn.recv_buffer.items.len = remaining_byte_count;
-
-            // if there is a header in the remaining bytes (or rather, if the remaining bytes are >= @sizeOf(Header)), ensure that the recv_buffer is large enough to receive the entire message.
-            if (conn.recv_buffer.items.len >= @sizeOf(Header)) {
-                const header = std.mem.bytesToValue(Header, conn.recv_buffer.items[0..@sizeOf(Header)]);
-                conn.recv_buffer.ensureTotalCapacity(conn.allocator, header.size_and_opcode.size) catch |err| std.debug.panic("Could not receive message from wayland compositor: {}", .{err});
-            }
+            conn.flushRecvQueue() catch |err| {
+                std.log.warn("Failed to flush recv queue: {}", .{err});
+            };
 
             // update the iovec to point to the unused capacity slice.
             const unused_slice = conn.recv_buffer.unusedCapacitySlice();
@@ -829,6 +702,8 @@ pub const Conn = struct {
                 .base = unused_slice.ptr,
                 .len = unused_slice.len,
             };
+            conn.recv_msghdr.control = conn.control_recv_buffer.unusedCapacitySlice().ptr;
+            conn.recv_msghdr.controllen = @intCast(conn.control_recv_buffer.unusedCapacitySlice().len);
 
             return .rearm;
         } else |err| {
@@ -836,4 +711,175 @@ pub const Conn = struct {
             return .disarm;
         }
     }
+
+    pub fn deserializeAndLogErrors(conn: *Conn, comptime Union: type, header: Header, buffer: []const u32) ?Union {
+        return conn.deserialize(Union, header, buffer) catch |e| {
+            if (std.meta.intToEnum(@typeInfo(Union).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
+                std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
+            } else |_| {
+                std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
+            }
+            return null;
+        };
+    }
+
+    pub const DeserializeError = error{ InvalidOpcode, InvalidEnumTag, EndOfStream, MissingFileDescriptor };
+    pub fn deserialize(conn: *Conn, comptime Union: type, header: Header, buffer: []const u32) DeserializeError!Union {
+        if (std.meta.fields(Union).len == 0) std.debug.panic(@typeName(Union) ++ " event has no tags!", .{});
+
+        if (buffer.len * @sizeOf(u32) + @sizeOf(Header) != header.size_and_opcode.size) {
+            return error.EndOfStream;
+        }
+
+        const op = std.meta.intToEnum(std.meta.Tag(Union), header.size_and_opcode.opcode) catch return error.InvalidOpcode;
+        switch (op) {
+            inline else => |f| {
+                const Payload = std.meta.TagPayload(Union, f);
+                const payload = try conn.deserializeArguments(Payload, buffer);
+                return @unionInit(Union, @tagName(f), payload);
+            },
+        }
+    }
+
+    pub fn deserializeArguments(conn: *Conn, comptime Signature: type, buffer: []const u32) DeserializeError!Signature {
+        if (Signature == void) return {};
+        var result: Signature = undefined;
+        var pos: usize = 0;
+        inline for (std.meta.fields(Signature)) |field| {
+            if (field.type == fd_t) {
+                @field(result, field.name) = @enumFromInt(conn.recv_fd_queue.popOrNull() orelse return error.MissingFileDescriptor);
+                continue;
+            }
+            switch (@typeInfo(field.type)) {
+                .Int => |int_info| switch (int_info.signedness) {
+                    .signed => @field(result, field.name) = try readInt(buffer, &pos),
+                    .unsigned => @field(result, field.name) = try readUInt(buffer, &pos),
+                },
+                .Enum => |enum_info| if (@sizeOf(enum_info.tag_type) == @sizeOf(u32)) {
+                    @field(result, field.name) = @enumFromInt(try readInt(buffer, &pos));
+                } else {
+                    @compileError("Unsupported type " ++ @typeName(field.type));
+                },
+                .Pointer => |ptr| switch (ptr.size) {
+                    // TODO: Better way to differentiate between string and array
+                    .Slice => if (ptr.child == u8 and ptr.sentinel != null) {
+                        // if (ptr.sentinel) |s| @compileLog(std.fmt.comptimePrint("pointer sentinel = {}", .{@as(*const ptr.child, @ptrCast(s)).*}));
+                        @field(result, field.name) = try readString(buffer, &pos) orelse return error.UnexpectedNullString;
+                    } else {
+                        @field(result, field.name) = try readArray(ptr.child, buffer, &pos);
+                    },
+                    else => @compileError("Unsupported pointer size \"" ++ @tagName(ptr.size) ++ "\" (" ++ @typeName(field.type) ++ ")"),
+                },
+                .Optional => |opt| switch (@typeInfo(opt.child)) {
+                    .Pointer => |ptr| switch (ptr.size) {
+                        .Slice => if (ptr.child == u8) {
+                            @field(result, field.name) = try readString(buffer, &pos);
+                        } else @compileError("Unsupported type " ++ @typeName(field.type)),
+                        else => @compileError("Unsupported type " ++ @typeName(field.type)),
+                    },
+                    else => @compileError("Unsupported type " ++ @typeName(field.type)),
+                },
+                .Struct => |struct_info| switch (struct_info.layout) {
+                    .@"packed" => if (struct_info.backing_integer) |backing_int| {
+                        switch (backing_int) {
+                            u32 => {
+                                @field(result, field.name) = @bitCast(try readUInt(buffer, &pos));
+                            },
+                            else => @compileError("unsupported backing integer for packed struct: " ++ @typeName(backing_int)),
+                        }
+                    } else @compileError(@typeName(field.type) ++ "packed struct must have backing integer"),
+                    .auto => if (@hasDecl(field.type, "_WAYLAND_IS_NEW_ID") and field.type._WAYLAND_IS_NEW_ID) {
+                        @field(result, field.name) = .{ .new_id = try readUInt(buffer, &pos) };
+                    } else {
+                        @compileError("Structs are not supported in wayland protocol " ++ @typeName(field.type));
+                    },
+                    else => @compileError("Unsupported struct layout " ++ @tagName(struct_info.layout)),
+                },
+                else => @compileError("Unsupported type " ++ @typeName(field.type)),
+            }
+        }
+        return result;
+    }
 };
+
+test "deserialize Registry.Event.Global" {
+    var conn: Conn = undefined;
+
+    const words = [_]u32{
+        1,
+        7,
+        @bitCast(@as([4]u8, "wl_s".*)),
+        @bitCast(@as([4]u8, "hm\x00\x00".*)),
+        3,
+    };
+    const parsed = try conn.deserializeArguments(wayland.wl_registry.Event.Global, &words);
+    try std.testing.expectEqualDeep(wayland.wl_registry.Event.Global{
+        .name = 1,
+        .interface = "wl_shm",
+        .version = 3,
+    }, parsed);
+}
+
+test "deserialize Registry.Event" {
+    var conn: Conn = undefined;
+
+    const header = Header{
+        .object_id = 123,
+        .size_and_opcode = .{
+            .size = 28,
+            .opcode = @intFromEnum(wayland.Registry.Event.Tag.global),
+        },
+    };
+    const words = [_]u32{
+        1,
+        7,
+        @bitCast(@as([4]u8, "wl_s".*)),
+        @bitCast(@as([4]u8, "hm\x00\x00".*)),
+        3,
+    };
+    const parsed = try conn.deserialize(wayland.Registry.Event, header, &words);
+    try std.testing.expectEqualDeep(
+        wayland.Registry.Event{
+            .global = .{
+                .name = 1,
+                .interface = "wl_shm",
+                .version = 3,
+            },
+        },
+        parsed,
+    );
+
+    const header2 = Header{
+        .object_id = 1,
+        .size_and_opcode = .{
+            .size = 14 * @sizeOf(u32),
+            .opcode = @intFromEnum(wayland.Display.Event.Tag.@"error"),
+        },
+    };
+    const words2 = [_]u32{
+        1,
+        15,
+        40,
+        @bitCast(@as([4]u8, "inva".*)),
+        @bitCast(@as([4]u8, "lid ".*)),
+        @bitCast(@as([4]u8, "argu".*)),
+        @bitCast(@as([4]u8, "ment".*)),
+        @bitCast(@as([4]u8, "s to".*)),
+        @bitCast(@as([4]u8, " wl_".*)),
+        @bitCast(@as([4]u8, "regi".*)),
+        @bitCast(@as([4]u8, "stry".*)),
+        @bitCast(@as([4]u8, "@2.b".*)),
+        @bitCast(@as([4]u8, "ind\x00".*)),
+    };
+    const parsed2 = try conn.deserialize(wayland.Display.Event, header2, &words2);
+    try std.testing.expectEqualDeep(
+        wayland.Display.Event{
+            .@"error" = .{
+                .object_id = 1,
+                .code = 15,
+                .message = "invalid arguments to wl_registry@2.bind",
+            },
+        },
+        parsed2,
+    );
+}

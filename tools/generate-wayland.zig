@@ -108,20 +108,43 @@ pub fn main() !void {
             }
         }
         try writer.print("pub const {[name]s} = struct {{\n", .{ .name = interface.name });
+
         try writer.writeAll(
             \\    conn: *wayland.Conn,
             \\    id: u32,
             \\    userdata: ?*anyopaque = null,
-            \\    on_event: ?*const fn(this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
+            \\
+        );
+        if (interface.events.items.len > 0) {
+            try writer.writeAll(
+                \\    on_event: ?*const fn(this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
+                \\
+            );
+        }
+        try writer.writeAll(
             \\
             \\    pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
             \\
         );
+
         try writer.print("    .name = \"{}\",\n", .{std.zig.fmtEscapes(interface.name)});
         try writer.print("    .version = {},\n", .{if (target_version) |tv| @min(tv, interface.version) else interface.version});
         try writer.writeAll(
             \\        .delete = delete,
-            \\        .event_received = event_received,
+            \\
+        );
+        if (interface.events.items.len > 0) {
+            try writer.writeAll(
+                \\        .event_received = event_received,
+                \\
+            );
+        } else {
+            try writer.writeAll(
+                \\        .event_received = null,
+                \\
+            );
+        }
+        try writer.writeAll(
             \\    });
             \\
             \\    pub fn object(this: *@This()) wayland.Object {
@@ -137,22 +160,21 @@ pub fn main() !void {
             \\        this.conn.allocator.destroy(this);
             \\    }
             \\
-            \\    /// This should only be called when the wayland display receives an event for this Object
-            \\    pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
-            \\        if (this.on_event) |on_event| {
-            \\            const event = wayland.deserialize(Event, header, body) catch |e| {
-            \\                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-            \\                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-            \\                } else |_| {
-            \\                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-            \\                }
-            \\                return;
-            \\            };
-            \\            on_event(this, this.userdata, event);
-            \\        }
-            \\    }
-            \\
         );
+
+        if (interface.events.items.len > 0) {
+            try writer.writeAll(
+                \\
+                \\    /// This should only be called when the wayland display receives an event for this Object
+                \\    pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
+                \\        if (this.on_event) |on_event| {
+                \\            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
+                \\            on_event(this, this.userdata, event);
+                \\        }
+                \\    }
+                \\
+            );
+        }
 
         // protocol defined enums
         for (interface.enums.items) |e| {
@@ -349,36 +371,38 @@ pub fn main() !void {
         }
 
         // print out Events union
-        try writer.writeAll("    pub const Event = union(enum) {\n");
-        for (interface.events.items) |event| {
-            if (target_version != null and target_version.? < event.since) continue;
-            for (event.description.items) |desc| {
-                var line_iter = std.mem.splitScalar(u8, desc, '\n');
-                while (line_iter.next()) |line| {
-                    try writer.writeAll("        /// ");
-                    try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
-                    try writer.writeAll("\n");
-                }
-            }
-            if (event.args.items.len > 0) {
-                try writer.print("        {[name]}: struct {{\n", .{ .name = std.zig.fmtId(event.name) });
-                for (event.args.items) |arg| {
-                    try writer.print("            {[name]s}: ", .{ .name = arg.name });
-                    if (arg.type.kind == .new_id) {
-                        try writer.writeAll("wayland.NewId(");
-                        try arg.type.writeType(writer, &interface_locations, "");
-                        try writer.writeAll(")");
-                    } else {
-                        try arg.type.writeWireFormat(writer);
+        if (interface.events.items.len > 0) {
+            try writer.writeAll("    pub const Event = union(enum) {\n");
+            for (interface.events.items) |event| {
+                if (target_version != null and target_version.? < event.since) continue;
+                for (event.description.items) |desc| {
+                    var line_iter = std.mem.splitScalar(u8, desc, '\n');
+                    while (line_iter.next()) |line| {
+                        try writer.writeAll("        /// ");
+                        try writer.writeAll(std.mem.trimLeft(u8, line, " \t"));
+                        try writer.writeAll("\n");
                     }
-                    try writer.writeAll(",\n");
                 }
-                try writer.writeAll("        },\n\n");
-            } else {
-                try writer.print("        {[name]s},\n", .{ .name = event.name });
+                if (event.args.items.len > 0) {
+                    try writer.print("        {[name]}: struct {{\n", .{ .name = std.zig.fmtId(event.name) });
+                    for (event.args.items) |arg| {
+                        try writer.print("            {[name]s}: ", .{ .name = arg.name });
+                        if (arg.type.kind == .new_id) {
+                            try writer.writeAll("wayland.NewId(");
+                            try arg.type.writeType(writer, &interface_locations, "");
+                            try writer.writeAll(")");
+                        } else {
+                            try arg.type.writeWireFormat(writer);
+                        }
+                        try writer.writeAll(",\n");
+                    }
+                    try writer.writeAll("        },\n\n");
+                } else {
+                    try writer.print("        {[name]s},\n", .{ .name = event.name });
+                }
             }
+            try writer.writeAll("    };\n\n");
         }
-        try writer.writeAll("    };\n\n");
 
         try writer.print("}};\n\n", .{});
     }

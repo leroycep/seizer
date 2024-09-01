@@ -112,14 +112,7 @@ pub const zwp_linux_dmabuf_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
@@ -297,14 +290,7 @@ pub const zwp_linux_buffer_params_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
@@ -614,14 +600,7 @@ pub const zwp_linux_dmabuf_feedback_v1 = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }

@@ -58,14 +58,7 @@ pub const xdg_wm_base = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
@@ -220,13 +213,12 @@ pub const xdg_positioner = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
-    on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_positioner",
         .version = 2,
         .delete = delete,
-        .event_received = event_received,
+        .event_received = null,
     });
 
     pub fn object(this: *@This()) wayland.Object {
@@ -240,21 +232,6 @@ pub const xdg_positioner = struct {
     pub fn delete(this: *@This()) void {
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
-    }
-
-    /// This should only be called when the wayland display receives an event for this Object
-    pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
-        if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
-            on_event(this, this.userdata, event);
-        }
     }
     pub const Error = enum(u32) {
         /// invalid input provided
@@ -472,8 +449,6 @@ pub const xdg_positioner = struct {
             } },
         );
     }
-
-    pub const Event = union(enum) {};
 };
 
 /// An interface that may be implemented by a wl_surface, for
@@ -552,14 +527,7 @@ pub const xdg_surface = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
@@ -832,14 +800,7 @@ pub const xdg_toplevel = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
@@ -1467,14 +1428,7 @@ pub const xdg_popup = struct {
     /// This should only be called when the wayland display receives an event for this Object
     pub fn event_received(this: *@This(), header: wayland.Header, body: []const u32) void {
         if (this.on_event) |on_event| {
-            const event = wayland.deserialize(Event, header, body) catch |e| {
-                if (std.meta.intToEnum(@typeInfo(Event).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                    std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
-                } else |_| {
-                    std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
-                }
-                return;
-            };
+            const event = this.conn.deserializeAndLogErrors(Event, header, body) orelse return;
             on_event(this, this.userdata, event);
         }
     }
