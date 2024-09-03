@@ -312,4 +312,3 @@ const MAX_FILESIZE = 50000;
 const std = @import("std");
 const utils = @import("utils");
 const zigimg = @import("zigimg");
-const gl = @import("zgl");

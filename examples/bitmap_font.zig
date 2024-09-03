@@ -11,7 +11,7 @@ pub fn init() !void {
         .on_render = render,
     });
 
-    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
     seizer.platform.setDeinitCallback(deinit);
@@ -29,8 +29,7 @@ fn render(window: seizer.Window) !void {
         .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
 
-    const c = canvas.begin(.{
-        .command_buffer = cmd_buf,
+    const c = canvas.begin(cmd_buf, .{
         .window_size = window.getSize(),
     });
 
@@ -39,7 +38,7 @@ fn render(window: seizer.Window) !void {
     pos[1] += c.writeText(pos, "Hello, world!", .{ .color = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
     pos[1] += c.writeText(pos, "Hello, world!", .{ .background = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
 
-    canvas.end();
+    canvas.end(cmd_buf);
 
     try window.presentFrame(try cmd_buf.end());
 }

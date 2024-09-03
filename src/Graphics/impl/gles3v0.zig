@@ -96,6 +96,8 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
     errdefer gl.makeBindingCurrent(null);
 
+    if (builtin.mode == .Debug) checkError(@src());
+
     return this.graphics();
 }
 
@@ -113,6 +115,11 @@ pub const INTERFACE = seizer.Graphics.Interface.getTypeErasedFunctions(@This(), 
     .createShader = _createShader,
     .destroyShader = _destroyShader,
     .createTexture = _createTexture,
+    .destroyTexture = _destroyTexture,
+    .createPipeline = _createPipeline,
+    .destroyPipeline = _destroyPipeline,
+    .createBuffer = _createBuffer,
+    .destroyBuffer = _destroyBuffer,
 });
 
 fn destroy(this: *@This()) void {
@@ -134,11 +141,14 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
         else => |e| std.debug.panic("unexpected error: {}", .{e}),
     };
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+    if (builtin.mode == .Debug) checkError(@src());
 
     gl.viewport(0, 0, @intCast(options.size[0]), @intCast(options.size[1]));
+    if (builtin.mode == .Debug) checkError(@src());
 
     const render_buffer = try RenderBuffer.create(this.allocator, options.size, this);
     errdefer render_buffer.destroy();
+    if (builtin.mode == .Debug) checkError(@src());
 
     var clear_mask: gl.Bitfield = 0;
     if (options.clear_color) |clear_color| {
@@ -153,20 +163,71 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
     return command_buffer.command_buffer();
 }
 
-fn _createShader(this: *@This(), allocator: std.mem.Allocator, options: seizer.Graphics.Shader.CreateOptions) seizer.Graphics.Shader.CreateError!*seizer.Graphics.Shader {
-    _ = this;
-    _ = allocator;
-    _ = options;
-    std.debug.panic("{s}:{} unimplemented", .{ @src().file, @src().line });
+const Shader = struct {
+    gl_shader: gl.Uint,
+};
+
+fn _createShader(this: *@This(), options: seizer.Graphics.Shader.CreateOptions) seizer.Graphics.Shader.CreateError!*seizer.Graphics.Shader {
+    const shader = try this.allocator.create(Shader);
+    errdefer this.allocator.destroy(shader);
+
+    const gl_shader = gl.createShader(switch (options.target) {
+        .vertex => gl.VERTEX_SHADER,
+        .fragment => gl.FRAGMENT_SHADER,
+    });
+    errdefer gl.deleteShader(gl_shader);
+
+    switch (options.source) {
+        .glsl => |glsl| {
+            gl.shaderSource(gl_shader, 1, &[_][*:0]const u8{glsl.ptr}, &[_]c_int{@intCast(glsl.len)});
+            gl.compileShader(gl_shader);
+        },
+        .spirv => {
+            // TODO: Check for SPIR-V extension?
+            return error.UnsupportedFormat;
+        },
+    }
+
+    var shader_status: gl.Int = undefined;
+    gl.getShaderiv(gl_shader, gl.COMPILE_STATUS, &shader_status);
+
+    if (shader_status != gl.TRUE) {
+        var shader_log_len: gl.Sizei = undefined;
+        gl.getShaderInfoLog(gl_shader, 0, &shader_log_len, null);
+
+        if (this.allocator.alloc(u8, @intCast(shader_log_len))) |shader_log_buf| {
+            defer this.allocator.free(shader_log_buf);
+            gl.getShaderInfoLog(gl_shader, @intCast(shader_log_buf.len), &shader_log_len, shader_log_buf.ptr);
+            std.log.warn("error compiling shader: {s}", .{shader_log_buf[0..@intCast(shader_log_len)]});
+        } else |_| {
+            std.log.warn("error compiling shader", .{});
+        }
+        return error.ShaderCompilationFailed;
+    }
+
+    shader.* = .{
+        .gl_shader = gl_shader,
+    };
+    if (builtin.mode == .Debug) checkError(@src());
+
+    return @ptrCast(shader);
 }
 
-fn _destroyShader(this: *@This(), shader: *seizer.Graphics.Shader) void {
-    _ = this;
-    _ = shader;
-    std.debug.panic("{s}:{} unimplemented", .{ @src().file, @src().line });
+fn _destroyShader(this: *@This(), shader_opaque: *seizer.Graphics.Shader) void {
+    const shader: *Shader = @ptrCast(@alignCast(shader_opaque));
+    gl.deleteShader(shader.gl_shader);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    this.allocator.destroy(shader);
 }
 
-fn _createTexture(this: *@This(), allocator: std.mem.Allocator, image: zigimg.Image, options: seizer.Graphics.CreateTextureOptions) seizer.Graphics.CreateTextureError!seizer.Graphics.Texture {
+const Texture = struct {
+    gl_texture: gl.Uint,
+    size: [2]u32,
+};
+
+fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.Texture.CreateOptions) seizer.Graphics.Texture.CreateError!*seizer.Graphics.Texture {
     this.egl_display.makeCurrent(null, null, this.egl_context) catch |err| switch (err) {
         error.BadMatch => @panic("read/draw surface not set, should not get error.BadMatch"),
         error.BadAccess => return error.InUseOnOtherThread,
@@ -186,24 +247,36 @@ fn _createTexture(this: *@This(), allocator: std.mem.Allocator, image: zigimg.Im
         return error.OutOfMemory;
     }
 
-    const texture_pointer = try allocator.create(Texture);
-    errdefer allocator.destroy(texture_pointer);
+    const texture = try this.allocator.create(Texture);
+    errdefer this.allocator.destroy(texture);
 
     gl.bindTexture(gl.TEXTURE_2D, gl_texture);
     defer gl.bindTexture(gl.TEXTURE_2D, 0);
 
     switch (image.pixels) {
         .rgba32 => |rgba32| gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, @intCast(image.width), @intCast(image.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba32.ptr),
+        .grayscale8 => |grayscale8| gl.texImage2D(gl.TEXTURE_2D, 0, gl.ALPHA, @intCast(image.width), @intCast(image.width), 0, gl.ALPHA, gl.UNSIGNED_BYTE, std.mem.sliceAsBytes(grayscale8).ptr),
         else => return error.UnsupportedFormat,
     }
 
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, @intFromEnum(options.wrap[0]));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, @intFromEnum(options.wrap[1]));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, @intFromEnum(options.min_filter));
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, @intFromEnum(options.mag_filter));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, switch (options.wrap[0]) {
+        .clamp_to_edge => gl.CLAMP_TO_EDGE,
+        .repeat => gl.REPEAT,
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, switch (options.wrap[1]) {
+        .clamp_to_edge => gl.CLAMP_TO_EDGE,
+        .repeat => gl.REPEAT,
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, switch (options.min_filter) {
+        .nearest => gl.NEAREST,
+        .linear => gl.LINEAR,
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, switch (options.mag_filter) {
+        .nearest => gl.NEAREST,
+        .linear => gl.LINEAR,
+    });
 
-    texture_pointer.* = .{
-        .allocator = allocator,
+    texture.* = .{
         .gl_texture = gl_texture,
         .size = .{
             @intCast(image.width),
@@ -211,11 +284,146 @@ fn _createTexture(this: *@This(), allocator: std.mem.Allocator, image: zigimg.Im
         },
     };
 
-    return texture_pointer.texture();
+    if (builtin.mode == .Debug) checkError(@src());
+
+    return @ptrCast(texture);
+}
+
+fn _destroyTexture(this: *@This(), texture_opaque: *seizer.Graphics.Texture) void {
+    this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
+        std.log.warn("unexpected make egl_context current error: {}", .{err});
+    gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    const texture: *Texture = @ptrCast(@alignCast(texture_opaque));
+    gl.deleteTextures(1, &texture.gl_texture);
+
+    this.allocator.destroy(texture);
+}
+
+const Pipeline = struct {
+    program: gl.Uint,
+    blend: ?seizer.Graphics.Pipeline.Blend,
+    primitive: seizer.Graphics.Pipeline.Primitive,
+    vertex_layout: []const seizer.Graphics.Pipeline.VertexAttribute,
+};
+
+fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptions) seizer.Graphics.Pipeline.CreateError!*seizer.Graphics.Pipeline {
+    const pipeline = try this.allocator.create(Pipeline);
+    errdefer this.allocator.destroy(pipeline);
+
+    this.egl_display.makeCurrent(null, null, this.egl_context) catch |err| switch (err) {
+        error.BadMatch => @panic("read/draw surface not set, should not get error.BadMatch"),
+        error.BadAccess => return error.InUseOnOtherThread,
+        error.BadContext => @panic("context destroyed before gles3v0 called?!"),
+        error.BadNativeWindow => @panic("Not relying on EGL for windowing, this error should not happen"),
+        error.BadCurrentSurface => @panic("Unflushed commands in previous context and the target surface is no longer valid"),
+        error.BadAlloc => return error.OutOfMemory,
+        error.NotInitialized => @panic("egl_display is not initialized"),
+        error.BadDisplay => @panic("egl_display is invalid"),
+        else => |e| std.debug.panic("unexpected error: {}", .{e}),
+    };
+    gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    const vertex_shader: *Shader = @ptrCast(@alignCast(options.vertex_shader));
+    const fragment_shader: *Shader = @ptrCast(@alignCast(options.fragment_shader));
+
+    const program = gl.createProgram();
+    errdefer gl.deleteProgram(program);
+
+    gl.attachShader(program, vertex_shader.gl_shader);
+    gl.attachShader(program, fragment_shader.gl_shader);
+    defer {
+        gl.detachShader(program, vertex_shader.gl_shader);
+        gl.detachShader(program, fragment_shader.gl_shader);
+    }
+
+    gl.linkProgram(program);
+
+    var program_status: gl.Int = undefined;
+    gl.getProgramiv(program, gl.LINK_STATUS, &program_status);
+
+    if (program_status != gl.TRUE) {
+        var program_log: [1024:0]u8 = undefined;
+        var program_log_len: gl.Sizei = undefined;
+        gl.getProgramInfoLog(program, program_log.len, &program_log_len, &program_log);
+        std.log.warn("{s}:{} error linking shader program: {s}\n", .{ @src().file, @src().line, program_log });
+        return error.ShaderLinkingFailed;
+    }
+
+    const vertex_layout = try this.allocator.dupe(seizer.Graphics.Pipeline.VertexAttribute, options.vertex_layout);
+    errdefer this.allocator.free(vertex_layout);
+
+    pipeline.* = .{
+        .program = program,
+        .blend = options.blend,
+        .primitive = options.primitive_type,
+        .vertex_layout = vertex_layout,
+    };
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    return @ptrCast(pipeline);
+}
+
+fn _destroyPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) void {
+    this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
+        std.log.warn("unexpected make egl_context current error: {}", .{err});
+    gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+    gl.deleteProgram(pipeline.program);
+
+    this.allocator.free(pipeline.vertex_layout);
+
+    this.allocator.destroy(pipeline);
+}
+
+const Buffer = struct {
+    gl_buffer: gl.Uint,
+};
+
+fn _createBuffer(this: *@This(), options: seizer.Graphics.Buffer.CreateOptions) seizer.Graphics.Buffer.CreateError!*seizer.Graphics.Buffer {
+    _ = options;
+
+    this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
+        std.log.warn("unexpected make egl_context current error: {}", .{err});
+    gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    const buffer = try this.allocator.create(Buffer);
+    errdefer this.allocator.destroy(buffer);
+
+    gl.genBuffers(1, &buffer.gl_buffer);
+    errdefer gl.deleteBuffers(1, &buffer.gl_buffer);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    return @ptrCast(buffer);
+}
+
+fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Graphics.Buffer) void {
+    this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
+        std.log.warn("unexpected make egl_context current error: {}", .{err});
+    gl.makeBindingCurrent(&this.fn_tables.gl_binding);
+
+    if (builtin.mode == .Debug) checkError(@src());
+
+    const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
+    gl.deleteBuffers(1, &buffer.gl_buffer);
+
+    this.allocator.destroy(buffer);
 }
 
 const CommandBuffer = struct {
     allocator: std.mem.Allocator,
+    current_pipeline: ?*Pipeline,
     render_buffer: *RenderBuffer,
 
     pub fn create(allocator: std.mem.Allocator, render_buffer: *RenderBuffer) !*@This() {
@@ -223,6 +431,7 @@ const CommandBuffer = struct {
         errdefer allocator.destroy(this);
         this.* = .{
             .allocator = allocator,
+            .current_pipeline = null,
             .render_buffer = render_buffer,
         };
         return this;
@@ -236,10 +445,137 @@ const CommandBuffer = struct {
     }
 
     pub const INTERFACE = seizer.Graphics.CommandBuffer.Interface.getTypeErasedFunctions(@This(), .{
-        .end = CommandBuffer.end,
+        .bindPipeline = CommandBuffer._bindPipeline,
+        .drawPrimitives = CommandBuffer._drawPrimitives,
+        .uploadToBuffer = CommandBuffer._uploadToBuffer,
+        .bindVertexBuffer = CommandBuffer._bindVertexBuffer,
+        .uploadUniformMatrix4F32 = CommandBuffer._uploadUniformMatrix4F32,
+        .uploadUniformTexture = CommandBuffer._uploadUniformTexture,
+        .end = CommandBuffer._end,
     });
 
-    fn end(this: *@This()) seizer.Graphics.CommandBuffer.EndError!seizer.Graphics.RenderBuffer {
+    fn _bindPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) void {
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+        gl.useProgram(pipeline.program);
+        this.current_pipeline = pipeline;
+
+        if (pipeline.blend) |blend| {
+            gl.enable(gl.BLEND);
+            gl.blendFuncSeparate(
+                switch (blend.src_color_factor) {
+                    .one => gl.ONE,
+                    .zero => gl.ZERO,
+                    .src_alpha => gl.SRC_ALPHA,
+                    .one_minus_src_alpha => gl.ONE_MINUS_SRC_ALPHA,
+                },
+                switch (blend.dst_color_factor) {
+                    .one => gl.ONE,
+                    .zero => gl.ZERO,
+                    .src_alpha => gl.SRC_ALPHA,
+                    .one_minus_src_alpha => gl.ONE_MINUS_SRC_ALPHA,
+                },
+                switch (blend.src_alpha_factor) {
+                    .one => gl.ONE,
+                    .zero => gl.ZERO,
+                    .src_alpha => gl.SRC_ALPHA,
+                    .one_minus_src_alpha => gl.ONE_MINUS_SRC_ALPHA,
+                },
+                switch (blend.dst_alpha_factor) {
+                    .one => gl.ONE,
+                    .zero => gl.ZERO,
+                    .src_alpha => gl.SRC_ALPHA,
+                    .one_minus_src_alpha => gl.ONE_MINUS_SRC_ALPHA,
+                },
+            );
+        } else {
+            gl.disable(gl.BLEND);
+        }
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _drawPrimitives(this: *@This(), vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
+        _ = instance_count;
+        _ = first_instance;
+        std.debug.assert(this.current_pipeline != null);
+        const pipeline = this.current_pipeline.?;
+        gl.drawArrays(
+            switch (pipeline.primitive) {
+                .triangle => gl.TRIANGLES,
+            },
+            @intCast(first_vertex),
+            @intCast(vertex_count),
+        );
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _uploadToBuffer(this: *@This(), buffer_opaque: *seizer.Graphics.Buffer, data: []const u8) void {
+        _ = this;
+        const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
+        gl.bindBuffer(gl.COPY_WRITE_BUFFER, buffer.gl_buffer);
+        defer gl.bindBuffer(gl.COPY_WRITE_BUFFER, 0);
+        gl.bufferData(gl.COPY_WRITE_BUFFER, @intCast(data.len), data.ptr, gl.STREAM_DRAW);
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _bindVertexBuffer(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, vertex_buffer_opaque: *seizer.Graphics.Buffer) void {
+        _ = this;
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+        const vertex_buffer: *Buffer = @ptrCast(@alignCast(vertex_buffer_opaque));
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer.gl_buffer);
+
+        for (pipeline.vertex_layout) |attrib| {
+            gl.enableVertexAttribArray(attrib.attribute_index);
+            gl.vertexAttribPointer(
+                @intCast(attrib.attribute_index),
+                @intCast(attrib.len),
+                switch (attrib.type) {
+                    .f32 => gl.FLOAT,
+                    .u8 => gl.UNSIGNED_BYTE,
+                },
+                switch (attrib.normalized) {
+                    true => gl.TRUE,
+                    false => gl.FALSE,
+                },
+                @intCast(attrib.stride),
+                @ptrFromInt(attrib.offset),
+            );
+        }
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _uploadUniformMatrix4F32(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void {
+        _ = this;
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+
+        const location = gl.getUniformLocation(pipeline.program, name);
+        gl.uniformMatrix4fv(location, 1, gl.FALSE, &matrix[0][0]);
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _uploadUniformTexture(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, name: [:0]const u8, texture_opaque_opt: ?*seizer.Graphics.Texture) void {
+        _ = this;
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+
+        const location = gl.getUniformLocation(pipeline.program, name);
+        gl.activeTexture(gl.TEXTURE0);
+        if (texture_opaque_opt) |texture_opaque| {
+            const texture: *Texture = @ptrCast(@alignCast(texture_opaque));
+            gl.bindTexture(gl.TEXTURE_2D, texture.gl_texture);
+        } else {
+            gl.bindTexture(gl.TEXTURE_2D, 0);
+        }
+        gl.uniform1i(location, 0);
+
+        if (builtin.mode == .Debug) checkError(@src());
+    }
+
+    fn _end(this: *@This()) seizer.Graphics.CommandBuffer.EndError!seizer.Graphics.RenderBuffer {
         if (builtin.mode == .Debug) checkError(@src());
         gl.flush();
         if (builtin.mode == .Debug) checkError(@src());
@@ -295,6 +631,8 @@ const RenderBuffer = struct {
             error.BadAlloc => return error.OutOfMemory,
             else => |e| std.debug.panic("unexpected error: {}", .{e}),
         };
+
+        if (builtin.mode == .Debug) checkError(@src());
 
         return this;
     }
@@ -364,6 +702,8 @@ const RenderBuffer = struct {
     pub fn bind(this: *@This()) void {
         gl.bindFramebuffer(gl.FRAMEBUFFER, this.gl_framebuffer_objects[0]);
         gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, this.gl_render_buffers[0]);
+
+        if (builtin.mode == .Debug) checkError(@src());
     }
 
     pub fn destroy(this: *@This()) void {
@@ -375,33 +715,6 @@ const RenderBuffer = struct {
 
     pub fn acquire(this: *@This()) void {
         this.reference_count += 1;
-    }
-};
-
-const Texture = struct {
-    allocator: std.mem.Allocator,
-    gl_texture: gl.Uint,
-    size: [2]u32,
-
-    pub fn texture(this: *@This()) seizer.Graphics.Texture {
-        return .{
-            .pointer = this,
-            .interface = &Texture.INTERFACE,
-        };
-    }
-
-    pub const INTERFACE = seizer.Graphics.Texture.Interface.getTypeErasedFunctions(@This(), .{
-        .release = Texture._release,
-        .getSize = Texture._getSize,
-    });
-
-    fn _release(this: *@This()) void {
-        // TODO: Reference counting
-        this.allocator.destroy(this);
-    }
-
-    fn _getSize(this: *@This()) [2]u32 {
-        return this.size;
     }
 };
 
@@ -500,7 +813,7 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, so
 
 pub fn checkError(src: std.builtin.SourceLocation) void {
     switch (gl.getError()) {
-        gl.NO_ERROR => {},
+        gl.NO_ERROR => return,
         gl.INVALID_ENUM => std.log.warn("{s}:{} gl.INVALID_ENUM", .{ src.file, src.line }),
         gl.INVALID_VALUE => std.log.warn("{s}:{} gl.INVALID_VALUE", .{ src.file, src.line }),
         gl.INVALID_OPERATION => std.log.warn("{s}:{} gl.INVALID_OPERATION", .{ src.file, src.line }),
@@ -508,6 +821,7 @@ pub fn checkError(src: std.builtin.SourceLocation) void {
         gl.INVALID_FRAMEBUFFER_OPERATION => std.log.warn("{s}:{} gl.INVALID_FRAMEBUFFER_OPERATION", .{ src.file, src.line }),
         else => |code| std.log.warn("{s}:{} {}", .{ src.file, src.line, code }),
     }
+    std.debug.dumpCurrentStackTrace(@returnAddress());
 }
 
 const @"dynamic-library-utils" = @import("dynamic-library-utils");

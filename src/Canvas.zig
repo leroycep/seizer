@@ -1,19 +1,20 @@
 pub const Font = @import("./Canvas/Font.zig");
 
 allocator: std.mem.Allocator,
-program: gl.Uint,
-uniforms: UniformLocations,
-current_texture: ?gl.Uint,
+graphics: seizer.Graphics,
+
+pipeline: *seizer.Graphics.Pipeline,
+current_texture: ?*seizer.Graphics.Texture,
 vertices: std.ArrayListUnmanaged(Vertex),
 
 window_size: [2]f32 = .{ 1, 1 },
 framebuffer_size: [2]f32 = .{ 1, 1 },
 
-blank_texture: gl.Uint,
+blank_texture: *seizer.Graphics.Texture,
 font: Font,
 font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 
-vbo: gl.Uint,
+vertex_buffer: *seizer.Graphics.Buffer,
 
 scissor: ?seizer.geometry.Rect(f32) = null,
 
@@ -21,7 +22,7 @@ const Canvas = @This();
 
 pub const RectOptions = struct {
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-    texture: ?gl.Uint = null,
+    texture: ?*seizer.Graphics.Texture = null,
     /// The top left and bottom right coordinates
     uv: geometry.AABB(f32) = .{ .min = .{ 0, 0 }, .max = .{ 1, 1 } },
 };
@@ -54,88 +55,89 @@ pub const LineOptions = struct {
 
 pub fn init(
     allocator: std.mem.Allocator,
+    graphics: seizer.Graphics,
     options: struct {
         vertex_buffer_size: usize = 16_384,
     },
 ) !@This() {
-    // Text shader
-    const program = gl.createProgram();
-    errdefer gl.deleteProgram(program);
+    const vertex_shader = try graphics.createShader(seizer.Graphics.Shader.CreateOptions{
+        .target = .vertex,
+        .sampler_count = 0,
+        .source = switch (graphics.interface.driver) {
+            .gles3v0 => .{ .glsl = @embedFile("./Canvas/vs.glsl") },
+            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+        },
+        .entry_point_name = "main",
+    });
+    defer graphics.destroyShader(vertex_shader);
 
-    {
-        const vs = gl.createShader(gl.VERTEX_SHADER);
-        defer gl.deleteShader(vs);
-        const vs_src = @embedFile("./Canvas/vs.glsl");
-        gl.shaderSource(vs, 1, &[_][*:0]const u8{vs_src}, &[_]c_int{@intCast(vs_src.len)});
-        gl.compileShader(vs);
+    const fragment_shader = try graphics.createShader(seizer.Graphics.Shader.CreateOptions{
+        .target = .fragment,
+        .sampler_count = 0,
+        .source = switch (graphics.interface.driver) {
+            .gles3v0 => .{ .glsl = @embedFile("./Canvas/fs.glsl") },
+            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+        },
+        .entry_point_name = "main",
+    });
+    defer graphics.destroyShader(fragment_shader);
 
-        var vertex_shader_status: gl.Int = undefined;
-        gl.getShaderiv(vs, gl.COMPILE_STATUS, &vertex_shader_status);
-
-        if (vertex_shader_status != gl.TRUE) {
-            var shader_log: [1024:0]u8 = undefined;
-            var shader_log_len: gl.Sizei = undefined;
-            gl.getShaderInfoLog(vs, shader_log.len, &shader_log_len, &shader_log);
-            std.log.warn("{s}:{} error compiling shader: {s}", .{ @src().file, @src().line, shader_log });
-            return error.ShaderCompilation;
-        }
-
-        const fs = gl.createShader(gl.FRAGMENT_SHADER);
-        defer gl.deleteShader(fs);
-        const fs_src = @embedFile("./Canvas/fs.glsl");
-        gl.shaderSource(fs, 1, &[_][*:0]const u8{fs_src}, &[_]c_int{@intCast(fs_src.len)});
-        gl.compileShader(fs);
-
-        var fragment_shader_status: gl.Int = undefined;
-        gl.getShaderiv(fs, gl.COMPILE_STATUS, &fragment_shader_status);
-
-        if (fragment_shader_status != gl.TRUE) {
-            var shader_log: [1024:0]u8 = undefined;
-            var shader_log_len: gl.Sizei = undefined;
-            gl.getShaderInfoLog(fs, shader_log.len, &shader_log_len, &shader_log);
-            std.log.warn("{s}:{} error compiling shader: {s}", .{ @src().file, @src().line, shader_log });
-            return error.ShaderCompilation;
-        }
-
-        gl.attachShader(program, vs);
-        gl.attachShader(program, fs);
-        defer {
-            gl.detachShader(program, vs);
-            gl.detachShader(program, fs);
-        }
-
-        gl.linkProgram(program);
-
-        var program_status: gl.Int = undefined;
-        gl.getProgramiv(program, gl.LINK_STATUS, &program_status);
-
-        if (program_status != gl.TRUE) {
-            var program_log: [1024:0]u8 = undefined;
-            var program_log_len: gl.Sizei = undefined;
-            gl.getProgramInfoLog(program, program_log.len, &program_log_len, &program_log);
-            std.log.warn("{s}:{} error compiling program: {s}\n", .{ @src().file, @src().line, program_log });
-            return error.ShaderCompilation;
-        }
-    }
+    const pipeline = try graphics.createPipeline(.{
+        .vertex_shader = vertex_shader,
+        .fragment_shader = fragment_shader,
+        .blend = .{
+            .src_color_factor = .src_alpha,
+            .dst_color_factor = .one_minus_src_alpha,
+            .color_op = .add,
+            .src_alpha_factor = .src_alpha,
+            .dst_alpha_factor = .one_minus_src_alpha,
+            .alpha_op = .add,
+        },
+        .primitive_type = .triangle,
+        .vertex_layout = &[_]seizer.Graphics.Pipeline.VertexAttribute{
+            .{
+                .attribute_index = 0,
+                .buffer_slot = 0,
+                .len = 2,
+                .type = .f32,
+                .normalized = false,
+                .stride = @sizeOf(Vertex),
+                .offset = @offsetOf(Vertex, "pos"),
+            },
+            .{
+                .attribute_index = 1,
+                .buffer_slot = 0,
+                .len = 2,
+                .type = .f32,
+                .normalized = false,
+                .stride = @sizeOf(Vertex),
+                .offset = @offsetOf(Vertex, "uv"),
+            },
+            .{
+                .attribute_index = 2,
+                .buffer_slot = 0,
+                .len = 4,
+                .type = .u8,
+                .normalized = false,
+                .stride = @sizeOf(Vertex),
+                .offset = @offsetOf(Vertex, "color"),
+            },
+        },
+    });
 
     var vertices = try std.ArrayListUnmanaged(Vertex).initCapacity(allocator, options.vertex_buffer_size);
     errdefer vertices.deinit(allocator);
 
-    var blank_texture: gl.Uint = undefined;
-    gl.genTextures(1, &blank_texture);
-    errdefer gl.deleteTextures(1, &blank_texture);
-    {
-        const BLANK_IMAGE = [_][4]u8{
-            .{ 0xFF, 0xFF, 0xFF, 0xFF },
-        };
+    var blank_texture_pixels = [_]zigimg.color.Rgba32{
+        .{ .r = 0xFF, .g = 0xFF, .b = 0xFF, .a = 0xFF },
+    };
 
-        gl.bindTexture(gl.TEXTURE_2D, blank_texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, std.mem.sliceAsBytes(&BLANK_IMAGE).ptr);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    }
+    const blank_texture = try graphics.createTexture(zigimg.Image{
+        .width = 1,
+        .height = 1,
+        .pixels = .{ .rgba32 = &blank_texture_pixels },
+    }, .{});
+    errdefer graphics.destroyTexture(blank_texture);
 
     var font = try Font.parse(allocator, @embedFile("./Canvas/PressStart2P_8.fnt"));
     errdefer font.deinit();
@@ -148,47 +150,16 @@ pub fn init(
         const page_id = font_page.key_ptr.*;
         const page_name = font_page.value_ptr.*;
 
+        try font_pages.ensureUnusedCapacity(allocator, 1);
+
         const image_bytes = if (std.mem.eql(u8, page_name, "PressStart2P_8.png")) @embedFile("./Canvas/PressStart2P_8.png") else return error.FontPageImageNotFound;
 
         var font_image = try zigimg.Image.fromMemory(allocator, image_bytes);
         defer font_image.deinit();
 
-        var page_texture: gl.Uint = undefined;
-        gl.genTextures(1, &page_texture);
-        errdefer gl.deleteTextures(1, &page_texture);
+        const page_texture = try graphics.createTexture(font_image, .{});
 
-        gl.bindTexture(gl.TEXTURE_2D, page_texture);
-        switch (font_image.pixels) {
-            .rgba32 => |rgba32| gl.texImage2D(
-                gl.TEXTURE_2D,
-                0,
-                gl.RGBA,
-                @as(gl.Sizei, @intCast(font_image.width)),
-                @as(gl.Sizei, @intCast(font_image.width)),
-                0,
-                gl.RGBA,
-                gl.UNSIGNED_BYTE,
-                std.mem.sliceAsBytes(rgba32).ptr,
-            ),
-            .grayscale8 => |grayscale8| gl.texImage2D(
-                gl.TEXTURE_2D,
-                0,
-                gl.ALPHA,
-                @as(gl.Sizei, @intCast(font_image.width)),
-                @as(gl.Sizei, @intCast(font_image.width)),
-                0,
-                gl.ALPHA,
-                gl.UNSIGNED_BYTE,
-                std.mem.sliceAsBytes(grayscale8).ptr,
-            ),
-            else => std.debug.panic("Font image formant {s} is unimplemented", .{@tagName(font_image.pixels)}),
-        }
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
-        try font_pages.put(allocator, page_id, .{
+        font_pages.putAssumeCapacity(page_id, .{
             .texture = page_texture,
             .size = .{
                 @as(f32, @floatFromInt(font_image.width)),
@@ -197,19 +168,14 @@ pub fn init(
         });
     }
 
-    var vbo: gl.Uint = undefined;
-    gl.genBuffers(1, &vbo);
-
-    const projection = gl.getUniformLocation(program, "projection");
-    const texture = gl.getUniformLocation(program, "texture_handle");
+    const vertex_buffer = try graphics.createBuffer(.{});
+    errdefer graphics.destroyBuffer(vertex_buffer);
 
     return .{
         .allocator = allocator,
-        .program = program,
-        .uniforms = .{
-            .projection = projection,
-            .texture = texture,
-        },
+        .graphics = graphics,
+
+        .pipeline = pipeline,
         .current_texture = null,
         .vertices = vertices,
 
@@ -217,32 +183,33 @@ pub fn init(
         .font = font,
         .font_pages = font_pages,
 
-        .vbo = vbo,
+        .vertex_buffer = vertex_buffer,
     };
 }
 
 pub fn deinit(this: *@This()) void {
-    gl.deleteProgram(this.program);
+    this.graphics.destroyPipeline(this.pipeline);
+
     this.vertices.deinit(this.allocator);
     this.font.deinit();
 
+    this.graphics.destroyTexture(this.blank_texture);
     var page_name_iter = this.font_pages.iterator();
     while (page_name_iter.next()) |entry| {
-        gl.deleteTextures(1, &entry.value_ptr.*.texture);
+        this.graphics.destroyTexture(entry.value_ptr.texture);
     }
     this.font_pages.deinit(this.allocator);
 
-    gl.deleteBuffers(1, &this.vbo);
+    this.graphics.destroyBuffer(this.vertex_buffer);
 }
 
 pub const BeginOptions = struct {
-    command_buffer: seizer.Graphics.CommandBuffer,
     window_size: [2]u32,
     invert_y: bool = false,
     scissor: ?seizer.geometry.Rect(f32) = null,
 };
 
-pub fn begin(this: *@This(), options: BeginOptions) Transformed {
+pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, options: BeginOptions) Transformed {
     this.window_size = [2]f32{
         @floatFromInt(options.window_size[0]),
         @floatFromInt(options.window_size[1]),
@@ -252,7 +219,8 @@ pub fn begin(this: *@This(), options: BeginOptions) Transformed {
         @floatFromInt(options.window_size[1]),
     };
 
-    const projection = geometry.mat4.orthographic(
+    command_buffer.bindPipeline(this.pipeline);
+    command_buffer.uploadUniformMatrix4F32(this.pipeline, "projection", geometry.mat4.orthographic(
         f32,
         0,
         this.window_size[0],
@@ -260,94 +228,85 @@ pub fn begin(this: *@This(), options: BeginOptions) Transformed {
         if (options.invert_y) this.window_size[1] else 0,
         -1,
         1,
-    );
-
-    // TEXTURE_UNIT0
-    gl.useProgram(this.program);
-    gl.uniform1i(this.uniforms.texture, 0);
-    gl.uniformMatrix4fv(this.uniforms.projection, 1, gl.FALSE, &projection[0][0]);
+    ));
 
     this.vertices.shrinkRetainingCapacity(0);
-
-    gl.enable(gl.BLEND);
-    gl.disable(gl.DEPTH_TEST);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.activeTexture(gl.TEXTURE0);
-
     this.setScissor(options.scissor);
 
     return Transformed{
         .canvas = this,
+        .command_buffer = command_buffer,
         .transform = geometry.mat4.identity(f32),
     };
 }
 
-pub fn end(this: *@This()) void {
-    this.flush();
+pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
+    this.flush(command_buffer);
     this.setScissor(null);
 }
 
 // TODO: Potentially rename? Might switch to using a stencil buffer instead of gl scissor
 pub fn setScissor(this: *@This(), new_scissor_rect: ?seizer.geometry.Rect(f32)) void {
+    if (true) return;
     if (this.scissor != null and new_scissor_rect != null) {
         if (!this.scissor.?.eq(new_scissor_rect.?)) {
             this.flush();
             this.scissor = new_scissor_rect.?;
-            gl.scissor(
-                @intFromFloat(new_scissor_rect.?.pos[0]),
-                @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
-                @intFromFloat(new_scissor_rect.?.size[0]),
-                @intFromFloat(new_scissor_rect.?.size[1]),
-            );
+            // gl.scissor(
+            //     @intFromFloat(new_scissor_rect.?.pos[0]),
+            //     @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
+            //     @intFromFloat(new_scissor_rect.?.size[0]),
+            //     @intFromFloat(new_scissor_rect.?.size[1]),
+            // );
         }
     } else if (this.scissor == null and new_scissor_rect != null) {
         this.flush();
-        gl.enable(gl.SCISSOR_TEST);
+        // gl.enable(gl.SCISSOR_TEST);
         this.scissor = new_scissor_rect;
-        gl.scissor(
-            @intFromFloat(new_scissor_rect.?.pos[0]),
-            @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
-            @intFromFloat(new_scissor_rect.?.size[0]),
-            @intFromFloat(new_scissor_rect.?.size[1]),
-        );
+        // gl.scissor(
+        //     @intFromFloat(new_scissor_rect.?.pos[0]),
+        //     @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
+        //     @intFromFloat(new_scissor_rect.?.size[0]),
+        //     @intFromFloat(new_scissor_rect.?.size[1]),
+        // );
     } else if (this.scissor != null and new_scissor_rect == null) {
         this.flush();
-        gl.disable(gl.SCISSOR_TEST);
+        // gl.disable(gl.SCISSOR_TEST);
         this.scissor = null;
     }
 }
 
-pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-    return transformed.rect(pos, size, options);
-}
+// pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
+//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+//     return transformed.rect(pos, size, options);
+// }
 
-pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
-    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-    return transformed.line(pos1, pos2, options);
-}
+// pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
+//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+//     return transformed.line(pos1, pos2, options);
+// }
 
-pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
-    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-    return transformed.writeText(pos, text, options);
-}
+// pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
+//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+//     return transformed.writeText(pos, text, options);
+// }
 
-pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
-    const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-    return transformed.printText(pos, fmt, args, options);
-}
+// pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
+//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
+//     return transformed.printText(pos, fmt, args, options);
+// }
 
-pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {
-    return TextWriter{
-        .transformed = .{
-            .canvas = this,
-            .transform = geometry.mat4.identity(f32),
-        },
-        .options = options,
-        .direction = 1,
-        .current_pos = options.pos,
-    };
-}
+// pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {
+//     return TextWriter{
+//         .transformed = .{
+//             .canvas = this,
+//             .transform = geometry.mat4.identity(f32),
+//         },
+//         .options = options,
+//         .direction = 1,
+//         .current_pos = options.pos,
+//     };
+// }
 
 pub const TextWriter = struct {
     transformed: Transformed,
@@ -387,7 +346,7 @@ pub const TextWriter = struct {
         };
 
         if (this.options.background) |bg| {
-            this.transformed.canvas.rect(
+            this.transformed.rect(
                 this.current_pos,
                 .{
                     xadvance,
@@ -456,27 +415,12 @@ pub const TextWriter = struct {
     }
 };
 
-pub fn flush(this: *@This()) void {
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.current_texture orelse this.blank_texture);
-    defer {
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, 0);
-    }
+pub fn flush(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
+    command_buffer.uploadToBuffer(this.vertex_buffer, std.mem.sliceAsBytes(this.vertices.items));
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.vbo);
-    defer gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-    gl.bufferData(gl.ARRAY_BUFFER, @as(gl.Sizeiptr, @intCast(this.vertices.items.len * @sizeOf(Vertex))), this.vertices.items.ptr, gl.STREAM_DRAW);
-
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "pos"))));
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "uv"))));
-    gl.vertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, gl.TRUE, @sizeOf(Vertex), @as(?*const anyopaque, @ptrFromInt(@offsetOf(Vertex, "color"))));
-    gl.enableVertexAttribArray(0);
-    gl.enableVertexAttribArray(1);
-    gl.enableVertexAttribArray(2);
-
-    gl.useProgram(this.program);
-    gl.drawArrays(gl.TRIANGLES, 0, @as(gl.Sizei, @intCast(this.vertices.items.len)));
+    command_buffer.uploadUniformTexture(this.pipeline, "texture_handle", this.current_texture);
+    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffer);
+    command_buffer.drawPrimitives(@intCast(this.vertices.items.len), 0, 0, 0);
 
     this.vertices.shrinkRetainingCapacity(0);
 }
@@ -484,12 +428,13 @@ pub fn flush(this: *@This()) void {
 /// A transformed canvas
 pub const Transformed = struct {
     canvas: *Canvas,
+    command_buffer: seizer.Graphics.CommandBuffer,
     transform: [4][4]f32,
     scissor: ?seizer.geometry.Rect(f32) = null,
 
     pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
         if (!std.meta.eql(options.texture, this.canvas.current_texture)) {
-            this.canvas.flush();
+            this.canvas.flush(this.command_buffer);
             this.canvas.current_texture = options.texture;
         }
 
@@ -617,7 +562,7 @@ pub const Transformed = struct {
 
     pub fn line(this: @This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
         if (this.canvas.current_texture != null) {
-            this.canvas.flush();
+            this.canvas.flush(this.command_buffer);
             this.canvas.current_texture = null;
         }
 
@@ -696,7 +641,7 @@ pub const Transformed = struct {
     pub fn addVertices(this: @This(), vertices: []const Vertex) void {
         this.canvas.setScissor(this.scissor);
         this.canvas.vertices.ensureUnusedCapacity(this.canvas.allocator, vertices.len) catch {
-            this.canvas.flush();
+            this.canvas.flush(this.command_buffer);
         };
 
         const transformed_vertices = this.canvas.vertices.addManyAsSliceAssumeCapacity(vertices.len);
@@ -758,7 +703,7 @@ const UniformLocations = struct {
 };
 
 const FontPage = struct {
-    texture: gl.Uint,
+    texture: *seizer.Graphics.Texture,
     size: [2]f32,
 };
 
@@ -770,7 +715,6 @@ const Vertex = struct {
 
 const log = std.log.scoped(.Canvas);
 const std = @import("std");
-const gl = @import("gl");
 const seizer = @import("seizer.zig");
 const zigimg = @import("zigimg");
 const geometry = @import("./geometry.zig");
