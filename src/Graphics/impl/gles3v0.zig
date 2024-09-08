@@ -120,6 +120,7 @@ pub const INTERFACE = seizer.Graphics.Interface.getTypeErasedFunctions(@This(), 
     .destroyPipeline = _destroyPipeline,
     .createBuffer = _createBuffer,
     .destroyBuffer = _destroyBuffer,
+    .releaseRenderBuffer = _releaseRenderBuffer,
 });
 
 fn destroy(this: *@This()) void {
@@ -384,6 +385,11 @@ fn _destroyPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) 
     this.allocator.destroy(pipeline);
 }
 
+fn _releaseRenderBuffer(this: *@This(), render_buffer_opaque: seizer.Graphics.RenderBuffer) void {
+    _ = this;
+    _ = render_buffer_opaque;
+}
+
 const Buffer = struct {
     gl_buffer: gl.Uint,
 };
@@ -548,21 +554,21 @@ const CommandBuffer = struct {
         if (builtin.mode == .Debug) checkError(@src());
     }
 
-    fn _uploadUniformMatrix4F32(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void {
+    fn _uploadUniformMatrix4F32(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void {
         _ = this;
         const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
 
-        const location = gl.getUniformLocation(pipeline.program, name);
-        gl.uniformMatrix4fv(location, 1, gl.FALSE, &matrix[0][0]);
+        gl.useProgram(pipeline.program);
+        gl.uniformMatrix4fv(@intCast(binding), 1, gl.FALSE, &matrix[0][0]);
 
         if (builtin.mode == .Debug) checkError(@src());
     }
 
-    fn _uploadUniformTexture(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, name: [:0]const u8, texture_opaque_opt: ?*seizer.Graphics.Texture) void {
+    fn _uploadUniformTexture(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, texture_opaque_opt: ?*seizer.Graphics.Texture) void {
         _ = this;
         const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
 
-        const location = gl.getUniformLocation(pipeline.program, name);
+        gl.useProgram(pipeline.program);
         gl.activeTexture(gl.TEXTURE0);
         if (texture_opaque_opt) |texture_opaque| {
             const texture: *Texture = @ptrCast(@alignCast(texture_opaque));
@@ -570,7 +576,7 @@ const CommandBuffer = struct {
         } else {
             gl.bindTexture(gl.TEXTURE_2D, 0);
         }
-        gl.uniform1i(location, 0);
+        gl.uniform1i(@intCast(binding), 0);
 
         if (builtin.mode == .Debug) checkError(@src());
     }

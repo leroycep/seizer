@@ -21,14 +21,14 @@ pub fn bindVertexBuffer(command_buffer: CommandBuffer, pipeline: *Graphics.Pipel
 
 // TODO: Swap out name for location
 // TODO: replace with uniform buffer that just uploads bytes
-pub fn uploadUniformMatrix4F32(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void {
-    return command_buffer.interface.uploadUniformMatrix4F32(command_buffer, pipeline, name, matrix);
+pub fn uploadUniformMatrix4F32(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void {
+    return command_buffer.interface.uploadUniformMatrix4F32(command_buffer, pipeline, binding, matrix);
 }
 
 // TODO: Swap out name for location
 // TODO: replace with uniform buffer that just uploads bytes
-pub fn uploadUniformTexture(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, name: [:0]const u8, texture: ?*Graphics.Texture) void {
-    return command_buffer.interface.uploadUniformTexture(command_buffer, pipeline, name, texture);
+pub fn uploadUniformTexture(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, binding: u32, texture: ?*Graphics.Texture) void {
+    return command_buffer.interface.uploadUniformTexture(command_buffer, pipeline, binding, texture);
 }
 
 pub const EndError = error{};
@@ -41,8 +41,8 @@ pub const Interface = struct {
     drawPrimitives: *const fn (CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
     uploadToBuffer: *const fn (CommandBuffer, buffer: *Graphics.Buffer, data: []const u8) void,
     bindVertexBuffer: *const fn (CommandBuffer, pipeline: *Graphics.Pipeline, buffer: *Graphics.Buffer) void,
-    uploadUniformMatrix4F32: *const fn (CommandBuffer, pipeline: *Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void,
-    uploadUniformTexture: *const fn (CommandBuffer, *Graphics.Pipeline, name: [:0]const u8, texture: ?*Graphics.Texture) void,
+    uploadUniformMatrix4F32: *const fn (CommandBuffer, pipeline: *Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void,
+    uploadUniformTexture: *const fn (CommandBuffer, *Graphics.Pipeline, binding: u32, texture: ?*Graphics.Texture) void,
     end: *const fn (CommandBuffer) EndError!Graphics.RenderBuffer,
 
     pub fn getTypeErasedFunctions(comptime T: type, typed_fns: struct {
@@ -50,8 +50,8 @@ pub const Interface = struct {
         drawPrimitives: *const fn (*T, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
         uploadToBuffer: *const fn (*T, buffer: *Graphics.Buffer, data: []const u8) void,
         bindVertexBuffer: *const fn (*T, pipeline: *Graphics.Pipeline, buffer: *Graphics.Buffer) void,
-        uploadUniformMatrix4F32: *const fn (*T, pipeline: *Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void,
-        uploadUniformTexture: *const fn (*T, *Graphics.Pipeline, name: [:0]const u8, texture: ?*Graphics.Texture) void,
+        uploadUniformMatrix4F32: *const fn (*T, pipeline: *Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void,
+        uploadUniformTexture: *const fn (*T, *Graphics.Pipeline, binding: u32, texture: ?*Graphics.Texture) void,
         end: *const fn (*T) EndError!Graphics.RenderBuffer,
     }) Interface {
         const type_erased_fns = struct {
@@ -71,13 +71,13 @@ pub const Interface = struct {
                 const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
                 return typed_fns.bindVertexBuffer(t, pipeline, vertex_buffer);
             }
-            fn uploadUniformMatrix4F32(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, name: [:0]const u8, matrix: [4][4]f32) void {
+            fn uploadUniformMatrix4F32(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void {
                 const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
-                return typed_fns.uploadUniformMatrix4F32(t, pipeline, name, matrix);
+                return typed_fns.uploadUniformMatrix4F32(t, pipeline, binding, matrix);
             }
-            fn uploadUniformTexture(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, name: [:0]const u8, texture: ?*Graphics.Texture) void {
+            fn uploadUniformTexture(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline, binding: u32, texture: ?*Graphics.Texture) void {
                 const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
-                return typed_fns.uploadUniformTexture(t, pipeline, name, texture);
+                return typed_fns.uploadUniformTexture(t, pipeline, binding, texture);
             }
             fn end(command_buffer: CommandBuffer) EndError!Graphics.RenderBuffer {
                 const t: *T = @ptrCast(@alignCast(command_buffer.pointer));

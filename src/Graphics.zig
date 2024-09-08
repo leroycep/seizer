@@ -93,6 +93,7 @@ pub const Pipeline = opaque {
         fragment_shader: *Shader,
         blend: ?Blend,
         primitive_type: Primitive,
+        uniforms: []const UniformDescription,
         vertex_layout: []const VertexAttribute,
     };
 
@@ -117,6 +118,23 @@ pub const Pipeline = opaque {
 
         pub const Op = enum {
             add,
+        };
+    };
+
+    pub const UniformDescription = struct {
+        binding: u32,
+        type: Type,
+        count: u32,
+        stages: Stages,
+        size: u32,
+
+        pub const Type = enum {
+            sampler2D,
+            buffer,
+        };
+        pub const Stages = packed struct(u2) {
+            vertex: bool = false,
+            fragment: bool = false,
         };
     };
 
@@ -146,7 +164,9 @@ pub fn destroyPipeline(gfx: Graphics, pipeline: *Pipeline) void {
 
 pub const Buffer = opaque {
     pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread, UnsupportedFormat, ShaderLinkingFailed };
-    pub const CreateOptions = struct {};
+    pub const CreateOptions = struct {
+        size: u32,
+    };
 };
 
 pub fn createBuffer(gfx: Graphics, options: Buffer.CreateOptions) Buffer.CreateError!*Buffer {
@@ -155,6 +175,10 @@ pub fn createBuffer(gfx: Graphics, options: Buffer.CreateOptions) Buffer.CreateE
 
 pub fn destroyBuffer(gfx: Graphics, pipeline: *Buffer) void {
     return gfx.interface.destroyBuffer(gfx, pipeline);
+}
+
+pub fn releaseRenderBuffer(gfx: Graphics, render_buffer: RenderBuffer) void {
+    return gfx.interface.releaseRenderBuffer(gfx, render_buffer);
 }
 
 pub const Interface = struct {
@@ -169,6 +193,7 @@ pub const Interface = struct {
     destroyPipeline: *const fn (Graphics, *Pipeline) void,
     createBuffer: *const fn (Graphics, Buffer.CreateOptions) Buffer.CreateError!*Buffer,
     destroyBuffer: *const fn (Graphics, *Buffer) void,
+    releaseRenderBuffer: *const fn (Graphics, RenderBuffer) void,
 
     pub fn getTypeErasedFunctions(comptime T: type, typed_fns: struct {
         driver: Driver,
@@ -182,6 +207,7 @@ pub const Interface = struct {
         destroyPipeline: *const fn (*T, *Pipeline) void,
         createBuffer: *const fn (*T, Buffer.CreateOptions) Buffer.CreateError!*Buffer,
         destroyBuffer: *const fn (*T, *Buffer) void,
+        releaseRenderBuffer: *const fn (*T, RenderBuffer) void,
     }) Interface {
         const type_erased_fns = struct {
             fn destroy(gfx: Graphics) void {
@@ -224,6 +250,10 @@ pub const Interface = struct {
                 const t: *T = @ptrCast(@alignCast(gfx.pointer));
                 return typed_fns.destroyBuffer(t, pipeline);
             }
+            fn releaseRenderBuffer(gfx: Graphics, render_buffer: RenderBuffer) void {
+                const t: *T = @ptrCast(@alignCast(gfx.pointer));
+                return typed_fns.releaseRenderBuffer(t, render_buffer);
+            }
         };
         return Interface{
             .driver = typed_fns.driver,
@@ -237,6 +267,7 @@ pub const Interface = struct {
             .destroyPipeline = type_erased_fns.destroyPipeline,
             .createBuffer = type_erased_fns.createBuffer,
             .destroyBuffer = type_erased_fns.destroyBuffer,
+            .releaseRenderBuffer = type_erased_fns.releaseRenderBuffer,
         };
     }
 };

@@ -4,6 +4,8 @@ allocator: std.mem.Allocator,
 graphics: seizer.Graphics,
 
 pipeline: *seizer.Graphics.Pipeline,
+
+current_projection: [4][4]f32 = seizer.geometry.mat4.identity(f32),
 current_texture: ?*seizer.Graphics.Texture,
 vertices: std.ArrayListUnmanaged(Vertex),
 
@@ -14,7 +16,8 @@ blank_texture: *seizer.Graphics.Texture,
 font: Font,
 font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 
-vertex_buffer: *seizer.Graphics.Buffer,
+vertex_buffers: [10]*seizer.Graphics.Buffer,
+current_vertex_buffer_index: usize = 0,
 
 scissor: ?seizer.geometry.Rect(f32) = null,
 
@@ -60,11 +63,23 @@ pub fn init(
         vertex_buffer_size: usize = 16_384,
     },
 ) !@This() {
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const align_allocator = arena.allocator();
+
     const vertex_shader = try graphics.createShader(seizer.Graphics.Shader.CreateOptions{
         .target = .vertex,
-        .sampler_count = 0,
+        .sampler_count = 1,
         .source = switch (graphics.interface.driver) {
             .gles3v0 => .{ .glsl = @embedFile("./Canvas/vs.glsl") },
+            .vulkan => align_source_words: {
+                const words = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.vertex.vulkan.spv"));
+                const aligned_words = try align_allocator.alloc(u32, words.len);
+                for (aligned_words, words) |*aligned_word, word| {
+                    aligned_word.* = word;
+                }
+                break :align_source_words .{ .spirv = aligned_words };
+            },
             else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
         },
         .entry_point_name = "main",
@@ -76,6 +91,14 @@ pub fn init(
         .sampler_count = 0,
         .source = switch (graphics.interface.driver) {
             .gles3v0 => .{ .glsl = @embedFile("./Canvas/fs.glsl") },
+            .vulkan => align_source_words: {
+                const words = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.fragment.vulkan.spv"));
+                const aligned_words = try align_allocator.alloc(u32, words.len);
+                for (aligned_words, words) |*aligned_word, word| {
+                    aligned_word.* = word;
+                }
+                break :align_source_words .{ .spirv = aligned_words };
+            },
             else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
         },
         .entry_point_name = "main",
@@ -94,6 +117,22 @@ pub fn init(
             .alpha_op = .add,
         },
         .primitive_type = .triangle,
+        .uniforms = &[_]seizer.Graphics.Pipeline.UniformDescription{
+            .{
+                .binding = 0,
+                .type = .buffer,
+                .size = @sizeOf([4][4]f32),
+                .count = 1,
+                .stages = .{ .vertex = true },
+            },
+            .{
+                .binding = 1,
+                .size = 0,
+                .type = .sampler2D,
+                .count = 1,
+                .stages = .{ .fragment = true },
+            },
+        },
         .vertex_layout = &[_]seizer.Graphics.Pipeline.VertexAttribute{
             .{
                 .attribute_index = 0,
@@ -168,8 +207,11 @@ pub fn init(
         });
     }
 
-    const vertex_buffer = try graphics.createBuffer(.{});
-    errdefer graphics.destroyBuffer(vertex_buffer);
+    var vertex_buffers: [10]*seizer.Graphics.Buffer = undefined;
+    for (vertex_buffers[0..]) |*vertex_buffer| {
+        vertex_buffer.* = try graphics.createBuffer(.{ .size = @intCast(options.vertex_buffer_size) });
+        errdefer graphics.destroyBuffer(vertex_buffer);
+    }
 
     return .{
         .allocator = allocator,
@@ -183,7 +225,7 @@ pub fn init(
         .font = font,
         .font_pages = font_pages,
 
-        .vertex_buffer = vertex_buffer,
+        .vertex_buffers = vertex_buffers,
     };
 }
 
@@ -200,7 +242,9 @@ pub fn deinit(this: *@This()) void {
     }
     this.font_pages.deinit(this.allocator);
 
-    this.graphics.destroyBuffer(this.vertex_buffer);
+    for (this.vertex_buffers) |vertex_buffer| {
+        this.graphics.destroyBuffer(vertex_buffer);
+    }
 }
 
 pub const BeginOptions = struct {
@@ -219,8 +263,7 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
         @floatFromInt(options.window_size[1]),
     };
 
-    command_buffer.bindPipeline(this.pipeline);
-    command_buffer.uploadUniformMatrix4F32(this.pipeline, "projection", geometry.mat4.orthographic(
+    this.current_projection = geometry.mat4.orthographic(
         f32,
         0,
         this.window_size[0],
@@ -228,8 +271,7 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
         if (options.invert_y) this.window_size[1] else 0,
         -1,
         1,
-    ));
-
+    );
     this.vertices.shrinkRetainingCapacity(0);
     this.setScissor(options.scissor);
 
@@ -416,13 +458,20 @@ pub const TextWriter = struct {
 };
 
 pub fn flush(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
-    command_buffer.uploadToBuffer(this.vertex_buffer, std.mem.sliceAsBytes(this.vertices.items));
+    if (this.vertices.items.len == 0) return;
 
-    command_buffer.uploadUniformTexture(this.pipeline, "texture_handle", this.current_texture);
-    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffer);
-    command_buffer.drawPrimitives(@intCast(this.vertices.items.len), 0, 0, 0);
+    command_buffer.uploadUniformMatrix4F32(this.pipeline, 0, this.current_projection);
+    command_buffer.uploadUniformTexture(this.pipeline, 1, this.current_texture orelse this.blank_texture);
+    command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+
+    command_buffer.bindPipeline(this.pipeline);
+    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
+    command_buffer.drawPrimitives(@intCast(this.vertices.items.len), 1, 0, 0);
 
     this.vertices.shrinkRetainingCapacity(0);
+
+    this.current_vertex_buffer_index += 1;
+    this.current_vertex_buffer_index %= this.vertex_buffers.len;
 }
 
 /// A transformed canvas

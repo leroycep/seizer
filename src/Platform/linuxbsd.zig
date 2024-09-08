@@ -85,16 +85,22 @@ pub fn getAllocator() std.mem.Allocator {
 }
 
 pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
-    // if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
-    //     return graphics;
-    // } else |err| {
-    //     std.log.warn("Failed to create vulkan context: {}", .{err});
-    // }
+    if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
+        return graphics;
+    } else |err| {
+        std.log.warn("Failed to create vulkan context: {}", .{err});
+        if (@errorReturnTrace()) |err_return_trace| {
+            std.debug.dumpStackTrace(err_return_trace.*);
+        }
+    }
 
     if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
         return graphics;
     } else |err| {
         std.log.warn("Failed to create gles3v0 context: {}", .{err});
+        if (@errorReturnTrace()) |err_return_trace| {
+            std.debug.dumpStackTrace(err_return_trace.*);
+        }
     }
 
     return error.InitializationFailed;

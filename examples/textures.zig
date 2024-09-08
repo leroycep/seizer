@@ -51,68 +51,136 @@ const VERTS = [_]Vertex{
 
 pub const main = seizer.main;
 
-var player_texture: seizer.Texture = undefined;
-var shader_program: gl.Uint = undefined;
-var vbo: gl.Uint = undefined;
-var vao: gl.Uint = undefined;
+var gfx: seizer.Graphics = undefined;
+var player_texture: *seizer.Graphics.Texture = undefined;
+var pipeline: *seizer.Graphics.Pipeline = undefined;
+var vertex_buffer: *seizer.Graphics.Buffer = undefined;
 
 pub fn init() !void {
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+
     _ = try seizer.platform.createWindow(.{
         .title = "Textures - Seizer Example",
         .on_render = render,
     });
 
-    player_texture = try seizer.Texture.initFromFileContents(seizer.platform.allocator(), @embedFile("assets/wedge.png"), .{});
-    std.log.info("Texture is {}x{} pixels", .{ player_texture.size[0], player_texture.size[1] });
+    var player_image = try seizer.zigimg.Image.fromMemory(seizer.platform.allocator(), @embedFile("assets/wedge.png"));
+    defer player_image.deinit();
 
-    shader_program = try seizer.glUtil.compileShader(seizer.platform.allocator(), VERT_SHADER, FRAG_SHADER);
+    player_texture = try gfx.createTexture(player_image, .{});
+    std.log.info("Texture is {}x{} pixels", .{ player_image.width, player_image.height });
 
-    // Create VBO to display texture
-    gl.genBuffers(1, &vbo);
-    if (vbo == 0)
-        return error.OpenGlFailure;
+    vertex_buffer = try gfx.createBuffer(.{ .size = @sizeOf(@TypeOf(VERTS)) });
 
-    gl.genVertexArrays(1, &vao);
-    if (vao == 0)
-        return error.OpenGlFailure;
+    var arena = std.heap.ArenaAllocator.init(seizer.platform.allocator());
+    defer arena.deinit();
+    const align_allocator = arena.allocator();
 
-    gl.bindVertexArray(vao);
-    defer gl.bindVertexArray(0);
+    const vertex_shader = try gfx.createShader(.{
+        .sampler_count = 1,
+        .target = .vertex,
+        .source = switch (gfx.interface.driver) {
+            .gles3v0 => .{ .glsl = VERT_SHADER },
+            .vulkan => align_source_words: {
+                const words = std.mem.bytesAsSlice(u32, @embedFile("./assets/textures.vert.spv"));
+                const aligned_words = try align_allocator.alloc(u32, words.len);
+                for (aligned_words, words) |*aligned_word, word| {
+                    aligned_word.* = word;
+                }
+                break :align_source_words .{ .spirv = aligned_words };
+            },
+            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+        },
+        .entry_point_name = "main",
+    });
+    defer gfx.destroyShader(vertex_shader);
+    const fragment_shader = try gfx.createShader(.{
+        .sampler_count = 1,
+        .target = .fragment,
+        .source = switch (gfx.interface.driver) {
+            .gles3v0 => .{ .glsl = VERT_SHADER },
+            .vulkan => align_source_words: {
+                const words = std.mem.bytesAsSlice(u32, @embedFile("./assets/textures.frag.spv"));
+                const aligned_words = try align_allocator.alloc(u32, words.len);
+                for (aligned_words, words) |*aligned_word, word| {
+                    aligned_word.* = word;
+                }
+                break :align_source_words .{ .spirv = aligned_words };
+            },
+            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+        },
+        .entry_point_name = "main",
+    });
+    defer gfx.destroyShader(fragment_shader);
 
-    gl.enableVertexAttribArray(0); // Position attribute
-    gl.enableVertexAttribArray(1); // UV attribute
+    pipeline = try gfx.createPipeline(seizer.Graphics.Pipeline.CreateOptions{
+        .vertex_shader = vertex_shader,
+        .fragment_shader = fragment_shader,
+        .blend = seizer.Graphics.Pipeline.Blend{
+            .src_color_factor = .src_alpha,
+            .dst_color_factor = .one_minus_src_alpha,
+            .color_op = .add,
+            .src_alpha_factor = .src_alpha,
+            .dst_alpha_factor = .one_minus_src_alpha,
+            .alpha_op = .add,
+        },
+        .primitive_type = .triangle,
+        .uniforms = &.{
+            .{
+                .binding = 0,
+                .size = 0,
+                .type = .sampler2D,
+                .count = 1,
+                .stages = .{ .fragment = true },
+            },
+        },
+        .vertex_layout = &[_]seizer.Graphics.Pipeline.VertexAttribute{
+            .{
+                .attribute_index = 0,
+                .buffer_slot = 0,
+                .len = 2,
+                .type = .f32,
+                .normalized = false,
+                .stride = @sizeOf(Vertex),
+                .offset = @offsetOf(Vertex, "x"),
+            },
+            .{
+                .attribute_index = 1,
+                .buffer_slot = 0,
+                .len = 2,
+                .type = .f32,
+                .normalized = false,
+                .stride = @sizeOf(Vertex),
+                .offset = @offsetOf(Vertex, "u"),
+            },
+        },
+    });
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    gl.vertexAttribPointer(0, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "x")));
-    gl.vertexAttribPointer(1, 2, gl.FLOAT, gl.FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
-    gl.bindBuffer(gl.ARRAY_BUFFER, 0);
+    seizer.platform.setDeinitCallback(deinit);
+}
 
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+/// This is a global deinit, not window specific. This is important because windows can hold onto Graphics resources.
+fn deinit() void {
+    gfx.destroyPipeline(pipeline);
+    gfx.destroyTexture(player_texture);
+    gfx.destroyBuffer(vertex_buffer);
+    gfx.destroy();
 }
 
 fn render(window: seizer.Window) !void {
-    gl.clearColor(0.7, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    const cmd_buf = try gfx.begin(.{
+        .size = window.getSize(),
+        .clear_color = null,
+    });
 
-    // Draw VBO to screen
-    gl.useProgram(shader_program);
-    defer gl.useProgram(0);
+    cmd_buf.uploadUniformTexture(pipeline, 0, player_texture);
+    cmd_buf.uploadToBuffer(vertex_buffer, std.mem.asBytes(&VERTS));
+    cmd_buf.bindPipeline(pipeline);
+    cmd_buf.bindVertexBuffer(pipeline, vertex_buffer);
+    cmd_buf.drawPrimitives(6, 1, 0, 0);
 
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, player_texture.glTexture);
-
-    gl.bindVertexArray(vao);
-    defer gl.bindVertexArray(0);
-    gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
-    defer gl.bindBuffer(gl.ARRAY_BUFFER, 0);
-    gl.bufferData(gl.ARRAY_BUFFER, @as(isize, @intCast(VERTS.len)) * @sizeOf(Vertex), &VERTS, gl.STATIC_DRAW);
-
-    gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-    try window.swapBuffers();
+    try window.presentFrame(try cmd_buf.end());
 }
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");

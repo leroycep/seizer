@@ -367,6 +367,10 @@ const Wayland = struct {
         fn render(this_window: *Window) !void {
             if (this_window.window_size[0] == 0 and this_window.window_size[1] == 0) return;
 
+            // if (this_window.wayland.renderdoc.api) |renderdoc_api| {
+            //     renderdoc_api.StartFrameCapture(null, null);
+            // }
+
             this_window.on_render(this_window.window()) catch |err| {
                 std.debug.print("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
