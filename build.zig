@@ -49,6 +49,13 @@ pub fn build(b: *Builder) !void {
         .root_source_file = b.path("dep/dynamic-library-utils.zig"),
     });
 
+    const renderdoc_app_module = b.addModule("renderdoc_app", .{
+        .root_source_file = b.path("dep/renderdoc_app.zig"),
+        .imports = &.{
+            .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
+        },
+    });
+
     const egl_module = b.addModule("EGL", .{
         .root_source_file = b.path("dep/EGL.zig"),
         .imports = &.{
@@ -150,6 +157,7 @@ pub fn build(b: *Builder) !void {
         .imports = &.{
             .{ .name = "zigimg", .module = zigimg_dep.module("zigimg") },
             .{ .name = "tvg", .module = tinyvg.module("tvg") },
+            .{ .name = "renderdoc", .module = renderdoc_app_module },
             .{ .name = "gl", .module = gl_module },
             .{ .name = "xev", .module = libxev.module("xev") },
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },

@@ -19,6 +19,12 @@ pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
             try prefixes_to_try.append(path);
         }
     } else |_| {}
+    if (std.process.getEnvVarOwned(arena, "LD_LIBRARY_PATH")) |path_list| {
+        var path_list_iter = std.mem.tokenize(u8, path_list, ":");
+        while (path_list_iter.next()) |path| {
+            try prefixes_to_try.append(path);
+        }
+    } else |_| {}
 
     var path_buf: [std.fs.MAX_PATH_BYTES]u8 = undefined;
     const exe_dir_path = try std.fs.selfExeDirPath(&path_buf);

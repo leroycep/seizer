@@ -8,6 +8,7 @@ pub const WindowManager = union(enum) {
         allocator: std.mem.Allocator,
         loop: *xev.Loop,
         key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
+        renderdoc: *@import("renderdoc"),
     };
 
     pub fn init(options: InitOptions) !@This() {
@@ -84,6 +85,8 @@ const Wayland = struct {
     on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
     key_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
+    renderdoc: *@import("renderdoc"),
+
     pub fn init(options: WindowManager.InitOptions) !*@This() {
         // initialize wayland connection
         const connection_path = try wayland.getDisplayPath(options.allocator);
@@ -99,6 +102,8 @@ const Wayland = struct {
             .registry = undefined,
 
             .key_bindings = options.key_bindings,
+
+            .renderdoc = options.renderdoc,
         };
 
         // open connection to wayland server
@@ -370,6 +375,12 @@ const Wayland = struct {
                 this_window.should_close = true;
                 return;
             };
+
+            if (this_window.wayland.renderdoc.api) |renderdoc_api| {
+                if (renderdoc_api.IsFrameCapturing(null, null) == 1) {
+                    _ = renderdoc_api.EndFrameCapture(null, null);
+                }
+            }
 
             this_window.should_render = false;
         }

@@ -17,6 +17,7 @@ var evdev: EvDev = undefined;
 var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
 var window_manager: WindowManager = undefined;
 var deinit_fn: ?seizer.Platform.DeinitFn = null;
+var renderdoc: @import("renderdoc") = undefined;
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -42,10 +43,21 @@ pub fn main() anyerror!void {
     defer evdev.deinit();
     try evdev.scanForDevices();
 
+    {
+        var library_prefixes = @"dynamic-library-utils".getLibrarySearchPaths(gpa.allocator()) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.LibraryLoadFailed,
+        };
+        defer library_prefixes.arena.deinit();
+
+        renderdoc = @import("renderdoc").loadUsingPrefixes(library_prefixes.paths.items);
+    }
+
     window_manager = try WindowManager.init(.{
         .allocator = gpa.allocator(),
         .key_bindings = &key_bindings,
         .loop = &loop,
+        .renderdoc = &renderdoc,
     });
     defer window_manager.deinit();
 
@@ -123,6 +135,7 @@ pub const WindowManager = @import("./linuxbsd/window_manager.zig").WindowManager
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
+const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const xev = @import("xev");
 const seizer = @import("../seizer.zig");
 const builtin = @import("builtin");
