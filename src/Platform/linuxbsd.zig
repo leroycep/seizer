@@ -94,14 +94,14 @@ pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.Cre
         }
     }
 
-    if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
-        return graphics;
-    } else |err| {
-        std.log.warn("Failed to create gles3v0 context: {}", .{err});
-        if (@errorReturnTrace()) |err_return_trace| {
-            std.debug.dumpStackTrace(err_return_trace.*);
-        }
-    }
+    // if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
+    //     return graphics;
+    // } else |err| {
+    //     std.log.warn("Failed to create gles3v0 context: {}", .{err});
+    //     if (@errorReturnTrace()) |err_return_trace| {
+    //         std.debug.dumpStackTrace(err_return_trace.*);
+    //     }
+    // }
 
     return error.InitializationFailed;
 }

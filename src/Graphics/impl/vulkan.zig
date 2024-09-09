@@ -1,6 +1,4 @@
 allocator: std.mem.Allocator,
-vk_allocation_callbacks: vk.AllocationCallbacks,
-vulkan_allocation_metadata: std.AutoArrayHashMapUnmanaged([*]u8, VulkanAllocationMetadata),
 
 libvulkan: std.DynLib,
 
@@ -13,6 +11,7 @@ vk_descriptor_pool: vk.DescriptorPool,
 vk_render_pass: vk.RenderPass,
 vk_graphics_queue: vk.Queue,
 
+vk_device_properties: vk.PhysicalDeviceProperties,
 image_format: vk.Format,
 vk_memory_properties: vk.PhysicalDeviceMemoryProperties,
 // drm_format_modifier_properties_list: std.ArrayListUnmanaged(vk.DrmFormatModifierPropertiesEXT),
@@ -75,7 +74,7 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
             .application_version = if (options.app_version) |version| vk.makeApiVersion(0, @intCast(version.major), @intCast(version.minor), @intCast(version.patch)) else 0,
             .p_engine_name = "seizer",
             .engine_version = vk.makeApiVersion(0, seizer.version.major, seizer.version.minor, seizer.version.patch),
-            .api_version = vk.API_VERSION_1_2,
+            .api_version = vk.API_VERSION_1_3,
         },
         .enabled_layer_count = @intCast(vk_enabled_layers.items.len),
         .pp_enabled_layer_names = vk_enabled_layers.items.ptr,
@@ -130,6 +129,8 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     };
     errdefer vk_device.destroyCommandPool(vk_command_pool, null);
 
+    const vk_device_properties = vk_instance.getPhysicalDeviceProperties(device_result.physical_device);
+
     // create render pass
     const vk_render_pass = vk_device.createRenderPass(&vk.RenderPassCreateInfo{
         .attachment_count = 1,
@@ -180,13 +181,6 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
 
     this.* = .{
         .allocator = allocator,
-        .vk_allocation_callbacks = .{
-            .p_user_data = this,
-            .pfn_allocation = _vkAllocation,
-            .pfn_reallocation = _vkReallocation,
-            .pfn_free = _vkFree,
-        },
-        .vulkan_allocation_metadata = .{},
         .libvulkan = libvulkan,
         .vkb = vkb,
 
@@ -199,6 +193,7 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
         .vk_graphics_queue = this.vk_device.getDeviceQueue(device_result.queue_family_index, 0),
         .vk_render_pass = vk_render_pass,
 
+        .vk_device_properties = vk_device_properties,
         .vk_memory_properties = this.vk_instance.getPhysicalDeviceMemoryProperties(device_result.physical_device),
         // .drm_format_modifier_properties_list = .{},
         // .drm_format_modifier_list = .{},
@@ -265,17 +260,6 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         .queue_count = 1,
         .p_queue_priorities = &.{1},
     };
-    var enabled_device_extensions = [_][*:0]const u8{
-        vk.extensions.khr_external_memory_fd.name,
-        vk.extensions.ext_external_memory_dma_buf.name,
-        // vk.extensions.ext_image_drm_format_modifier.name,
-    };
-    var device_create_info = vk.DeviceCreateInfo{
-        .queue_create_info_count = 1,
-        .p_queue_create_infos = &.{device_queue_create_info},
-        .enabled_extension_count = enabled_device_extensions.len,
-        .pp_enabled_extension_names = &enabled_device_extensions,
-    };
     for (physical_devices) |device| {
         const device_score: u32 = 1;
 
@@ -330,95 +314,40 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         std.log.debug("selected gpu = {s}", .{name});
     }
 
+    var enabled_device_extensions = [_][*:0]const u8{
+        vk.extensions.khr_external_memory_fd.name,
+        vk.extensions.ext_external_memory_dma_buf.name,
+        // vk.extensions.ext_image_drm_format_modifier.name,
+    };
+    var descriptor_indexing_features = vk.PhysicalDeviceDescriptorIndexingFeatures{
+        .descriptor_binding_partially_bound = vk.TRUE,
+        .runtime_descriptor_array = vk.TRUE,
+        .shader_sampled_image_array_non_uniform_indexing = vk.TRUE,
+    };
+    // var dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeatures{
+    //     .p_next = &descriptor_indexing_features,
+    //     .dynamic_rendering = vk.TRUE,
+    // };
+
+    var device_create_info = vk.DeviceCreateInfo{
+        .p_next = &descriptor_indexing_features,
+        .queue_create_info_count = 1,
+        .p_queue_create_infos = &.{device_queue_create_info},
+        .enabled_extension_count = enabled_device_extensions.len,
+        .pp_enabled_extension_names = &enabled_device_extensions,
+    };
+
+    const vk_device_ptr = try vk_instance.createDevice(
+        physical_device orelse return error.InitializationFailed,
+        &device_create_info,
+        null,
+    );
+
     return .{
-        .ptr = try vk_instance.createDevice(
-            physical_device orelse return error.InitializationFailed,
-            &device_create_info,
-            null,
-        ),
+        .ptr = vk_device_ptr,
         .queue_family_index = device_queue_create_info.queue_family_index,
         .physical_device = physical_device.?,
     };
-}
-
-const VulkanAllocationMetadata = struct {
-    size: usize,
-    log2_align: u8,
-    scope: vk.SystemAllocationScope,
-};
-
-pub fn _vkAllocation(userdata: ?*anyopaque, size: usize, alignment: usize, scope: vk.SystemAllocationScope) callconv(.C) ?*anyopaque {
-    const this: *@This() = @ptrCast(@alignCast(userdata));
-
-    this.vulkan_allocation_metadata.ensureUnusedCapacity(this.allocator, 1) catch return null;
-
-    const log2_align: u8 = @intCast(std.math.log2(alignment));
-
-    const ptr = this.allocator.rawAlloc(size, log2_align, 0) orelse return null;
-    this.vulkan_allocation_metadata.putAssumeCapacity(ptr, .{
-        .size = size,
-        .log2_align = log2_align,
-        .scope = scope,
-    });
-    std.log.debug("{s}:{} {s}({*}, {}, {}, {s}) -> {*}", .{ @src().file, @src().line, @src().fn_name, this, size, alignment, @tagName(scope), ptr });
-
-    return ptr;
-}
-
-pub fn _vkReallocation(userdata: ?*anyopaque, original_ptr_opt: ?*anyopaque, new_size: usize, alignment: usize, scope: vk.SystemAllocationScope) callconv(.C) ?*anyopaque {
-    const this: *@This() = @ptrCast(@alignCast(userdata));
-    const original_ptr: [*]u8 = @ptrCast(original_ptr_opt orelse return _vkAllocation(this, new_size, alignment, scope));
-    std.log.debug("{s}:{} {s}({*}, {*}, {}, {}, {s})", .{ @src().file, @src().line, @src().fn_name, this, original_ptr, new_size, alignment, @tagName(scope) });
-
-    const meta = this.vulkan_allocation_metadata.getPtr(original_ptr) orelse {
-        std.log.warn("Vulkan driver passed in unknown allocation {*} to {s}!", .{ original_ptr, @src().fn_name });
-        return null;
-    };
-
-    std.log.debug("{s}:{} old alloc ({}b, align 2^{}, {s})", .{ @src().file, @src().line, meta.size, meta.log2_align, @tagName(meta.scope) });
-
-    const original_alignment = @as(usize, 1) << @intCast(meta.log2_align);
-    if (original_alignment != alignment) {
-        std.log.warn("Vulkan driver passed in mismatched alignment to {s}; original allocation for {*} required align of {}, new align is {}!", .{
-            @src().fn_name,
-            original_ptr,
-            original_alignment,
-            alignment,
-        });
-        return null;
-    }
-
-    if (this.allocator.rawResize(original_ptr[0..new_size], meta.log2_align, new_size, 0)) {
-        meta.size = new_size;
-        return original_ptr;
-    } else {
-        const log2_align: u8 = @intCast(std.math.log2(alignment));
-
-        const new_ptr = this.allocator.rawAlloc(new_size, log2_align, 0) orelse return null;
-        const old_size = meta.size;
-        @memcpy(new_ptr[0..old_size], original_ptr[0..old_size]);
-
-        std.debug.assert(this.vulkan_allocation_metadata.swapRemove(original_ptr));
-        this.vulkan_allocation_metadata.putAssumeCapacity(new_ptr, .{
-            .size = new_size,
-            .log2_align = log2_align,
-            .scope = scope,
-        });
-        return new_ptr;
-    }
-}
-
-pub fn _vkFree(userdata: ?*anyopaque, ptr_opt: ?*anyopaque) callconv(.C) void {
-    const this: *@This() = @ptrCast(@alignCast(userdata));
-    const ptr: [*]u8 = @ptrCast(ptr_opt orelse return);
-    std.log.debug("{s}:{} {s}({*}, {*})", .{ @src().file, @src().line, @src().fn_name, this, ptr });
-
-    const meta = this.vulkan_allocation_metadata.fetchSwapRemove(ptr) orelse {
-        std.log.warn("Vulkan driver passed in unknown allocation {*}!", .{ptr});
-        return;
-    };
-
-    this.allocator.rawFree(ptr[0..meta.value.size], meta.value.log2_align, 0);
 }
 
 pub fn graphics(this: *@This()) seizer.Graphics {
@@ -517,6 +446,10 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
         this.vk_device.freeDescriptorSets(this.vk_descriptor_pool, @intCast(sets.len), sets.ptr) catch unreachable;
         this.allocator.free(sets);
         render_buffer.vk_descriptor_sets = null;
+    }
+    if (render_buffer.vk_command_buffer) |cmd_buf| {
+        this.vk_device.freeCommandBuffers(this.vk_command_pool, 1, &[1]vk.CommandBuffer{cmd_buf});
+        render_buffer.vk_command_buffer = null;
     }
     this.vk_device.resetFences(1, &.{render_buffer.finished_fence}) catch unreachable;
 
@@ -909,7 +842,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         };
     }
 
-    const vk_descriptor_set_layout = this.vk_device.createDescriptorSetLayout(&.{
+    const vk_descriptor_set_layout = this.vk_device.createDescriptorSetLayout(&vk.DescriptorSetLayoutCreateInfo{
         .binding_count = @intCast(uniform_binding_list.len),
         .p_bindings = uniform_binding_list.ptr,
     }, null) catch unreachable;
@@ -918,6 +851,14 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
     const pipeline_layout = this.vk_device.createPipelineLayout(&vk.PipelineLayoutCreateInfo{
         .set_layout_count = 1,
         .p_set_layouts = &[_]vk.DescriptorSetLayout{vk_descriptor_set_layout},
+        .push_constant_range_count = 1,
+        .p_push_constant_ranges = &[1]vk.PushConstantRange{
+            .{
+                .stage_flags = .{ .vertex_bit = options.push_constants.stages.vertex, .fragment_bit = options.push_constants.stages.fragment },
+                .offset = 0,
+                .size = options.push_constants.size,
+            },
+        },
     }, null) catch unreachable;
     errdefer this.vk_device.destroyPipelineLayout(pipeline_layout, null);
 
@@ -1146,7 +1087,7 @@ const CommandBuffer = struct {
     render_buffer: *RenderBuffer,
 
     arena: std.heap.ArenaAllocator,
-    descriptor_set_write_list: std.AutoArrayHashMapUnmanaged(u32, vk.WriteDescriptorSet) = .{},
+    descriptor_set_write_list: std.ArrayListUnmanaged(vk.WriteDescriptorSet) = .{},
     descriptor_sets: std.ArrayListUnmanaged(vk.DescriptorSet) = .{},
 
     pub fn create(allocator: std.mem.Allocator, vk_device: VulkanDevice, vk_command_buffer: vk.CommandBuffer, vk_descriptor_pool: vk.DescriptorPool, vk_graphics_queue: vk.Queue, render_buffer: *RenderBuffer) !*@This() {
@@ -1177,8 +1118,8 @@ const CommandBuffer = struct {
         .drawPrimitives = CommandBuffer._drawPrimitives,
         .uploadToBuffer = CommandBuffer._uploadToBuffer,
         .bindVertexBuffer = CommandBuffer._bindVertexBuffer,
-        .uploadUniformMatrix4F32 = CommandBuffer._uploadUniformMatrix4F32,
         .uploadUniformTexture = CommandBuffer._uploadUniformTexture,
+        .pushConstants = CommandBuffer._pushConstants,
         .end = CommandBuffer._end,
     });
 
@@ -1192,15 +1133,15 @@ const CommandBuffer = struct {
             .p_set_layouts = &.{pipeline.vk_descriptor_set_layout},
         }, &vk_descriptor_sets) catch unreachable;
 
-        for (this.descriptor_set_write_list.values()) |*write_info| {
+        for (this.descriptor_set_write_list.items) |*write_info| {
             write_info.dst_set = vk_descriptor_sets[0];
         }
-        this.vk_device.updateDescriptorSets(@intCast(this.descriptor_set_write_list.count()), this.descriptor_set_write_list.values().ptr, 0, null);
+        this.vk_device.updateDescriptorSets(@intCast(this.descriptor_set_write_list.items.len), this.descriptor_set_write_list.items.ptr, 0, null);
 
         this.descriptor_sets.appendSlice(this.allocator, vk_descriptor_sets[0..]) catch unreachable;
 
-        this.vk_device.cmdBindDescriptorSets(this.vk_command_buffer, .graphics, pipeline.vk_pipeline_layout, 0, 1, &vk_descriptor_sets, 0, null);
         this.vk_device.cmdBindPipeline(this.vk_command_buffer, .graphics, pipeline.vk_pipeline);
+        this.vk_device.cmdBindDescriptorSets(this.vk_command_buffer, .graphics, pipeline.vk_pipeline_layout, 0, 1, &vk_descriptor_sets, 0, null);
     }
 
     fn _drawPrimitives(this: *@This(), vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
@@ -1225,42 +1166,16 @@ const CommandBuffer = struct {
         this.vk_device.cmdBindVertexBuffers(this.vk_command_buffer, 0, 1, &[1]vk.Buffer{vertex_buffer.vk_buffer}, &[1]vk.DeviceSize{0});
     }
 
-    fn _uploadUniformMatrix4F32(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, matrix: [4][4]f32) void {
-        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
-
-        const uniform = pipeline.uniforms.get(binding) orelse unreachable;
-        const mem_ptr: *[4][4]f32 = @ptrCast(@alignCast(this.vk_device.mapMemory(uniform.memory, 0, @sizeOf([4][4]f32), .{}) catch unreachable));
-        @memcpy(mem_ptr, &matrix);
-        this.vk_device.unmapMemory(uniform.memory);
-
-        const gop = this.descriptor_set_write_list.getOrPut(this.allocator, binding) catch unreachable;
-        gop.value_ptr.* = vk.WriteDescriptorSet{
-            .dst_set = undefined,
-            .dst_binding = binding,
-            .dst_array_element = 0,
-            .descriptor_count = 1,
-            .descriptor_type = .uniform_buffer,
-            .p_image_info = undefined,
-            .p_buffer_info = (this.arena.allocator().dupe(vk.DescriptorBufferInfo, &[1]vk.DescriptorBufferInfo{.{
-                .buffer = uniform.buffer,
-                .offset = 0,
-                .range = vk.WHOLE_SIZE,
-            }}) catch unreachable).ptr,
-            .p_texel_buffer_view = undefined,
-        };
-    }
-
-    fn _uploadUniformTexture(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, texture_opaque_opt: ?*seizer.Graphics.Texture) void {
+    fn _uploadUniformTexture(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, index: u32, texture_opaque_opt: ?*seizer.Graphics.Texture) void {
         const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
         const texture: *Texture = @ptrCast(@alignCast(texture_opaque_opt orelse return));
 
         _ = pipeline;
 
-        const gop = this.descriptor_set_write_list.getOrPut(this.allocator, binding) catch unreachable;
-        gop.value_ptr.* = vk.WriteDescriptorSet{
+        this.descriptor_set_write_list.append(this.allocator, vk.WriteDescriptorSet{
             .dst_set = undefined,
             .dst_binding = binding,
-            .dst_array_element = 0,
+            .dst_array_element = index,
             .descriptor_count = 1,
             .descriptor_type = .combined_image_sampler,
             .p_image_info = (this.arena.allocator().dupe(vk.DescriptorImageInfo, &[_]vk.DescriptorImageInfo{
@@ -1272,7 +1187,19 @@ const CommandBuffer = struct {
             }) catch unreachable).ptr,
             .p_buffer_info = undefined,
             .p_texel_buffer_view = undefined,
-        };
+        }) catch unreachable;
+    }
+
+    fn _pushConstants(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, stages: seizer.Graphics.Pipeline.Stages, data: []const u8, offset: u32) void {
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+        this.vk_device.cmdPushConstants(
+            this.vk_command_buffer,
+            pipeline.vk_pipeline_layout,
+            .{ .vertex_bit = stages.vertex, .fragment_bit = stages.fragment },
+            offset,
+            @intCast(data.len),
+            data.ptr,
+        );
     }
 
     fn _end(this: *@This()) seizer.Graphics.CommandBuffer.EndError!seizer.Graphics.RenderBuffer {
@@ -1293,6 +1220,7 @@ const CommandBuffer = struct {
         if (this.descriptor_sets.items.len > 0) {
             this.render_buffer.vk_descriptor_sets = this.descriptor_sets.toOwnedSlice(this.allocator) catch unreachable;
         }
+        this.render_buffer.vk_command_buffer = this.vk_command_buffer;
         this.descriptor_sets.deinit(this.allocator);
         this.descriptor_set_write_list.deinit(this.allocator);
         this.arena.deinit();
@@ -1314,6 +1242,7 @@ const RenderBuffer = struct {
     vk_framebuffer: vk.Framebuffer,
 
     vk_descriptor_sets: ?[]const vk.DescriptorSet = null,
+    vk_command_buffer: ?vk.CommandBuffer = null,
     // drm_modifier_properties: vk.DrmFormatModifierPropertiesEXT,
     finished_fence: vk.Fence,
 
@@ -1511,6 +1440,10 @@ const RenderBuffer = struct {
             this.backend.allocator.free(descriptors);
             this.vk_descriptor_sets = null;
         }
+        if (this.vk_command_buffer) |cmd_buf| {
+            this.backend.vk_device.freeCommandBuffers(this.backend.vk_command_pool, 1, &[1]vk.CommandBuffer{cmd_buf});
+            this.vk_command_buffer = null;
+        }
 
         this.backend.vk_device.destroyFence(this.finished_fence, null);
         this.backend.vk_device.destroyFramebuffer(this.vk_framebuffer, null);
@@ -1540,6 +1473,7 @@ const vulkan_apis: []const vk.ApiInfo = &.{
     vk.features.version_1_0,
     vk.features.version_1_1,
     vk.features.version_1_2,
+    vk.features.version_1_3,
     vk.extensions.khr_external_memory_fd,
     vk.extensions.ext_external_memory_dma_buf,
     // vk.extensions.ext_image_drm_format_modifier,

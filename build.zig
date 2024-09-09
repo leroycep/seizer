@@ -179,6 +179,16 @@ pub fn build(b: *Builder) !void {
         module.link_libc = true;
     }
 
+    const vulkan_compile_shaders_step = b.step("vulkan-compile-shaders", "Compile Canvas shaders to SPIR-V using glslc (requires glslc to be installed)");
+    const vulkan_compile_shaders = b.option(bool, "vulkan-compile-shaders", "Make examples depend on vulkan shaders being built") orelse false;
+    {
+        const compile_vertex_shader = b.addSystemCommand(&.{ "glslc", "-fshader-stage=vertex", "src/Canvas/default_shader.vertex.vulkan.glsl", "-o", "src/Canvas/default_shader.vertex.vulkan.spv" });
+        const compile_fragment_shader = b.addSystemCommand(&.{ "glslc", "-fshader-stage=fragment", "src/Canvas/default_shader.fragment.vulkan.glsl", "-o", "src/Canvas/default_shader.fragment.vulkan.spv" });
+
+        vulkan_compile_shaders_step.dependOn(&compile_vertex_shader.step);
+        vulkan_compile_shaders_step.dependOn(&compile_fragment_shader.step);
+    }
+
     const import_vulkan = true;
     if (import_vulkan) {
         module.addImport("vulkan", vkzig_bindings);
@@ -203,6 +213,9 @@ pub fn build(b: *Builder) !void {
         });
         exe.root_module.addImport("seizer", module);
         exe.step.dependOn(generate_wayland_step);
+        if (vulkan_compile_shaders) {
+            exe.step.dependOn(vulkan_compile_shaders_step);
+        }
 
         if (target.result.os.tag == .wasi) {
             exe.wasi_exec_model = .reactor;

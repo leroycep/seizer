@@ -5,9 +5,15 @@ graphics: seizer.Graphics,
 
 pipeline: *seizer.Graphics.Pipeline,
 
-current_projection: [4][4]f32 = seizer.geometry.mat4.identity(f32),
-current_texture: ?*seizer.Graphics.Texture,
+current_uniform_data: UniformData = .{
+    .transform = seizer.geometry.mat4.identity(f32),
+    .texture_id = 0,
+},
 vertices: std.ArrayListUnmanaged(Vertex),
+batches: std.ArrayListUnmanaged(Batch),
+start_of_batch: u32 = 0,
+texture_ids: std.AutoArrayHashMapUnmanaged(*seizer.Graphics.Texture, u32),
+next_texture_id: u32 = 0,
 
 window_size: [2]f32 = .{ 1, 1 },
 framebuffer_size: [2]f32 = .{ 1, 1 },
@@ -61,6 +67,8 @@ pub fn init(
     graphics: seizer.Graphics,
     options: struct {
         vertex_buffer_size: usize = 16_384,
+        batches: usize = 4096,
+        texture_slots: usize = 10,
     },
 ) !@This() {
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -117,19 +125,16 @@ pub fn init(
             .alpha_op = .add,
         },
         .primitive_type = .triangle,
+        .push_constants = .{
+            .size = @sizeOf(UniformData),
+            .stages = .{ .vertex = true, .fragment = true },
+        },
         .uniforms = &[_]seizer.Graphics.Pipeline.UniformDescription{
-            .{
-                .binding = 0,
-                .type = .buffer,
-                .size = @sizeOf([4][4]f32),
-                .count = 1,
-                .stages = .{ .vertex = true },
-            },
             .{
                 .binding = 1,
                 .size = 0,
                 .type = .sampler2D,
-                .count = 1,
+                .count = 10,
                 .stages = .{ .fragment = true },
             },
         },
@@ -166,6 +171,13 @@ pub fn init(
 
     var vertices = try std.ArrayListUnmanaged(Vertex).initCapacity(allocator, options.vertex_buffer_size);
     errdefer vertices.deinit(allocator);
+
+    var batches = try std.ArrayListUnmanaged(Batch).initCapacity(allocator, options.batches);
+    errdefer batches.deinit(allocator);
+
+    var texture_ids = std.AutoArrayHashMapUnmanaged(*seizer.Graphics.Texture, u32){};
+    errdefer texture_ids.deinit(allocator);
+    try texture_ids.ensureTotalCapacity(allocator, options.texture_slots);
 
     var blank_texture_pixels = [_]zigimg.color.Rgba32{
         .{ .r = 0xFF, .g = 0xFF, .b = 0xFF, .a = 0xFF },
@@ -218,8 +230,9 @@ pub fn init(
         .graphics = graphics,
 
         .pipeline = pipeline,
-        .current_texture = null,
         .vertices = vertices,
+        .batches = batches,
+        .texture_ids = texture_ids,
 
         .blank_texture = blank_texture,
         .font = font,
@@ -232,6 +245,8 @@ pub fn init(
 pub fn deinit(this: *@This()) void {
     this.graphics.destroyPipeline(this.pipeline);
 
+    this.texture_ids.deinit(this.allocator);
+    this.batches.deinit(this.allocator);
     this.vertices.deinit(this.allocator);
     this.font.deinit();
 
@@ -263,28 +278,46 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
         @floatFromInt(options.window_size[1]),
     };
 
-    this.current_projection = geometry.mat4.orthographic(
-        f32,
-        0,
-        this.window_size[0],
-        if (options.invert_y) 0 else this.window_size[1],
-        if (options.invert_y) this.window_size[1] else 0,
-        -1,
-        1,
-    );
+    this.current_uniform_data = .{
+        .transform = geometry.mat4.orthographic(
+            f32,
+            0,
+            this.window_size[0],
+            if (options.invert_y) 0 else this.window_size[1],
+            if (options.invert_y) this.window_size[1] else 0,
+            0,
+            1,
+        ),
+        .texture_id = 0,
+    };
+    this.batches.shrinkRetainingCapacity(0);
     this.vertices.shrinkRetainingCapacity(0);
+    this.start_of_batch = 0;
     this.setScissor(options.scissor);
+
+    this.texture_ids.shrinkRetainingCapacity(0);
+    this.texture_ids.putAssumeCapacityNoClobber(this.blank_texture, 0);
+    command_buffer.uploadUniformTexture(this.pipeline, 1, 0, this.blank_texture);
+    this.next_texture_id = 1;
 
     return Transformed{
         .canvas = this,
         .command_buffer = command_buffer,
-        .transform = geometry.mat4.identity(f32),
+        .transform = this.current_uniform_data.transform,
     };
 }
 
 pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
     this.flush(command_buffer);
-    this.setScissor(null);
+
+    command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+    command_buffer.bindPipeline(this.pipeline);
+    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
+
+    for (this.batches.items) |batch| {
+        command_buffer.pushConstants(this.pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
+        command_buffer.drawPrimitives(batch.vertex_count, 1, batch.vertex_offset, 0);
+    }
 }
 
 // TODO: Potentially rename? Might switch to using a stencil buffer instead of gl scissor
@@ -457,21 +490,42 @@ pub const TextWriter = struct {
     }
 };
 
+/// Low-level function used to implement higher-level draw operations. Handles applying the transform.
+pub fn addVertices(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, vertices: []const Vertex) void {
+    if (vertices.len == 0) return;
+
+    const texture_slot = this.texture_ids.getOrPutAssumeCapacity(texture);
+    if (!texture_slot.found_existing) {
+        texture_slot.value_ptr.* = this.next_texture_id;
+        command_buffer.uploadUniformTexture(this.pipeline, 1, texture_slot.value_ptr.*, texture);
+
+        this.next_texture_id += 1;
+    }
+
+    const is_transform_changed = !std.meta.eql(transform, this.current_uniform_data.transform);
+    const is_texture_changed = this.current_uniform_data.texture_id != texture_slot.value_ptr.*;
+    if (is_transform_changed or is_texture_changed) {
+        this.flush(command_buffer);
+        this.current_uniform_data = .{
+            .transform = transform,
+            .texture_id = texture_slot.value_ptr.*,
+        };
+    }
+
+    this.vertices.appendSliceAssumeCapacity(vertices);
+}
+
 pub fn flush(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
-    if (this.vertices.items.len == 0) return;
+    if (this.vertices.items.len - this.start_of_batch == 0) return;
+    _ = command_buffer;
 
-    command_buffer.uploadUniformMatrix4F32(this.pipeline, 0, this.current_projection);
-    command_buffer.uploadUniformTexture(this.pipeline, 1, this.current_texture orelse this.blank_texture);
-    command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+    this.batches.append(this.allocator, Batch{
+        .vertex_count = @as(u32, @intCast(this.vertices.items.len)) - this.start_of_batch,
+        .vertex_offset = this.start_of_batch,
+        .uniforms = this.current_uniform_data,
+    }) catch @panic("OutOfMemory for uniform batches");
 
-    command_buffer.bindPipeline(this.pipeline);
-    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
-    command_buffer.drawPrimitives(@intCast(this.vertices.items.len), 1, 0, 0);
-
-    this.vertices.shrinkRetainingCapacity(0);
-
-    this.current_vertex_buffer_index += 1;
-    this.current_vertex_buffer_index %= this.vertex_buffers.len;
+    this.start_of_batch = @intCast(this.vertices.items.len);
 }
 
 /// A transformed canvas
@@ -482,12 +536,7 @@ pub const Transformed = struct {
     scissor: ?seizer.geometry.Rect(f32) = null,
 
     pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-        if (!std.meta.eql(options.texture, this.canvas.current_texture)) {
-            this.canvas.flush(this.command_buffer);
-            this.canvas.current_texture = options.texture;
-        }
-
-        this.addVertices(&.{
+        this.canvas.addVertices(this.command_buffer, this.transform, options.texture orelse this.canvas.blank_texture, &.{
             // triangle 1
             .{
                 .pos = pos,
@@ -686,23 +735,6 @@ pub const Transformed = struct {
         });
     }
 
-    /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
-    pub fn addVertices(this: @This(), vertices: []const Vertex) void {
-        this.canvas.setScissor(this.scissor);
-        this.canvas.vertices.ensureUnusedCapacity(this.canvas.allocator, vertices.len) catch {
-            this.canvas.flush(this.command_buffer);
-        };
-
-        const transformed_vertices = this.canvas.vertices.addManyAsSliceAssumeCapacity(vertices.len);
-        for (vertices, transformed_vertices) |vertex, *transformed_vertex| {
-            transformed_vertex.* = Vertex{
-                .pos = geometry.mat4.mulVec(f32, this.transform, vertex.pos ++ [2]f32{ 0, 1 })[0..2].*,
-                .uv = vertex.uv,
-                .color = vertex.color,
-            };
-        }
-    }
-
     pub fn transformed(this: @This(), transform: [4][4]f32) Transformed {
         return Transformed{
             .canvas = this.canvas,
@@ -746,11 +778,6 @@ pub const Transformed = struct {
     }
 };
 
-const UniformLocations = struct {
-    projection: c_int,
-    texture: c_int,
-};
-
 const FontPage = struct {
     texture: *seizer.Graphics.Texture,
     size: [2]f32,
@@ -760,6 +787,17 @@ const Vertex = struct {
     pos: [2]f32,
     uv: [2]f32,
     color: [4]u8,
+};
+
+const UniformData = extern struct {
+    transform: [4][4]f32,
+    texture_id: u32,
+};
+
+const Batch = struct {
+    vertex_count: u32,
+    vertex_offset: u32,
+    uniforms: UniformData,
 };
 
 const log = std.log.scoped(.Canvas);

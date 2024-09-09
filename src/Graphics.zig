@@ -93,6 +93,7 @@ pub const Pipeline = opaque {
         fragment_shader: *Shader,
         blend: ?Blend,
         primitive_type: Primitive,
+        push_constants: PushConstants,
         uniforms: []const UniformDescription,
         vertex_layout: []const VertexAttribute,
     };
@@ -121,6 +122,11 @@ pub const Pipeline = opaque {
         };
     };
 
+    pub const PushConstants = struct {
+        size: u32,
+        stages: Stages,
+    };
+
     pub const UniformDescription = struct {
         binding: u32,
         type: Type,
@@ -132,10 +138,10 @@ pub const Pipeline = opaque {
             sampler2D,
             buffer,
         };
-        pub const Stages = packed struct(u2) {
-            vertex: bool = false,
-            fragment: bool = false,
-        };
+    };
+    pub const Stages = packed struct(u2) {
+        vertex: bool = false,
+        fragment: bool = false,
     };
 
     pub const VertexAttribute = struct {
