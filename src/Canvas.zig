@@ -767,6 +767,7 @@ pub const Transformed = struct {
         }
         return Transformed{
             .canvas = this.canvas,
+            .command_buffer = this.command_buffer,
             .transform = this.transform,
             .scissor = scissor_rect_opt,
         };
