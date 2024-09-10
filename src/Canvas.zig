@@ -659,11 +659,6 @@ pub const Transformed = struct {
     }
 
     pub fn line(this: @This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
-        if (this.canvas.current_texture != null) {
-            this.canvas.flush(this.command_buffer);
-            this.canvas.current_texture = null;
-        }
-
         const half_width = options.width / 2;
         const half_length = geometry.vec.magnitude(2, f32, .{
             pos2[0] - pos1[0],
@@ -700,7 +695,7 @@ pub const Transformed = struct {
             midpoint[1] + half_length * forward[1] + half_width * right[1],
         };
 
-        this.addVertices(&.{
+        this.canvas.addVertices(this.command_buffer, this.transform, this.canvas.blank_texture, &.{
             .{
                 .pos = back_left,
                 .uv = .{ 0, 0 },
