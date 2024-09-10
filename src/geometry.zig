@@ -1,5 +1,6 @@
 //! Defines geometry primitives
 
+pub const mat3 = @import("./geometry/mat3.zig");
 pub const mat4 = @import("./geometry/mat4.zig");
 pub const vec = @import("./geometry/vec.zig");
 
