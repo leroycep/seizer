@@ -1,5 +1,6 @@
 pub const main = seizer.main;
 
+var gfx: seizer.Graphics = undefined;
 var canvas: seizer.Canvas = undefined;
 
 var leftshoulder_input: bool = false;
@@ -9,13 +10,15 @@ var cancel_input: bool = false;
 var window_global: seizer.Window = undefined;
 
 pub fn init() !void {
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    errdefer gfx.destroy();
+
     window_global = try seizer.platform.createWindow(.{
         .title = "Gamepad - Seizer Example",
         .on_render = render,
-        .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
     try seizer.platform.addButtonInput(.{
@@ -85,11 +88,13 @@ pub fn init() !void {
             .{ .keyboard = .esc },
         },
     });
+
+    seizer.platform.setDeinitCallback(deinit);
 }
 
-pub fn deinit(window: seizer.Window) void {
-    _ = window;
+pub fn deinit() void {
     canvas.deinit();
+    gfx.destroy();
 }
 
 fn onPerformAction(pressed: bool) !void {
@@ -128,13 +133,15 @@ fn onDPadDown(pressed: bool) !void {
 }
 
 fn render(window: seizer.Window) !void {
-    gl.clearColor(0.7, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    const c = canvas.begin(.{
-        .window_size = window.getSize(),
-        .framebuffer_size = window.getFramebufferSize(),
+    const cmd_buf = try gfx.begin(.{
+        .size = window.getSize(),
+        .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
+
+    const c = canvas.begin(cmd_buf, .{
+        .window_size = window.getSize(),
+    });
+
     var text_writer = c.textWriter(.{});
     const console = text_writer.writer();
 
@@ -149,11 +156,10 @@ fn render(window: seizer.Window) !void {
     try console.print("dpdown = {}\n", .{dpad_down});
     try console.print("dpleft = {}\n", .{dpad_left});
 
-    canvas.end();
+    canvas.end(cmd_buf);
 
-    try window.swapBuffers();
+    try window.presentFrame(try cmd_buf.end());
 }
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");

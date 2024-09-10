@@ -93,7 +93,7 @@ pub const Pipeline = opaque {
         fragment_shader: *Shader,
         blend: ?Blend,
         primitive_type: Primitive,
-        push_constants: PushConstants,
+        push_constants: ?PushConstants,
         uniforms: []const UniformDescription,
         vertex_layout: []const VertexAttribute,
     };

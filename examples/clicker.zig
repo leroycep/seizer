@@ -2,6 +2,7 @@ pub const main = seizer.main;
 
 const APPNAME = "seizer-example-clicker";
 
+var gfx: seizer.Graphics = undefined;
 var canvas: seizer.Canvas = undefined;
 
 var clicks: ?u64 = null;
@@ -9,13 +10,15 @@ var clicks: ?u64 = null;
 var clicks_read_buffer: [8]u8 = undefined;
 
 pub fn init() !void {
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    errdefer gfx.destroy();
+
     _ = try seizer.platform.createWindow(.{
         .title = "Clicker - Seizer Example",
         .on_render = render,
-        .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
     try seizer.platform.addButtonInput(.{
@@ -34,6 +37,8 @@ pub fn init() !void {
         .callback = onClicksFileRead,
         .userdata = null,
     });
+
+    seizer.platform.setDeinitCallback(deinit);
 }
 
 fn onClicksFileRead(userdata: ?*anyopaque, result: seizer.Platform.FileError![]const u8) void {
@@ -51,9 +56,9 @@ fn onClicksFileWritten(userdata: ?*anyopaque, result: seizer.Platform.FileError!
     seizer.platform.allocator().destroy(clicks_write_buffer);
 }
 
-pub fn deinit(window: seizer.Window) void {
-    _ = window;
+pub fn deinit() void {
     canvas.deinit();
+    gfx.destroy();
 }
 
 fn onClick(pressed: bool) !void {
@@ -75,25 +80,27 @@ fn onClick(pressed: bool) !void {
 }
 
 fn render(window: seizer.Window) !void {
-    gl.clearColor(0.7, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    const window_size = window.getSize();
-
-    const c = canvas.begin(.{
-        .window_size = window.getSize(),
-        .framebuffer_size = window.getFramebufferSize(),
+    const cmd_buf = try gfx.begin(.{
+        .size = window.getSize(),
+        .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
+
+    const c = canvas.begin(cmd_buf, .{
+        .window_size = window.getSize(),
+    });
+
+    const window_size = [2]f32{ @floatFromInt(window.getSize()[0]), @floatFromInt(window.getSize()[1]) };
+
     _ = c.printText(.{ window_size[0] / 2, window_size[1] / 2 }, "Clicks: {?}", .{clicks}, .{
         .scale = 3,
         .@"align" = .center,
         .baseline = .middle,
     });
-    canvas.end();
 
-    try window.swapBuffers();
+    canvas.end(cmd_buf);
+
+    try window.presentFrame(try cmd_buf.end());
 }
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");

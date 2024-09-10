@@ -1,29 +1,37 @@
-tex: Texture,
+tex: *seizer.Graphics.Texture,
 texPos1: [2]f32,
 texPos2: [2]f32,
 tile_size: [2]f32,
 
 /// Creates a NinePatch with no outside edges, only a single image that will be stretched
-pub fn initStretched(tex: Texture, rect: geom.Rect(f32)) @This() {
-    return @This(){
-        .tex = tex,
-        .texPos1 = tex.pix2uv(rect.topLeft()),
-        .texPos2 = tex.pix2uv(rect.bottomRight()),
-        .tile_size = .{ 0, 0 },
-    };
+pub fn initStretched(tex: *seizer.Graphics.Texture, texture_size: [2]u32, rect: geom.Rect(f32)) @This() {
+    return initv(tex, texture_size, rect, .{ 0, 0 });
 }
 
-pub fn initv(tex: Texture, rect: geom.Rect(f32), tile_size: [2]f32) @This() {
+pub fn initv(tex: *seizer.Graphics.Texture, texture_size: [2]u32, rect: geom.Rect(f32), tile_size: [2]f32) @This() {
+    const texture_sizef = [2]f32{
+        @floatFromInt(texture_size[0]),
+        @floatFromInt(texture_size[1]),
+    };
+    const top_left = rect.topLeft();
+    const bottom_right = rect.bottomRight();
     return @This(){
         .tex = tex,
-        .texPos1 = tex.pix2uv(rect.topLeft()),
-        .texPos2 = tex.pix2uv(rect.bottomRight()),
+        .texPos1 = [2]f32{
+            top_left[0] / texture_sizef[0],
+            top_left[1] / texture_sizef[1],
+        },
+        .texPos2 = [2]f32{
+            bottom_right[0] / texture_sizef[0],
+            bottom_right[1] / texture_sizef[1],
+        },
         .tile_size = tile_size,
     };
 }
 
-pub fn init(texPos1: [2]f32, texPos2: [2]f32, tile_size: [2]f32) @This() {
+pub fn init(tex: *seizer.Graphics.Texture, texPos1: [2]f32, texPos2: [2]f32, tile_size: [2]f32) @This() {
     return @This(){
+        .tex = tex,
         .texPos1 = texPos1,
         .texPos2 = texPos2,
         .tile_size = tile_size,
@@ -41,7 +49,7 @@ pub fn draw(this: @This(), canvas: Canvas.Transformed, rect: geom.Rect(f32), opt
     const pos_rects = this.getRectsPos(tl, size, options.scale);
     for (pos_rects, uv_rects) |pos_rect, uv_rect| {
         canvas.rect(pos_rect.pos, pos_rect.size, .{
-            .texture = this.tex.glTexture,
+            .texture = this.tex,
             .uv = uv_rect,
             .color = options.color,
         });
@@ -110,6 +118,5 @@ fn getRectsUV(this: @This()) [9]geom.AABB(f32) {
 
 const std = @import("std");
 const seizer = @import("./seizer.zig");
-const Texture = seizer.Texture;
 const Canvas = seizer.Canvas;
 const geom = @import("geometry.zig");

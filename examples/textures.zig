@@ -134,6 +134,7 @@ pub fn init() !void {
                 .stages = .{ .fragment = true },
             },
         },
+        .push_constants = null,
         .vertex_layout = &[_]seizer.Graphics.Pipeline.VertexAttribute{
             .{
                 .attribute_index = 0,
@@ -173,7 +174,7 @@ fn render(window: seizer.Window) !void {
         .clear_color = null,
     });
 
-    cmd_buf.uploadUniformTexture(pipeline, 0, player_texture);
+    cmd_buf.uploadUniformTexture(pipeline, 0, 0, player_texture);
     cmd_buf.uploadToBuffer(vertex_buffer, std.mem.asBytes(&VERTS));
     cmd_buf.bindPipeline(pipeline);
     cmd_buf.bindVertexBuffer(pipeline, vertex_buffer);

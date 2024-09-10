@@ -848,17 +848,21 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
     }, null) catch unreachable;
     errdefer this.vk_device.destroyDescriptorSetLayout(vk_descriptor_set_layout, null);
 
+    var push_constant_ranges_buf: [1]vk.PushConstantRange = undefined;
+    const push_constants_ranges_ptr: ?[*]vk.PushConstantRange = if (options.push_constants) |push_constants| copy_data: {
+        push_constant_ranges_buf[0] = vk.PushConstantRange{
+            .stage_flags = .{ .vertex_bit = push_constants.stages.vertex, .fragment_bit = push_constants.stages.fragment },
+            .offset = 0,
+            .size = push_constants.size,
+        };
+        break :copy_data push_constant_ranges_buf[0..1];
+    } else null;
+
     const pipeline_layout = this.vk_device.createPipelineLayout(&vk.PipelineLayoutCreateInfo{
         .set_layout_count = 1,
         .p_set_layouts = &[_]vk.DescriptorSetLayout{vk_descriptor_set_layout},
-        .push_constant_range_count = 1,
-        .p_push_constant_ranges = &[1]vk.PushConstantRange{
-            .{
-                .stage_flags = .{ .vertex_bit = options.push_constants.stages.vertex, .fragment_bit = options.push_constants.stages.fragment },
-                .offset = 0,
-                .size = options.push_constants.size,
-            },
-        },
+        .push_constant_range_count = if (options.push_constants != null) 1 else 0,
+        .p_push_constant_ranges = push_constants_ranges_ptr,
     }, null) catch unreachable;
     errdefer this.vk_device.destroyPipelineLayout(pipeline_layout, null);
 

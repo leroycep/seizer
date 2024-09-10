@@ -1,40 +1,64 @@
 pub const main = seizer.main;
 
+var gfx: seizer.Graphics = undefined;
 var canvas: seizer.Canvas = undefined;
-var shield_texture: seizer.Texture = undefined;
+var shield_texture: *seizer.Graphics.Texture = undefined;
+var shield_size: [2]f32 = .{ 0, 0 };
 
 pub fn init() !void {
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    errdefer gfx.destroy();
+
     _ = try seizer.platform.createWindow(.{
         .title = "TinyVG - Seizer Example",
         .on_render = render,
-        .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
-    shield_texture = try seizer.Texture.initFromTVG(seizer.platform.allocator(), &shield_icon_tvg, .{});
-    errdefer shield_texture.deinit();
+    var shield_image = try seizer.tvg.rendering.renderBuffer(seizer.platform.allocator(), seizer.platform.allocator(), .inherit, null, &shield_icon_tvg);
+    defer shield_image.deinit(seizer.platform.allocator());
+
+    shield_size = .{
+        @floatFromInt(shield_image.width),
+        @floatFromInt(shield_image.height),
+    };
+
+    shield_texture = try gfx.createTexture(
+        seizer.zigimg.Image{
+            .width = shield_image.width,
+            .height = shield_image.height,
+            .pixels = .{ .rgba32 = @ptrCast(shield_image.pixels) },
+        },
+        .{},
+    );
+    errdefer gfx.destroyTexture(shield_texture);
+
+    seizer.platform.setDeinitCallback(deinit);
 }
 
-pub fn deinit(window: seizer.Window) void {
-    _ = window;
+pub fn deinit() void {
     canvas.deinit();
-    shield_texture.deinit();
+    gfx.destroyTexture(shield_texture);
+    gfx.destroy();
 }
 
 fn render(window: seizer.Window) !void {
-    gl.clearColor(0.7, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    const c = canvas.begin(.{
-        .window_size = window.getSize(),
-        .framebuffer_size = window.getFramebufferSize(),
+    const cmd_buf = try gfx.begin(.{
+        .size = window.getSize(),
+        .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
-    c.rect(.{ 50, 50 }, [2]f32{ @floatFromInt(shield_texture.size[0]), @floatFromInt(shield_texture.size[1]) }, .{ .texture = shield_texture.glTexture });
-    canvas.end();
 
-    try window.swapBuffers();
+    const c = canvas.begin(cmd_buf, .{
+        .window_size = window.getSize(),
+    });
+
+    c.rect(.{ 50, 50 }, shield_size, .{ .texture = shield_texture });
+
+    canvas.end(cmd_buf);
+
+    try window.presentFrame(try cmd_buf.end());
 }
 
 const shield_icon_tvg = [_]u8{
@@ -51,5 +75,4 @@ const shield_icon_tvg = [_]u8{
 };
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");
