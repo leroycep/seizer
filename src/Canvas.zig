@@ -221,7 +221,7 @@ pub fn init(
 
     var vertex_buffers: [10]*seizer.Graphics.Buffer = undefined;
     for (vertex_buffers[0..]) |*vertex_buffer| {
-        vertex_buffer.* = try graphics.createBuffer(.{ .size = @intCast(options.vertex_buffer_size) });
+        vertex_buffer.* = try graphics.createBuffer(.{ .size = @intCast(options.vertex_buffer_size * @sizeOf(Vertex)) });
         errdefer graphics.destroyBuffer(vertex_buffer);
     }
 
