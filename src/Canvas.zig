@@ -30,6 +30,7 @@ scissor: ?seizer.geometry.Rect(f32) = null,
 const Canvas = @This();
 
 pub const RectOptions = struct {
+    depth: f32 = 0.5,
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
     texture: ?*seizer.Graphics.Texture = null,
     /// The top left and bottom right coordinates
@@ -37,6 +38,7 @@ pub const RectOptions = struct {
 };
 
 pub const TextOptions = struct {
+    depth: f32 = 0.5,
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
     scale: f32 = 1,
     @"align": Align = .left,
@@ -58,6 +60,7 @@ pub const TextOptions = struct {
 };
 
 pub const LineOptions = struct {
+    depth: f32 = 0.5,
     width: f32 = 1,
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
 };
@@ -142,7 +145,7 @@ pub fn init(
             .{
                 .attribute_index = 0,
                 .buffer_slot = 0,
-                .len = 2,
+                .len = 3,
                 .type = .f32,
                 .normalized = false,
                 .stride = @sizeOf(Vertex),
@@ -279,15 +282,14 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
     };
 
     this.current_uniform_data = .{
-        .transform = geometry.mat4.orthographic(
-            f32,
-            0,
-            this.window_size[0],
-            if (options.invert_y) 0 else this.window_size[1],
-            if (options.invert_y) this.window_size[1] else 0,
-            0,
-            1,
-        ),
+        .transform = switch (this.graphics.interface.driver) {
+            .gles3v0 => geometry.mat4.orthographic(f32, 0, this.window_size[0], if (options.invert_y) 0 else this.window_size[1], if (options.invert_y) this.window_size[1] else 0, 0, 1),
+            .vulkan => geometry.mat4.mulAll(f32, &.{
+                geometry.mat4.translate(f32, .{ -1.0, -1.0, 0.0 }),
+                geometry.mat4.scale(f32, .{ 2.0 / this.window_size[0], 2.0 / this.window_size[1], 0.0 }),
+            }),
+            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+        },
         .texture_id = 0,
     };
     this.batches.shrinkRetainingCapacity(0);
@@ -393,6 +395,7 @@ pub const TextWriter = struct {
 
     pub const Options = struct {
         pos: [2]f32 = .{ 0, 0 },
+        depth: f32 = 1,
         color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
         scale: f32 = 1,
         background: ?[4]u8 = null,
@@ -539,7 +542,7 @@ pub const Transformed = struct {
         this.canvas.addVertices(this.command_buffer, this.transform, options.texture orelse this.canvas.blank_texture, &.{
             // triangle 1
             .{
-                .pos = pos,
+                .pos = pos ++ [1]f32{options.depth},
                 .uv = options.uv.min,
                 .color = options.color,
             },
@@ -547,6 +550,7 @@ pub const Transformed = struct {
                 .pos = .{
                     pos[0] + size[0],
                     pos[1],
+                    options.depth,
                 },
                 .uv = .{
                     options.uv.max[0],
@@ -558,6 +562,7 @@ pub const Transformed = struct {
                 .pos = .{
                     pos[0],
                     pos[1] + size[1],
+                    options.depth,
                 },
                 .uv = .{
                     options.uv.min[0],
@@ -571,6 +576,7 @@ pub const Transformed = struct {
                 .pos = .{
                     pos[0] + size[0],
                     pos[1] + size[1],
+                    options.depth,
                 },
                 .uv = options.uv.max,
                 .color = options.color,
@@ -579,6 +585,7 @@ pub const Transformed = struct {
                 .pos = .{
                     pos[0],
                     pos[1] + size[1],
+                    options.depth,
                 },
                 .uv = .{
                     options.uv.min[0],
@@ -590,6 +597,7 @@ pub const Transformed = struct {
                 .pos = .{
                     pos[0] + size[0],
                     pos[1],
+                    options.depth,
                 },
                 .uv = .{
                     options.uv.max[0],
@@ -616,6 +624,7 @@ pub const Transformed = struct {
         };
         var text_writer = this.textWriter(.{
             .pos = .{ x, y },
+            .depth = options.depth,
             .scale = options.scale,
             .color = options.color,
             .background = options.background,
@@ -641,6 +650,7 @@ pub const Transformed = struct {
 
         var text_writer = this.textWriter(.{
             .pos = .{ x, y },
+            .depth = options.depth,
             .scale = options.scale,
             .color = options.color,
         });
@@ -697,33 +707,33 @@ pub const Transformed = struct {
 
         this.canvas.addVertices(this.command_buffer, this.transform, this.canvas.blank_texture, &.{
             .{
-                .pos = back_left,
+                .pos = back_left ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
             .{
-                .pos = fore_left,
+                .pos = fore_left ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
             .{
-                .pos = back_right,
+                .pos = back_right ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
 
             .{
-                .pos = back_right,
+                .pos = back_right ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
             .{
-                .pos = fore_left,
+                .pos = fore_left ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
             .{
-                .pos = fore_right,
+                .pos = fore_right ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
                 .color = options.color,
             },
@@ -780,7 +790,7 @@ const FontPage = struct {
 };
 
 const Vertex = struct {
-    pos: [2]f32,
+    pos: [3]f32,
     uv: [2]f32,
     color: [4]u8,
 };

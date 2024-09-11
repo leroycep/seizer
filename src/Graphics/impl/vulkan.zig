@@ -861,7 +861,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
     const pipeline_layout = this.vk_device.createPipelineLayout(&vk.PipelineLayoutCreateInfo{
         .set_layout_count = 1,
         .p_set_layouts = &[_]vk.DescriptorSetLayout{vk_descriptor_set_layout},
-        .push_constant_range_count = if (options.push_constants != null) 1 else 0,
+        .push_constant_range_count = if (push_constants_ranges_ptr != null) 1 else 0,
         .p_push_constant_ranges = push_constants_ranges_ptr,
     }, null) catch unreachable;
     errdefer this.vk_device.destroyPipelineLayout(pipeline_layout, null);

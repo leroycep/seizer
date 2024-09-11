@@ -423,7 +423,6 @@ const Wayland = struct {
 
             try this.setupFrameCallback();
 
-            try this.wl_surface.set_buffer_transform(@intFromEnum(wayland.wayland.wl_output.Transform.flipped_180));
             try this.wl_surface.attach(wl_buffer, 0, 0);
             try this.wl_surface.damage_buffer(0, 0, @intCast(render_buffer.getSize()[0]), @intCast(render_buffer.getSize()[1]));
             try this.wl_surface.commit();

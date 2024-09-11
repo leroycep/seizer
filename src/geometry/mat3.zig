@@ -47,7 +47,6 @@ pub fn rotate(comptime T: type, turns: T) [3][3]T {
     return .{
         .{ @cos(turns * std.math.tau), @sin(turns * std.math.tau), 0 },
         .{ -@sin(turns * std.math.tau), @cos(turns * std.math.tau), 0 },
-        .{ 0, 0, 0 },
         .{ 0, 0, 1 },
     };
 }
