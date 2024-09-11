@@ -2,10 +2,11 @@ stage: *ui.Stage,
 reference_count: usize = 1,
 parent: ?Element = null,
 
-texture: seizer.Texture,
+texture: *seizer.Graphics.Texture,
+texture_size: [2]u32,
 source_rect: seizer.geometry.Rect(f32),
 
-pub fn create(stage: *ui.Stage, texture: seizer.Texture) !*@This() {
+pub fn create(stage: *ui.Stage, texture: *seizer.Graphics.Texture, texture_size: [2]u32) !*@This() {
     const this = try stage.gpa.create(@This());
     errdefer stage.gpa.destroy(this);
 
@@ -13,9 +14,10 @@ pub fn create(stage: *ui.Stage, texture: seizer.Texture) !*@This() {
         .stage = stage,
 
         .texture = texture,
+        .texture_size = texture_size,
         .source_rect = .{
             .pos = .{ 0, 0 },
-            .size = [2]f32{ @floatFromInt(texture.size[0]), @floatFromInt(texture.size[1]) },
+            .size = [2]f32{ @floatFromInt(texture_size[0]), @floatFromInt(texture_size[1]) },
         },
     };
     return this;
@@ -69,15 +71,15 @@ fn getMinSize(this: *@This()) [2]f32 {
 }
 
 fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
-    const texture_size = [2]f32{
-        @floatFromInt(this.texture.size[0]),
-        @floatFromInt(this.texture.size[1]),
+    const texture_sizef = [2]f32{
+        @floatFromInt(this.texture_size[0]),
+        @floatFromInt(this.texture_size[1]),
     };
     canvas.rect(rect.pos, this.source_rect.size, .{
-        .texture = this.texture.glTexture,
+        .texture = this.texture,
         .uv = .{
-            .min = .{ this.source_rect.pos[0] / texture_size[0], this.source_rect.pos[1] / texture_size[1] },
-            .max = .{ (this.source_rect.pos[0] + this.source_rect.size[0]) / texture_size[0], (this.source_rect.pos[1] + this.source_rect.size[1]) / texture_size[1] },
+            .min = .{ this.source_rect.pos[0] / texture_sizef[0], this.source_rect.pos[1] / texture_sizef[1] },
+            .max = .{ (this.source_rect.pos[0] + this.source_rect.size[0]) / texture_sizef[0], (this.source_rect.pos[1] + this.source_rect.size[1]) / texture_sizef[1] },
         },
     });
 }

@@ -211,13 +211,6 @@ fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
     for (this.systems.values()) |system| {
         system.render_fn(system.userdata, this, canvas);
     }
-
-    _ = parent_canvas.printText(rect.pos, "scissor = <{d:.2}, {d:.2}> {d:.2}x{d:.2}", .{
-        canvas.scissor.?.pos[0],
-        canvas.scissor.?.pos[1],
-        canvas.scissor.?.size[0],
-        canvas.scissor.?.size[1],
-    }, .{});
 }
 
 fn element_getChildRect(this: *@This(), child: Element) ?Element.TransformedRect {
