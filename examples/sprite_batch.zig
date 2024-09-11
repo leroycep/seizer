@@ -1,7 +1,9 @@
 pub const main = seizer.main;
 
+var gfx: seizer.Graphics = undefined;
 var canvas: seizer.Canvas = undefined;
-var player_texture: seizer.Texture = undefined;
+var player_image_size: [2]f32 = .{ 1, 1 };
+var player_texture: *seizer.Graphics.Texture = undefined;
 var sprites: std.MultiArrayList(Sprite) = .{};
 
 var spawn_timer_duration: u32 = 10;
@@ -35,16 +37,28 @@ pub fn keepInBounds(positions: []const [2]f32, velocities: [][2]f32, sizes: []co
 }
 
 pub fn init() !void {
+    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    errdefer gfx.destroy();
+
     _ = try seizer.platform.createWindow(.{
         .title = "Sprite Batch - Seizer Example",
         .on_render = render,
         .on_destroy = deinit,
     });
 
-    canvas = try seizer.Canvas.init(seizer.platform.allocator(), .{});
+    canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
-    player_texture = try seizer.Texture.initFromFileContents(seizer.platform.allocator(), @embedFile("assets/wedge.png"), .{});
+    var player_image = try seizer.zigimg.Image.fromMemory(seizer.platform.allocator(), @embedFile("assets/wedge.png"));
+    defer player_image.deinit();
+
+    player_image_size = [2]f32{
+        @floatFromInt(player_image.width),
+        @floatFromInt(player_image.height),
+    };
+
+    player_texture = try gfx.createTexture(player_image, .{});
+    errdefer gfx.destroyTexture(player_texture);
 
     prng = std.rand.DefaultPrng.init(1337);
 }
@@ -52,7 +66,9 @@ pub fn init() !void {
 pub fn deinit(window: seizer.Window) void {
     _ = window;
     sprites.deinit(seizer.platform.allocator());
+    gfx.destroyTexture(player_texture);
     canvas.deinit();
+    gfx.destroy();
 }
 
 fn render(window: seizer.Window) !void {
@@ -64,7 +80,10 @@ fn render(window: seizer.Window) !void {
         frametime_index += 1;
         frametime_index %= frametimes.len;
     }
-    const world_bounds = WorldBounds{ .min = .{ 0, 0 }, .max = window.getSize() };
+    const world_bounds = WorldBounds{
+        .min = .{ 0, 0 },
+        .max = .{ @floatFromInt(window.getSize()[0]), @floatFromInt(window.getSize()[1]) },
+    };
 
     // update sprites
     {
@@ -84,8 +103,8 @@ fn render(window: seizer.Window) !void {
 
         const scale = prng.random().float(f32) * 3;
         const size = [2]f32{
-            @as(f32, @floatFromInt(player_texture.size[0])) * scale,
-            @as(f32, @floatFromInt(player_texture.size[1])) * scale,
+            player_image_size[0] * scale,
+            player_image_size[1] * scale,
         };
         try sprites.append(seizer.platform.allocator(), .{
             .pos = .{
@@ -100,19 +119,20 @@ fn render(window: seizer.Window) !void {
         });
     }
 
-    gl.clearColor(0.7, 0.5, 0.5, 1.0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    const cmd_buf = try gfx.begin(.{
+        .size = window.getSize(),
+        .clear_color = null,
+    });
 
-    const c = canvas.begin(.{
+    const c = canvas.begin(cmd_buf, .{
         .window_size = window.getSize(),
-        .framebuffer_size = window.getFramebufferSize(),
     });
 
     for (sprites.items(.pos), sprites.items(.size)) |pos, size| {
         c.rect(
             pos,
             size,
-            .{ .texture = player_texture.glTexture },
+            .{ .texture = player_texture },
         );
     }
 
@@ -126,11 +146,10 @@ fn render(window: seizer.Window) !void {
     }
     _ = c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{});
 
-    canvas.end();
+    canvas.end(cmd_buf);
 
-    try window.swapBuffers();
+    try window.presentFrame(try cmd_buf.end());
 }
 
 const seizer = @import("seizer");
-const gl = seizer.gl;
 const std = @import("std");
