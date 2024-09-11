@@ -399,6 +399,11 @@ const Wayland = struct {
 
             var dmabuf_planes_buf: [10]seizer.Graphics.RenderBuffer.DmaBufPlane = undefined;
             const dmabuf_planes = render_buffer.getDmaBufPlanes(dmabuf_planes_buf[0..]);
+            defer {
+                for (dmabuf_planes) |plane| {
+                    std.posix.close(plane.fd);
+                }
+            }
             for (dmabuf_planes) |plane| {
                 try wl_dmabuf_buffer_params.add(
                     @enumFromInt(plane.fd),
