@@ -5,13 +5,9 @@ graphics: seizer.Graphics,
 
 pipeline: *seizer.Graphics.Pipeline,
 
-current_uniform_data: UniformData = .{
-    .transform = seizer.geometry.mat4.identity(f32),
-    .texture_id = 0,
-},
 vertices: std.ArrayListUnmanaged(Vertex),
 batches: std.ArrayListUnmanaged(Batch),
-start_of_batch: u32 = 0,
+current_batch: Batch,
 texture_ids: std.AutoArrayHashMapUnmanaged(*seizer.Graphics.Texture, u32),
 next_texture_id: u32 = 0,
 
@@ -26,6 +22,7 @@ vertex_buffers: [10]*seizer.Graphics.Buffer,
 current_vertex_buffer_index: usize = 0,
 
 scissor: ?seizer.geometry.Rect(f32) = null,
+projection: [4][4]f32,
 
 const Canvas = @This();
 
@@ -134,6 +131,13 @@ pub fn init(
         },
         .uniforms = &[_]seizer.Graphics.Pipeline.UniformDescription{
             .{
+                .binding = 0,
+                .size = @sizeOf(GlobalConstants),
+                .type = .buffer,
+                .count = 1,
+                .stages = .{ .vertex = true },
+            },
+            .{
                 .binding = 1,
                 .size = 0,
                 .type = .sampler2D,
@@ -235,6 +239,7 @@ pub fn init(
         .pipeline = pipeline,
         .vertices = vertices,
         .batches = batches,
+        .current_batch = undefined,
         .texture_ids = texture_ids,
 
         .blank_texture = blank_texture,
@@ -242,6 +247,7 @@ pub fn init(
         .font_pages = font_pages,
 
         .vertex_buffers = vertex_buffers,
+        .projection = undefined,
     };
 }
 
@@ -268,7 +274,7 @@ pub fn deinit(this: *@This()) void {
 pub const BeginOptions = struct {
     window_size: [2]u32,
     invert_y: bool = false,
-    scissor: ?seizer.geometry.Rect(f32) = null,
+    scissor: ?struct { [2]i32, [2]u32 } = null,
 };
 
 pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, options: BeginOptions) Transformed {
@@ -281,109 +287,59 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
         @floatFromInt(options.window_size[1]),
     };
 
-    this.current_uniform_data = .{
-        .transform = switch (this.graphics.interface.driver) {
-            .gles3v0 => geometry.mat4.orthographic(f32, 0, this.window_size[0], if (options.invert_y) 0 else this.window_size[1], if (options.invert_y) this.window_size[1] else 0, 0, 1),
-            .vulkan => geometry.mat4.mulAll(f32, &.{
-                geometry.mat4.translate(f32, .{ -1.0, -1.0, 0.0 }),
-                geometry.mat4.scale(f32, .{ 2.0 / this.window_size[0], 2.0 / this.window_size[1], 0.0 }),
-            }),
-            else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
-        },
-        .texture_id = 0,
-    };
     this.batches.shrinkRetainingCapacity(0);
     this.vertices.shrinkRetainingCapacity(0);
-    this.start_of_batch = 0;
-    this.setScissor(options.scissor);
+    this.projection = switch (this.graphics.interface.driver) {
+        .gles3v0 => geometry.mat4.orthographic(f32, 0, this.window_size[0], if (options.invert_y) 0 else this.window_size[1], if (options.invert_y) this.window_size[1] else 0, 0, 1),
+        .vulkan => geometry.mat4.mulAll(f32, &.{
+            geometry.mat4.translate(f32, .{ -1.0, -1.0, 0.0 }),
+            geometry.mat4.scale(f32, .{ 2.0 / this.window_size[0], 2.0 / this.window_size[1], 0.0 }),
+        }),
+        else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
+    };
+
+    this.current_batch = .{
+        .vertex_offset = 0,
+        .vertex_count = undefined,
+        .scissor = .{ .pos = .{ 0, 0 }, .size = options.window_size },
+        .uniforms = .{
+            .transform = geometry.mat4.identity(f32),
+            .texture_id = 0,
+        },
+    };
 
     this.texture_ids.shrinkRetainingCapacity(0);
     this.texture_ids.putAssumeCapacityNoClobber(this.blank_texture, 0);
+    command_buffer.uploadUniformBuffer(this.pipeline, 0, 0, std.mem.asBytes(&this.projection), 0);
     command_buffer.uploadUniformTexture(this.pipeline, 1, 0, this.blank_texture);
     this.next_texture_id = 1;
 
     return Transformed{
         .canvas = this,
         .command_buffer = command_buffer,
-        .transform = this.current_uniform_data.transform,
+        .transform = this.current_batch.uniforms.transform,
+        .scissor = this.current_batch.scissor,
     };
 }
 
 pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
-    this.flush(command_buffer);
+    this.flush();
 
     command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
     command_buffer.bindPipeline(this.pipeline);
     command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
 
     for (this.batches.items) |batch| {
+        command_buffer.setScissor(batch.scissor.pos, batch.scissor.size);
         command_buffer.pushConstants(this.pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
         command_buffer.drawPrimitives(batch.vertex_count, 1, batch.vertex_offset, 0);
     }
 }
 
-// TODO: Potentially rename? Might switch to using a stencil buffer instead of gl scissor
-pub fn setScissor(this: *@This(), new_scissor_rect: ?seizer.geometry.Rect(f32)) void {
-    if (true) return;
-    if (this.scissor != null and new_scissor_rect != null) {
-        if (!this.scissor.?.eq(new_scissor_rect.?)) {
-            this.flush();
-            this.scissor = new_scissor_rect.?;
-            // gl.scissor(
-            //     @intFromFloat(new_scissor_rect.?.pos[0]),
-            //     @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
-            //     @intFromFloat(new_scissor_rect.?.size[0]),
-            //     @intFromFloat(new_scissor_rect.?.size[1]),
-            // );
-        }
-    } else if (this.scissor == null and new_scissor_rect != null) {
-        this.flush();
-        // gl.enable(gl.SCISSOR_TEST);
-        this.scissor = new_scissor_rect;
-        // gl.scissor(
-        //     @intFromFloat(new_scissor_rect.?.pos[0]),
-        //     @intFromFloat(this.window_size[1] - new_scissor_rect.?.pos[1] - new_scissor_rect.?.size[1]),
-        //     @intFromFloat(new_scissor_rect.?.size[0]),
-        //     @intFromFloat(new_scissor_rect.?.size[1]),
-        // );
-    } else if (this.scissor != null and new_scissor_rect == null) {
-        this.flush();
-        // gl.disable(gl.SCISSOR_TEST);
-        this.scissor = null;
-    }
+pub fn setScissor(this: *@This(), pos: [2]i32, size: [2]u32) void {
+    this.flush();
+    this.current_batch.scissor = .{ pos, size };
 }
-
-// pub fn rect(this: *@This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-//     return transformed.rect(pos, size, options);
-// }
-
-// pub fn line(this: *@This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
-//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-//     return transformed.line(pos1, pos2, options);
-// }
-
-// pub fn writeText(this: *@This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
-//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-//     return transformed.writeText(pos, text, options);
-// }
-
-// pub fn printText(this: *@This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
-//     const transformed = Transformed{ .canvas = this, .transform = geometry.mat4.identity(f32) };
-//     return transformed.printText(pos, fmt, args, options);
-// }
-
-// pub fn textWriter(this: *@This(), options: TextWriter.Options) TextWriter {
-//     return TextWriter{
-//         .transformed = .{
-//             .canvas = this,
-//             .transform = geometry.mat4.identity(f32),
-//         },
-//         .options = options,
-//         .direction = 1,
-//         .current_pos = options.pos,
-//     };
-// }
 
 pub const TextWriter = struct {
     transformed: Transformed,
@@ -494,7 +450,7 @@ pub const TextWriter = struct {
 };
 
 /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
-pub fn addVertices(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, vertices: []const Vertex) void {
+pub fn addVertices(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, scissor: Scissor, vertices: []const Vertex) void {
     if (vertices.len == 0) return;
 
     const texture_slot = this.texture_ids.getOrPutAssumeCapacity(texture);
@@ -505,30 +461,32 @@ pub fn addVertices(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer
         this.next_texture_id += 1;
     }
 
-    const is_transform_changed = !std.meta.eql(transform, this.current_uniform_data.transform);
-    const is_texture_changed = this.current_uniform_data.texture_id != texture_slot.value_ptr.*;
-    if (is_transform_changed or is_texture_changed) {
-        this.flush(command_buffer);
-        this.current_uniform_data = .{
+    const is_transform_changed = !std.meta.eql(transform, this.current_batch.uniforms.transform);
+    const is_texture_changed = this.current_batch.uniforms.texture_id != texture_slot.value_ptr.*;
+    const is_scissor_changed = !std.meta.eql(scissor, this.current_batch.scissor);
+    if (is_transform_changed or is_texture_changed or is_scissor_changed) {
+        this.flush();
+        this.current_batch.uniforms = .{
             .transform = transform,
             .texture_id = texture_slot.value_ptr.*,
         };
+        this.current_batch.scissor = scissor;
     }
 
     this.vertices.appendSliceAssumeCapacity(vertices);
 }
 
-pub fn flush(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
-    if (this.vertices.items.len - this.start_of_batch == 0) return;
-    _ = command_buffer;
+pub fn flush(this: *@This()) void {
+    if (this.vertices.items.len - this.current_batch.vertex_offset == 0) return;
 
     this.batches.append(this.allocator, Batch{
-        .vertex_count = @as(u32, @intCast(this.vertices.items.len)) - this.start_of_batch,
-        .vertex_offset = this.start_of_batch,
-        .uniforms = this.current_uniform_data,
+        .vertex_offset = this.current_batch.vertex_offset,
+        .vertex_count = @as(u32, @intCast(this.vertices.items.len)) - this.current_batch.vertex_offset,
+        .uniforms = this.current_batch.uniforms,
+        .scissor = this.current_batch.scissor,
     }) catch @panic("OutOfMemory for uniform batches");
 
-    this.start_of_batch = @intCast(this.vertices.items.len);
+    this.current_batch.vertex_offset = @intCast(this.vertices.items.len);
 }
 
 /// A transformed canvas
@@ -536,10 +494,10 @@ pub const Transformed = struct {
     canvas: *Canvas,
     command_buffer: seizer.Graphics.CommandBuffer,
     transform: [4][4]f32,
-    scissor: ?seizer.geometry.Rect(f32) = null,
+    scissor: Scissor,
 
     pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-        this.canvas.addVertices(this.command_buffer, this.transform, options.texture orelse this.canvas.blank_texture, &.{
+        this.canvas.addVertices(this.command_buffer, this.transform, options.texture orelse this.canvas.blank_texture, this.scissor, &.{
             // triangle 1
             .{
                 .pos = pos ++ [1]f32{options.depth},
@@ -705,7 +663,7 @@ pub const Transformed = struct {
             midpoint[1] + half_length * forward[1] + half_width * right[1],
         };
 
-        this.canvas.addVertices(this.command_buffer, this.transform, this.canvas.blank_texture, &.{
+        this.canvas.addVertices(this.command_buffer, this.transform, this.canvas.blank_texture, this.scissor, &.{
             .{
                 .pos = back_left ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
@@ -742,44 +700,45 @@ pub const Transformed = struct {
 
     pub fn transformed(this: @This(), transform: [4][4]f32) Transformed {
         return Transformed{
+            .command_buffer = this.command_buffer,
             .canvas = this.canvas,
             .transform = geometry.mat4.mul(f32, this.transform, transform),
             .scissor = this.scissor,
         };
     }
 
-    pub fn scissored(this: @This(), new_scissor_rect_opt: ?seizer.geometry.Rect(f32)) Transformed {
-        var scissor_rect_opt = new_scissor_rect_opt;
-        if (new_scissor_rect_opt) |new_scissor_rect| {
-            // TODO: the scissor doesn't work correctly if the canvas has been rotated or skewed
-            const top_left = new_scissor_rect.bottomLeft();
-            const bottom_right = new_scissor_rect.topRight();
+    pub fn scissored(this: @This(), new_scissor_rect: seizer.geometry.Rect(f32)) Transformed {
+        // TODO: the scissor doesn't work correctly if the canvas has been rotated or skewed
+        const top_left = new_scissor_rect.topLeft();
+        const bottom_right = new_scissor_rect.bottomRight();
 
-            const point1_transformed = geometry.mat4.mulVec(f32, this.transform, top_left ++ [2]f32{ 0, 1 })[0..2].*;
-            const point2_transformed = geometry.mat4.mulVec(f32, this.transform, bottom_right ++ [2]f32{ 0, 1 })[0..2].*;
+        const point1_transformed = geometry.mat4.mulVec(f32, this.transform, top_left ++ [2]f32{ 0, 1 })[0..2].*;
+        const point2_transformed = geometry.mat4.mulVec(f32, this.transform, bottom_right ++ [2]f32{ 0, 1 })[0..2].*;
 
-            const top_left_transformed = [2]f32{
-                @min(point1_transformed[0], point2_transformed[0]),
-                @min(point1_transformed[1], point2_transformed[1]),
-            };
-            const bottom_right_transformed = [2]f32{
-                @max(point1_transformed[0], point2_transformed[0]),
-                @max(point1_transformed[1], point2_transformed[1]),
-            };
+        const top_left_transformed = [2]f32{
+            @min(point1_transformed[0], point2_transformed[0]),
+            @min(point1_transformed[1], point2_transformed[1]),
+        };
+        const bottom_right_transformed = [2]f32{
+            @max(point1_transformed[0], point2_transformed[0]),
+            @max(point1_transformed[1], point2_transformed[1]),
+        };
 
-            scissor_rect_opt = seizer.geometry.Rect(f32){
-                .pos = top_left_transformed,
-                .size = [2]f32{
-                    bottom_right_transformed[0] - top_left_transformed[0],
-                    bottom_right_transformed[1] - top_left_transformed[1],
-                },
-            };
-        }
+        const new_scissor = Scissor{
+            .pos = [2]i32{
+                @intFromFloat(top_left_transformed[0]),
+                @intFromFloat(top_left_transformed[1]),
+            },
+            .size = [2]u32{
+                @intFromFloat(bottom_right_transformed[0] - top_left_transformed[0]),
+                @intFromFloat(bottom_right_transformed[1] - top_left_transformed[1]),
+            },
+        };
         return Transformed{
             .canvas = this.canvas,
             .command_buffer = this.command_buffer,
             .transform = this.transform,
-            .scissor = scissor_rect_opt,
+            .scissor = new_scissor,
         };
     }
 };
@@ -795,6 +754,10 @@ const Vertex = struct {
     color: [4]u8,
 };
 
+const GlobalConstants = extern struct {
+    projection: [4][4]f32,
+};
+
 const UniformData = extern struct {
     transform: [4][4]f32,
     texture_id: u32,
@@ -804,6 +767,12 @@ const Batch = struct {
     vertex_count: u32,
     vertex_offset: u32,
     uniforms: UniformData,
+    scissor: Scissor,
+};
+
+const Scissor = extern struct {
+    pos: [2]i32,
+    size: [2]u32,
 };
 
 const log = std.log.scoped(.Canvas);
