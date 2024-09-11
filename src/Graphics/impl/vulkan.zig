@@ -1123,7 +1123,9 @@ const CommandBuffer = struct {
         .uploadToBuffer = CommandBuffer._uploadToBuffer,
         .bindVertexBuffer = CommandBuffer._bindVertexBuffer,
         .uploadUniformTexture = CommandBuffer._uploadUniformTexture,
+        .uploadUniformBuffer = CommandBuffer._uploadUniformBuffer,
         .pushConstants = CommandBuffer._pushConstants,
+        .setScissor = CommandBuffer._setScissor,
         .end = CommandBuffer._end,
     });
 
@@ -1194,6 +1196,30 @@ const CommandBuffer = struct {
         }) catch unreachable;
     }
 
+    fn _uploadUniformBuffer(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, binding: u32, index: u32, data: []const u8, offset: u32) void {
+        const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+
+        const buffer = pipeline.uniforms.get(binding).?;
+        this.vk_device.cmdUpdateBuffer(this.vk_command_buffer, buffer.buffer, offset, @intCast(data.len), data.ptr);
+
+        this.descriptor_set_write_list.append(this.allocator, vk.WriteDescriptorSet{
+            .dst_set = undefined,
+            .dst_binding = binding,
+            .dst_array_element = index,
+            .descriptor_count = 1,
+            .descriptor_type = .uniform_buffer,
+            .p_image_info = undefined,
+            .p_buffer_info = (this.arena.allocator().dupe(vk.DescriptorBufferInfo, &[_]vk.DescriptorBufferInfo{
+                .{
+                    .buffer = buffer.buffer,
+                    .offset = @intCast(offset),
+                    .range = @intCast(data.len),
+                },
+            }) catch unreachable).ptr,
+            .p_texel_buffer_view = undefined,
+        }) catch unreachable;
+    }
+
     fn _pushConstants(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline, stages: seizer.Graphics.Pipeline.Stages, data: []const u8, offset: u32) void {
         const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
         this.vk_device.cmdPushConstants(
@@ -1204,6 +1230,18 @@ const CommandBuffer = struct {
             @intCast(data.len),
             data.ptr,
         );
+    }
+
+    fn _setScissor(this: *@This(), pos: [2]i32, size: [2]u32) void {
+        this.vk_device.cmdSetScissor(this.vk_command_buffer, 0, 1, &[_]vk.Rect2D{
+            .{
+                .offset = .{ .x = pos[0], .y = pos[1] },
+                .extent = vk.Extent2D{
+                    .width = size[0],
+                    .height = size[1],
+                },
+            },
+        });
     }
 
     fn _end(this: *@This()) seizer.Graphics.CommandBuffer.EndError!seizer.Graphics.RenderBuffer {
