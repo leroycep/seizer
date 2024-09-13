@@ -3,6 +3,16 @@ const CommandBuffer = @This();
 pointer: ?*anyopaque,
 interface: *const Interface,
 
+pub const RenderingOptions = struct {
+    clear_color: ?[4]f32,
+};
+pub inline fn beginRendering(command_buffer: CommandBuffer, rendering_options: RenderingOptions) void {
+    return command_buffer.interface.beginRendering(command_buffer, rendering_options);
+}
+pub inline fn endRendering(command_buffer: CommandBuffer) void {
+    return command_buffer.interface.endRendering(command_buffer);
+}
+
 pub inline fn bindPipeline(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline) void {
     return command_buffer.interface.bindPipeline(command_buffer, pipeline);
 }
@@ -42,6 +52,8 @@ pub inline fn end(command_buffer: CommandBuffer) EndError!Graphics.RenderBuffer 
 }
 
 pub const Interface = struct {
+    beginRendering: *const fn (CommandBuffer, RenderingOptions) void,
+    endRendering: *const fn (CommandBuffer) void,
     bindPipeline: *const fn (CommandBuffer, *Graphics.Pipeline) void,
     drawPrimitives: *const fn (CommandBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
     uploadToBuffer: *const fn (CommandBuffer, buffer: *Graphics.Buffer, data: []const u8) void,
@@ -53,6 +65,8 @@ pub const Interface = struct {
     end: *const fn (CommandBuffer) EndError!Graphics.RenderBuffer,
 
     pub fn getTypeErasedFunctions(comptime T: type, typed_fns: struct {
+        beginRendering: *const fn (*T, RenderingOptions) void,
+        endRendering: *const fn (*T) void,
         bindPipeline: fn (*T, *Graphics.Pipeline) void,
         drawPrimitives: fn (*T, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
         uploadToBuffer: fn (*T, buffer: *Graphics.Buffer, data: []const u8) void,
@@ -64,6 +78,14 @@ pub const Interface = struct {
         end: fn (*T) EndError!Graphics.RenderBuffer,
     }) Interface {
         const type_erased_fns = struct {
+            pub fn beginRendering(command_buffer: CommandBuffer, rendering_options: RenderingOptions) void {
+                const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
+                return @call(.always_inline, typed_fns.beginRendering, .{ t, rendering_options });
+            }
+            pub fn endRendering(command_buffer: CommandBuffer) void {
+                const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
+                return @call(.always_inline, typed_fns.endRendering, .{t});
+            }
             fn bindPipeline(command_buffer: CommandBuffer, pipeline: *Graphics.Pipeline) void {
                 const t: *T = @ptrCast(@alignCast(command_buffer.pointer));
                 return typed_fns.bindPipeline(t, pipeline);
@@ -102,6 +124,8 @@ pub const Interface = struct {
             }
         };
         return Interface{
+            .beginRendering = type_erased_fns.beginRendering,
+            .endRendering = type_erased_fns.endRendering,
             .bindPipeline = type_erased_fns.bindPipeline,
             .drawPrimitives = type_erased_fns.drawPrimitives,
             .uploadToBuffer = type_erased_fns.uploadToBuffer,

@@ -326,6 +326,8 @@ pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
     this.flush();
 
     command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+
+    command_buffer.beginRendering(.{ .clear_color = null });
     command_buffer.bindPipeline(this.pipeline);
     command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
 
@@ -334,6 +336,7 @@ pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
         command_buffer.pushConstants(this.pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
         command_buffer.drawPrimitives(batch.vertex_count, 1, batch.vertex_offset, 0);
     }
+    command_buffer.endRendering();
 }
 
 pub fn setScissor(this: *@This(), pos: [2]i32, size: [2]u32) void {

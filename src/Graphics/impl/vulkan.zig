@@ -8,7 +8,7 @@ vk_device: VulkanDevice,
 
 vk_command_pool: vk.CommandPool,
 vk_descriptor_pool: vk.DescriptorPool,
-vk_render_pass: vk.RenderPass,
+// vk_render_pass: vk.RenderPass,
 vk_graphics_queue: vk.Queue,
 
 vk_device_properties: vk.PhysicalDeviceProperties,
@@ -132,39 +132,39 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     const vk_device_properties = vk_instance.getPhysicalDeviceProperties(device_result.physical_device);
 
     // create render pass
-    const vk_render_pass = vk_device.createRenderPass(&vk.RenderPassCreateInfo{
-        .attachment_count = 1,
-        .p_attachments = &[_]vk.AttachmentDescription{
-            .{
-                .format = DEFAULT_IMAGE_FORMAT,
-                .samples = .{ .@"1_bit" = true },
-                .load_op = .clear,
-                .store_op = .store,
-                .stencil_load_op = .dont_care,
-                .stencil_store_op = .dont_care,
-                .initial_layout = .undefined,
-                .final_layout = .color_attachment_optimal,
-            },
-        },
-        .subpass_count = 1,
-        .p_subpasses = &[_]vk.SubpassDescription{
-            .{
-                .pipeline_bind_point = .graphics,
-                .color_attachment_count = 1,
-                .p_color_attachments = &[_]vk.AttachmentReference{
-                    .{
-                        .attachment = 0,
-                        .layout = .color_attachment_optimal,
-                    },
-                },
-            },
-        },
-    }, null) catch |err| switch (err) {
-        error.OutOfHostMemory => return error.OutOfMemory,
-        error.Unknown => return error.InitializationFailed,
-        error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
-    };
-    errdefer vk_device.destroyRenderPass(vk_render_pass, null);
+    // const vk_render_pass = vk_device.createRenderPass(&vk.RenderPassCreateInfo{
+    //     .attachment_count = 1,
+    //     .p_attachments = &[_]vk.AttachmentDescription{
+    //         .{
+    //             .format = DEFAULT_IMAGE_FORMAT,
+    //             .samples = .{ .@"1_bit" = true },
+    //             .load_op = .clear,
+    //             .store_op = .store,
+    //             .stencil_load_op = .dont_care,
+    //             .stencil_store_op = .dont_care,
+    //             .initial_layout = .undefined,
+    //             .final_layout = .color_attachment_optimal,
+    //         },
+    //     },
+    //     .subpass_count = 1,
+    //     .p_subpasses = &[_]vk.SubpassDescription{
+    //         .{
+    //             .pipeline_bind_point = .graphics,
+    //             .color_attachment_count = 1,
+    //             .p_color_attachments = &[_]vk.AttachmentReference{
+    //                 .{
+    //                     .attachment = 0,
+    //                     .layout = .color_attachment_optimal,
+    //                 },
+    //             },
+    //         },
+    //     },
+    // }, null) catch |err| switch (err) {
+    //     error.OutOfHostMemory => return error.OutOfMemory,
+    //     error.Unknown => return error.InitializationFailed,
+    //     error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
+    // };
+    // errdefer vk_device.destroyRenderPass(vk_render_pass, null);
 
     const vk_descriptor_pool = vk_device.createDescriptorPool(&vk.DescriptorPoolCreateInfo{
         .flags = .{ .free_descriptor_set_bit = true },
@@ -191,7 +191,7 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
         .image_format = DEFAULT_IMAGE_FORMAT,
 
         .vk_graphics_queue = this.vk_device.getDeviceQueue(device_result.queue_family_index, 0),
-        .vk_render_pass = vk_render_pass,
+        // .vk_render_pass = vk_render_pass,
 
         .vk_device_properties = vk_device_properties,
         .vk_memory_properties = this.vk_instance.getPhysicalDeviceMemoryProperties(device_result.physical_device),
@@ -324,13 +324,13 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         .runtime_descriptor_array = vk.TRUE,
         .shader_sampled_image_array_non_uniform_indexing = vk.TRUE,
     };
-    // var dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeatures{
-    //     .p_next = &descriptor_indexing_features,
-    //     .dynamic_rendering = vk.TRUE,
-    // };
+    var dynamic_rendering_features = vk.PhysicalDeviceDynamicRenderingFeatures{
+        .p_next = &descriptor_indexing_features,
+        .dynamic_rendering = vk.TRUE,
+    };
 
     var device_create_info = vk.DeviceCreateInfo{
-        .p_next = &descriptor_indexing_features,
+        .p_next = &dynamic_rendering_features,
         .queue_create_info_count = 1,
         .p_queue_create_infos = &.{device_queue_create_info},
         .enabled_extension_count = enabled_device_extensions.len,
@@ -381,7 +381,7 @@ fn destroy(this: *@This()) void {
     this.render_buffers.deinit(this.allocator);
 
     this.vk_device.destroyDescriptorPool(this.vk_descriptor_pool, null);
-    this.vk_device.destroyRenderPass(this.vk_render_pass, null);
+    // this.vk_device.destroyRenderPass(this.vk_render_pass, null);
     this.vk_device.destroyCommandPool(this.vk_command_pool, null);
     this.vk_device.destroyDevice(null);
     this.vk_instance.destroyInstance(null);
@@ -434,7 +434,8 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
         options.size,
         this.image_format,
         this.vk_memory_properties,
-        this.vk_render_pass,
+        .null_handle,
+        // this.vk_render_pass,
         // this.drm_format_modifier_properties_list.items,
         // this.drm_format_modifier_list.items,
     ) catch |err| switch (err) {
@@ -456,22 +457,6 @@ fn _begin(this: *@This(), options: seizer.Graphics.BeginOptions) seizer.Graphics
     this.vk_device.beginCommandBuffer(vk_command_buffers[0], &vk.CommandBufferBeginInfo{
         .flags = .{},
     }) catch unreachable;
-    this.vk_device.cmdBeginRenderPass(vk_command_buffers[0], &vk.RenderPassBeginInfo{
-        .render_pass = this.vk_render_pass,
-        .framebuffer = render_buffer.vk_framebuffer,
-        .render_area = .{
-            .offset = .{ .x = 0, .y = 0 },
-            .extent = .{ .width = render_buffer.size[0], .height = render_buffer.size[1] },
-        },
-        .clear_value_count = 1,
-        .p_clear_values = &[_]vk.ClearValue{
-            .{
-                .color = vk.ClearColorValue{
-                    .float_32 = options.clear_color orelse .{ 0, 0, 0, 1 },
-                },
-            },
-        },
-    }, .@"inline");
 
     this.vk_device.cmdSetViewport(vk_command_buffers[0], 0, 1, &[_]vk.Viewport{
         .{
@@ -807,7 +792,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
 
                 const vk_buffer = this.vk_device.createBuffer(&vk.BufferCreateInfo{
                     .size = uniform_description.size,
-                    .usage = .{ .uniform_buffer_bit = true },
+                    .usage = .{ .uniform_buffer_bit = true, .transfer_dst_bit = true },
                     .sharing_mode = .exclusive,
                 }, null) catch unreachable;
 
@@ -939,9 +924,18 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
             .alpha_blend_op = .add,
         };
 
+    var pipeline_create_info = vk.PipelineRenderingCreateInfo{
+        .view_mask = 0,
+        .color_attachment_count = 1,
+        .p_color_attachment_formats = &[_]vk.Format{this.image_format},
+        .depth_attachment_format = .undefined,
+        .stencil_attachment_format = .undefined,
+    };
+
     var pipelines: [1]vk.Pipeline = undefined;
     _ = this.vk_device.createGraphicsPipelines(.null_handle, 1, &[_]vk.GraphicsPipelineCreateInfo{
         .{
+            .p_next = &pipeline_create_info,
             .stage_count = vk_shader_stages.len,
             .p_stages = &vk_shader_stages,
             .p_vertex_input_state = &vk.PipelineVertexInputStateCreateInfo{
@@ -1002,7 +996,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
                 },
             },
             .layout = pipeline_layout,
-            .render_pass = this.vk_render_pass,
+            .render_pass = .null_handle,
             .subpass = 0,
             .base_pipeline_handle = .null_handle,
             .base_pipeline_index = -1,
@@ -1118,6 +1112,8 @@ const CommandBuffer = struct {
     }
 
     pub const INTERFACE = seizer.Graphics.CommandBuffer.Interface.getTypeErasedFunctions(@This(), .{
+        .beginRendering = CommandBuffer._beginRendering,
+        .endRendering = CommandBuffer._endRendering,
         .bindPipeline = CommandBuffer._bindPipeline,
         .drawPrimitives = CommandBuffer._drawPrimitives,
         .uploadToBuffer = CommandBuffer._uploadToBuffer,
@@ -1128,6 +1124,35 @@ const CommandBuffer = struct {
         .setScissor = CommandBuffer._setScissor,
         .end = CommandBuffer._end,
     });
+
+    fn _beginRendering(this: *@This(), options: seizer.Graphics.CommandBuffer.RenderingOptions) void {
+        this.vk_device.cmdBeginRendering(this.vk_command_buffer, &vk.RenderingInfo{
+            .render_area = .{
+                .offset = .{ .x = 0, .y = 0 },
+                .extent = .{ .width = this.render_buffer.size[0], .height = this.render_buffer.size[1] },
+            },
+            .layer_count = 1,
+            .view_mask = 0,
+            .color_attachment_count = 1,
+            .p_color_attachments = &[_]vk.RenderingAttachmentInfo{
+                .{
+                    .image_view = this.render_buffer.vk_imageview,
+                    .image_layout = .color_attachment_optimal,
+                    .resolve_mode = .{},
+                    .resolve_image_layout = .undefined,
+                    .load_op = .clear,
+                    .store_op = .store,
+                    .clear_value = .{
+                        .color = .{ .float_32 = if (options.clear_color) |c| c else .{ 0, 0, 0, 1 } },
+                    },
+                },
+            },
+        });
+    }
+
+    fn _endRendering(this: *@This()) void {
+        this.vk_device.cmdEndRendering(this.vk_command_buffer);
+    }
 
     fn _bindPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) void {
         const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
@@ -1245,7 +1270,6 @@ const CommandBuffer = struct {
     }
 
     fn _end(this: *@This()) seizer.Graphics.CommandBuffer.EndError!seizer.Graphics.RenderBuffer {
-        this.vk_device.cmdEndRenderPass(this.vk_command_buffer);
         this.vk_device.endCommandBuffer(this.vk_command_buffer) catch unreachable;
 
         this.vk_device.queueSubmit(this.vk_graphics_queue, 1, &[_]vk.SubmitInfo{
@@ -1281,7 +1305,7 @@ const RenderBuffer = struct {
     vk_image: vk.Image,
     vk_device_memory: vk.DeviceMemory,
     vk_imageview: vk.ImageView,
-    vk_framebuffer: vk.Framebuffer,
+    // vk_framebuffer: vk.Framebuffer,
 
     vk_descriptor_sets: ?[]const vk.DescriptorSet = null,
     vk_command_buffer: ?vk.CommandBuffer = null,
@@ -1297,6 +1321,7 @@ const RenderBuffer = struct {
         // drm_format_modifier_properties_list: []const vk.DrmFormatModifierPropertiesEXT,
         // drm_format_modifiers: []const u64,
     ) !*@This() {
+        _ = vk_render_pass;
         const this = try backend.allocator.create(@This());
         errdefer backend.allocator.destroy(this);
 
@@ -1381,15 +1406,15 @@ const RenderBuffer = struct {
         }, null);
         errdefer backend.vk_device.destroyImageView(vk_image_view, null);
 
-        const vk_framebuffer = try backend.vk_device.createFramebuffer(&vk.FramebufferCreateInfo{
-            .render_pass = vk_render_pass,
-            .width = size[0],
-            .height = size[1],
-            .layers = 1,
-            .attachment_count = 1,
-            .p_attachments = &[_]vk.ImageView{vk_image_view},
-        }, null);
-        errdefer backend.vk_device.destroyFramebuffer(vk_framebuffer, null);
+        // const vk_framebuffer = try backend.vk_device.createFramebuffer(&vk.FramebufferCreateInfo{
+        //     .render_pass = vk_render_pass,
+        //     .width = size[0],
+        //     .height = size[1],
+        //     .layers = 1,
+        //     .attachment_count = 1,
+        //     .p_attachments = &[_]vk.ImageView{vk_image_view},
+        // }, null);
+        // errdefer backend.vk_device.destroyFramebuffer(vk_framebuffer, null);
 
         const finished_fence = try backend.vk_device.createFence(&.{}, null);
 
@@ -1401,7 +1426,7 @@ const RenderBuffer = struct {
             .vk_image = vk_framebuffer_image,
             .vk_device_memory = vk_device_memory,
             .vk_imageview = vk_image_view,
-            .vk_framebuffer = vk_framebuffer,
+            // .vk_framebuffer = vk_framebuffer,
             // .drm_modifier_properties = drm_modifier_properties,
 
             .finished_fence = finished_fence,
@@ -1488,7 +1513,7 @@ const RenderBuffer = struct {
         }
 
         this.backend.vk_device.destroyFence(this.finished_fence, null);
-        this.backend.vk_device.destroyFramebuffer(this.vk_framebuffer, null);
+        // this.backend.vk_device.destroyFramebuffer(this.vk_framebuffer, null);
         this.backend.vk_device.destroyImageView(this.vk_imageview, null);
         this.backend.vk_device.freeMemory(this.vk_device_memory, null);
         this.backend.vk_device.destroyImage(this.vk_image, null);
