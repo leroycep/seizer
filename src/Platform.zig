@@ -7,9 +7,11 @@ name: []const u8,
 /// should return true if the next backend should be tried
 main: fn () anyerror!void,
 allocator: fn () std.mem.Allocator,
+loop: fn () *xev.Loop,
+setShouldExit: fn (should_exit: bool) void,
 createGraphics: fn (allocator: std.mem.Allocator, options: CreateGraphicsOptions) CreateGraphicsError!seizer.Graphics,
-createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
-addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
+// createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
+// addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
 writeFile: fn (options: WriteFileOptions) void,
 readFile: fn (options: ReadFileOptions) void,
 setDeinitCallback: fn (?DeinitFn) void,
@@ -64,3 +66,4 @@ pub const ReadFileOptions = struct {
 const input = @import("./input.zig");
 const seizer = @import("./seizer.zig");
 const std = @import("std");
+const xev = @import("xev");

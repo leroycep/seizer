@@ -40,11 +40,16 @@ pub fn NewId(comptime T: type) type {
 }
 
 pub fn getDisplayPath(gpa: std.mem.Allocator) ![]u8 {
-    const xdg_runtime_dir_path = try std.process.getEnvVarOwned(gpa, "XDG_RUNTIME_DIR");
+    const xdg_runtime_dir_path = std.process.getEnvVarOwned(gpa, "XDG_RUNTIME_DIR") catch |err| switch (err) {
+        error.InvalidWtf8 => @panic("Linux does not use WTF-8, Windows does not use Wayland"),
+        else => |e| return e,
+    };
     defer gpa.free(xdg_runtime_dir_path);
+
     const display_name = std.process.getEnvVarOwned(gpa, "WAYLAND_DISPLAY") catch |err| switch (err) {
         error.EnvironmentVariableNotFound => return try std.fs.path.join(gpa, &.{ xdg_runtime_dir_path, "wayland-0" }),
-        else => return err,
+        error.InvalidWtf8 => @panic("Linux does not use WTF-8, Windows does not use Wayland"),
+        else => |e| return e,
     };
     defer gpa.free(display_name);
 
@@ -199,8 +204,12 @@ pub fn extractFds(comptime Signature: type, message: *const Signature, fds_buffe
     return fds_buffer[0..i];
 }
 
+pub const SerializeError = error{
+    OutOfMemory,
+    StringTooLong,
+};
 /// Message must live until the iovec array is written.
-pub fn serializeArguments(comptime Signature: type, buffer: []u32, message: Signature) ![]u32 {
+pub fn serializeArguments(comptime Signature: type, buffer: []u32, message: Signature) SerializeError![]u32 {
     if (Signature == void) return buffer[0..0];
     var pos: usize = 0;
     inline for (std.meta.fields(Signature)) |field| {
@@ -281,7 +290,7 @@ pub fn serializeArguments(comptime Signature: type, buffer: []u32, message: Sign
     return buffer[0..pos];
 }
 
-pub fn serialize(comptime Union: type, buffer: []u32, object_id: u32, message: Union) ![]u32 {
+pub fn serialize(comptime Union: type, buffer: []u32, object_id: u32, message: Union) SerializeError![]u32 {
     if (@typeInfo(Union).Union.fields.len == 0) @compileError(@typeName(Union) ++ " has no valid messages!");
     const header_wordlen = @sizeOf(Header) / @sizeOf(u32);
     const header: *Header = @ptrCast(buffer[0..header_wordlen]);
@@ -490,7 +499,7 @@ pub const Conn = struct {
 
     pub fn deinit(conn: *Conn) void {
         conn.flushRecvQueue() catch |err| {
-            std.log.warn("error flushing wayland connect receive queue: {}", .{err});
+            log.warn("error flushing wayland connect receive queue: {}", .{err});
         };
 
         var obj_iter = conn.objects.valueIterator();
@@ -553,7 +562,7 @@ pub const Conn = struct {
     pub fn dispatchMessage(conn: *Conn, header: Header, body: []const u32) !void {
         if (conn.objects.get(header.object_id)) |object| {
             const event_received = object.interface.event_received orelse {
-                std.log.warn("Received event for object with no known events: {}@{s}, opcode = {}", .{
+                log.warn("Received event for object with no known events: {}@{s}, opcode = {}", .{
                     header.object_id,
                     "unknown",
                     header.size_and_opcode.opcode,
@@ -568,6 +577,7 @@ pub const Conn = struct {
                     log.err("{}: {} {?s}", .{ e.object_id, e.code, e.message });
                 },
                 .delete_id => |d| {
+                    log.debug("wl object id {} deleted", .{d.id});
                     if (conn.objects.fetchRemove(d.id)) |kv| {
                         kv.value.interface.delete(kv.value);
                         conn.id_pool.destroy(d.id);
@@ -610,7 +620,11 @@ pub const Conn = struct {
         }
     }
 
-    pub fn send(conn: *Conn, comptime Signature: type, id: u32, message: Signature) !void {
+    pub const SendError = error{
+        OutOfMemory,
+        ConnectionLost,
+    };
+    pub fn send(conn: *Conn, comptime Signature: type, id: u32, message: Signature) SendError!void {
         const msg = while (true) {
             const msg = serialize(
                 Signature,
@@ -618,11 +632,11 @@ pub const Conn = struct {
                 id,
                 message,
             ) catch |e| switch (e) {
+                error.StringTooLong => std.debug.panic("Tried to send a string longer than 32-bits can represent", .{}),
                 error.OutOfMemory => {
                     conn.send_buffer = try conn.allocator.realloc(conn.send_buffer, conn.send_buffer.len * 2);
                     continue;
                 },
-                else => return e,
             };
 
             break msg;
@@ -658,7 +672,10 @@ pub const Conn = struct {
             .controllen = @intCast(ctrl_msgs_bytes.len),
             .flags = 0,
         };
-        _ = try std.posix.sendmsg(conn.socket, &socket_msg, 0);
+        _ = std.posix.sendmsg(conn.socket, &socket_msg, 0) catch |err| switch (err) {
+            error.BrokenPipe => return error.ConnectionLost,
+            else => |e| std.debug.panic("Unexpected error: {}", .{e}),
+        };
     }
 
     pub fn recvMsgCallback(userdata: ?*anyopaque, loop: *xev.Loop, completion: *xev.Completion, result: xev.Result) xev.CallbackAction {
@@ -686,14 +703,14 @@ pub const Conn = struct {
                         conn.recv_fd_queue.appendAssumeCapacity(fd);
                     }
                 } else {
-                    std.log.warn("Unknown control message received: {}, {}", .{ control_header.level, control_header.type });
+                    log.warn("Unknown control message received: {}, {}", .{ control_header.level, control_header.type });
                 }
 
                 control_pos += control_header.size();
             }
 
             conn.flushRecvQueue() catch |err| {
-                std.log.warn("Failed to flush recv queue: {}", .{err});
+                log.warn("Failed to flush recv queue: {}", .{err});
             };
 
             // update the iovec to point to the unused capacity slice.
@@ -707,7 +724,7 @@ pub const Conn = struct {
 
             return .rearm;
         } else |err| {
-            std.log.warn("Error receiving message: {}", .{err});
+            log.warn("Error receiving message: {}", .{err});
             return .disarm;
         }
     }
@@ -715,9 +732,9 @@ pub const Conn = struct {
     pub fn deserializeAndLogErrors(conn: *Conn, comptime Union: type, header: Header, buffer: []const u32) ?Union {
         return conn.deserialize(Union, header, buffer) catch |e| {
             if (std.meta.intToEnum(@typeInfo(Union).Union.tag_type.?, header.size_and_opcode.opcode)) |kind| {
-                std.log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
+                log.warn("{s}:{} failed to deserialize event \"{}\": {}", .{ @src().file, @src().line, std.zig.fmtEscapes(@tagName(kind)), e });
             } else |_| {
-                std.log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
+                log.warn("{s}:{} failed to deserialize event {}: {}", .{ @src().file, @src().line, header.size_and_opcode.opcode, e });
             }
             return null;
         };

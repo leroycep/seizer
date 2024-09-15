@@ -5,10 +5,11 @@ pub const mem = @import("./mem.zig");
 pub const ui = @import("./ui.zig");
 
 pub const Canvas = @import("./Canvas.zig");
+pub const Display = @import("./Display.zig");
 pub const Graphics = @import("./Graphics.zig");
+
 pub const NinePatch = @import("./NinePatch.zig");
 pub const Platform = @import("./Platform.zig");
-pub const Window = @import("./Window.zig");
 
 // re-exported libraries
 pub const tvg = @import("tvg");
@@ -25,6 +26,7 @@ else
 
 // Non-core seizer sub libraries. This is code that is mostly used to implement seizer, and is not intended for external use.
 pub const @"dynamic-library-utils" = @import("dynamic-library-utils");
+pub const meta = @import("./meta.zig");
 
 pub const version = std.SemanticVersion{
     .major = 0,
