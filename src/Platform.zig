@@ -9,28 +9,13 @@ main: fn () anyerror!void,
 allocator: fn () std.mem.Allocator,
 loop: fn () *xev.Loop,
 setShouldExit: fn (should_exit: bool) void,
-createGraphics: fn (allocator: std.mem.Allocator, options: CreateGraphicsOptions) CreateGraphicsError!seizer.Graphics,
-// createWindow: fn (options: CreateWindowOptions) anyerror!seizer.Window,
-// addButtonInput: fn (options: AddButtonInputOptions) anyerror!void,
+
 writeFile: fn (options: WriteFileOptions) void,
 readFile: fn (options: ReadFileOptions) void,
 setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
 pub const DeinitFn = *const fn () void;
-
-pub const CreateGraphicsError = error{ OutOfMemory, OutOfDeviceMemory, LibraryLoadFailed, InitializationFailed };
-pub const CreateGraphicsOptions = struct {
-    app_name: ?[:0]const u8 = null,
-    app_version: ?std.SemanticVersion = null,
-};
-
-pub const CreateWindowOptions = struct {
-    title: [:0]const u8,
-    on_render: *const fn (seizer.Window) anyerror!void,
-    on_destroy: ?*const fn (seizer.Window) void = null,
-    size: ?[2]u32 = null,
-};
 
 pub const AddButtonInputOptions = struct {
     title: []const u8,

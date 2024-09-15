@@ -22,8 +22,9 @@ const VulkanImpl = @This();
 
 const DEFAULT_IMAGE_FORMAT = .r8g8b8a8_unorm;
 
-pub const INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Graphics.Interface, @This(), .{
+pub const GRAPHICS_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Graphics.Interface, @This(), .{
     .driver = .vulkan,
+    .create = _create,
     .destroy = destroy,
     .createShader = _createShader,
     .destroyShader = _destroyShader,
@@ -52,7 +53,7 @@ pub const INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Graphics.I
     .setScissor = _setScissor,
 });
 
-pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
+pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOptions) seizer.Graphics.CreateError!seizer.Graphics {
     var library_prefixes = @"dynamic-library-utils".getLibrarySearchPaths(allocator) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.LibraryLoadFailed,
@@ -281,7 +282,10 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     //     drm_modifier.* = properties.drm_format_modifier;
     // }
 
-    return this.graphics();
+    return .{
+        .pointer = this,
+        .interface = &GRAPHICS_INTERFACE,
+    };
 }
 
 fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !struct { ptr: vk.Device, queue_family_index: u32, physical_device: vk.PhysicalDevice } {
@@ -404,13 +408,6 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         .ptr = vk_device_ptr,
         .queue_family_index = device_queue_create_info.queue_family_index,
         .physical_device = physical_device.?,
-    };
-}
-
-pub fn graphics(this: *@This()) seizer.Graphics {
-    return .{
-        .pointer = this,
-        .interface = &INTERFACE,
     };
 }
 
@@ -1537,6 +1534,6 @@ const VulkanDevice = vk.DeviceProxy(vulkan_apis);
 
 const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const zigimg = @import("zigimg");
-const seizer = @import("../../seizer.zig");
+const seizer = @import("../seizer.zig");
 const std = @import("std");
 const builtin = @import("builtin");

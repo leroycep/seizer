@@ -1,7 +1,5 @@
-pub const impl = struct {
-    pub const vulkan = @import("./Graphics/impl/vulkan.zig");
-    pub const gles3v0 = @import("./Graphics/impl/gles3v0.zig");
-};
+pub const Vulkan = @import("./Graphics/Vulkan.zig");
+pub const GLES3v0 = @import("./Graphics/GLES3v0.zig");
 
 const Graphics = @This();
 
@@ -12,6 +10,7 @@ interface: *const Interface,
 
 pub const Interface = struct {
     driver: Driver,
+    create: *const fn (std.mem.Allocator, CreateOptions) CreateError!Graphics,
     destroy: *const fn (?*anyopaque) void,
     createShader: *const fn (?*anyopaque, Shader.CreateOptions) Shader.CreateError!*Shader,
     destroyShader: *const fn (?*anyopaque, *Shader) void,
@@ -45,6 +44,30 @@ pub const Driver = enum(u32) {
     vulkan,
     _,
 };
+
+pub const DEFAULT_BACKENDS: []const *const Interface = if (builtin.os.tag == .linux or builtin.os.tag.isBSD())
+    &.{&Vulkan.GRAPHICS_INTERFACE}
+else
+    @compileError("Unsupported platform " ++ @tagName(builtin.os.tag));
+
+pub const CreateError = error{ NoSupportedBackend, OutOfMemory, OutOfDeviceMemory, LibraryLoadFailed, InitializationFailed, ExtensionMissing };
+pub const CreateOptions = struct {
+    backends: []const *const Interface = DEFAULT_BACKENDS,
+    app_name: ?[:0]const u8 = null,
+    app_version: ?std.SemanticVersion = null,
+};
+
+pub fn create(allocator: std.mem.Allocator, options: CreateOptions) !Graphics {
+    for (options.backends) |backend_interface| {
+        if (backend_interface.create(allocator, options)) |graphics_backend| {
+            return graphics_backend;
+        } else |err| {
+            std.log.scoped(.seizer).warn("Failed to create {} graphics context: {}", .{ backend_interface.driver, err });
+        }
+    }
+
+    return error.NoSupportedBackend;
+}
 
 pub fn destroy(gfx: Graphics) void {
     return gfx.interface.destroy(gfx.pointer);
@@ -250,6 +273,7 @@ pub inline fn endRendering(gfx: Graphics, render_buffer: *RenderBuffer) void {
     return gfx.interface.endRendering(gfx.pointer, render_buffer);
 }
 
+const builtin = @import("builtin");
 const seizer = @import("./seizer.zig");
-const zigimg = @import("zigimg");
 const std = @import("std");
+const zigimg = @import("zigimg");

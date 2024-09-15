@@ -9,7 +9,7 @@ pub fn init() !void {
     display = try seizer.Display.create(seizer.platform.allocator(), seizer.platform.loop(), .{});
     errdefer display.destroy();
 
-    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{
+    gfx = try seizer.Graphics.create(seizer.platform.allocator(), .{
         .app_name = "Clear - Seizer Example",
     });
     errdefer gfx.destroy();

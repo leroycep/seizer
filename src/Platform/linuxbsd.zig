@@ -4,7 +4,6 @@ pub const PLATFORM = seizer.Platform{
     .allocator = getAllocator,
     .loop = _getLoop,
     .setShouldExit = _setShouldExit,
-    .createGraphics = createGraphics,
     // .createWindow = createWindow,
     // .addButtonInput = addButtonInput,
     .writeFile = writeFile,
@@ -85,27 +84,27 @@ fn _setShouldExit(new_should_exit: bool) void {
     should_exit = new_should_exit;
 }
 
-pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
-    if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
-        return graphics;
-    } else |err| {
-        std.log.warn("Failed to create vulkan context: {}", .{err});
-        if (@errorReturnTrace()) |err_return_trace| {
-            std.debug.dumpStackTrace(err_return_trace.*);
-        }
-    }
+// pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
+//     if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
+//         return graphics;
+//     } else |err| {
+//         std.log.warn("Failed to create vulkan context: {}", .{err});
+//         if (@errorReturnTrace()) |err_return_trace| {
+//             std.debug.dumpStackTrace(err_return_trace.*);
+//         }
+//     }
 
-    // if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
-    //     return graphics;
-    // } else |err| {
-    //     std.log.warn("Failed to create gles3v0 context: {}", .{err});
-    //     if (@errorReturnTrace()) |err_return_trace| {
-    //         std.debug.dumpStackTrace(err_return_trace.*);
-    //     }
-    // }
+//     // if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
+//     //     return graphics;
+//     // } else |err| {
+//     //     std.log.warn("Failed to create gles3v0 context: {}", .{err});
+//     //     if (@errorReturnTrace()) |err_return_trace| {
+//     //         std.debug.dumpStackTrace(err_return_trace.*);
+//     //     }
+//     // }
 
-    return error.InitializationFailed;
-}
+//     return error.InitializationFailed;
+// }
 
 pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
     for (options.default_bindings) |button_code| {
@@ -135,7 +134,6 @@ fn setDeinitFn(new_deinit_fn: ?seizer.Platform.DeinitFn) void {
 }
 
 pub const EvDev = @import("./linuxbsd/evdev.zig");
-pub const WindowManager = @import("./linuxbsd/window_manager.zig").WindowManager;
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
