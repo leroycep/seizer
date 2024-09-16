@@ -976,7 +976,7 @@ const Buffer = struct {
 fn _createBuffer(this: *@This(), options: seizer.Graphics.Buffer.CreateOptions) seizer.Graphics.Buffer.CreateError!*seizer.Graphics.Buffer {
     const vk_buffer = this.vk_device.createBuffer(&.{
         .size = options.size,
-        .usage = .{ .vertex_buffer_bit = true },
+        .usage = .{ .vertex_buffer_bit = true, .transfer_dst_bit = true },
         .sharing_mode = .exclusive,
     }, null) catch unreachable;
 
@@ -1011,6 +1011,7 @@ fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Graphics.Buffer) void {
 }
 
 const Swapchain = struct {
+    vk_device: VulkanDevice,
     display: seizer.Display,
     size: [2]u32,
     image_format: vk.Format,
@@ -1029,6 +1030,8 @@ const Swapchain = struct {
         vk_descriptor_pool: vk.DescriptorPool,
 
         display_buffer: *seizer.Display.Buffer,
+        vk_buffer_list: std.ArrayListUnmanaged(vk.Buffer),
+        vk_device_memory_list: std.ArrayListUnmanaged(vk.DeviceMemory),
     };
 
     fn onDisplayBufferReleased(userdata: ?*anyopaque, display_buffer: *seizer.Display.Buffer) void {
@@ -1159,11 +1162,6 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
             },
         }, null) catch unreachable;
     }
-    // this.vk_device.allocateDescriptorSets(&vk.DescriptorSetAllocateInfo{
-    //     .descriptor_pool = this.vk_descriptor_pool,
-    //     .descriptor_set_count = @intCast(vk_descriptor_sets.len),
-    //     .p_set_layouts = vk_descriptor_set_layouts.ptr,
-    // }, vk_descriptor_sets.ptr) catch unreachable;
 
     for (elements_slice.items(.vk_fence_finished)) |*vk_fence_finished| {
         vk_fence_finished.* = this.vk_device.createFence(&.{ .flags = .{ .signaled_bit = true } }, null) catch unreachable;
@@ -1174,6 +1172,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     const swapchain = try this.allocator.create(Swapchain);
     errdefer this.allocator.destroy(swapchain);
     swapchain.* = .{
+        .vk_device = this.vk_device,
         .display = display,
         .size = options.size,
         .image_format = this.image_format,
@@ -1231,6 +1230,9 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
         };
     }
 
+    @memset(elements_slice.items(.vk_buffer_list), .{});
+    @memset(elements_slice.items(.vk_device_memory_list), .{});
+
     return @ptrCast(swapchain);
 }
 
@@ -1249,6 +1251,18 @@ fn _destroySwapchain(this: *@This(), swapchain_opaque: *seizer.Graphics.Swapchai
         this.vk_device.destroyImage(vk_image, null);
         this.vk_device.destroyFence(vk_fence_finished, null);
         this.vk_device.destroyDescriptorPool(vk_descriptor_pool, null);
+    }
+    for (elements_slice.items(.vk_buffer_list), elements_slice.items(.vk_device_memory_list)) |*buffer_list, *device_memory_list| {
+        for (buffer_list.items) |vk_buffer| {
+            swapchain.vk_device.destroyBuffer(vk_buffer, null);
+        }
+
+        for (device_memory_list.items) |vk_device_memory| {
+            swapchain.vk_device.freeMemory(vk_device_memory, null);
+        }
+
+        buffer_list.deinit(this.allocator);
+        device_memory_list.deinit(this.allocator);
     }
 
     const vk_command_buffers = elements_slice.items(.vk_command_buffer);
@@ -1281,6 +1295,16 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
 
         const element = slice.get(i);
 
+        for (slice.items(.vk_buffer_list)[i].items) |vk_buffer| {
+            this.vk_device.destroyBuffer(vk_buffer, null);
+        }
+        slice.items(.vk_buffer_list)[i].shrinkRetainingCapacity(0);
+
+        for (slice.items(.vk_device_memory_list)[i].items) |vk_device_memory_list| {
+            this.vk_device.freeMemory(vk_device_memory_list, null);
+        }
+        slice.items(.vk_device_memory_list)[i].shrinkRetainingCapacity(0);
+
         this.vk_device.resetFences(1, &.{element.vk_fence_finished}) catch |err| switch (err) {
             error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
             error.Unknown => |e| std.log.scoped(.seizer).warn("Unknown error: {}", .{e}),
@@ -1304,6 +1328,8 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
             .vk_descriptor_pool = element.vk_descriptor_pool,
             .vk_fence_finished = element.vk_fence_finished,
             .display_buffer = element.display_buffer,
+            .vk_buffer_list = &slice.items(.vk_buffer_list)[i],
+            .vk_device_memory_list = &slice.items(.vk_device_memory_list)[i],
         };
 
         is_free.* = false;
@@ -1403,13 +1429,8 @@ fn _drawPrimitives(this: *@This(), render_buffer_opaque: *seizer.Graphics.Render
 fn _uploadToBuffer(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, buffer_opaque: *seizer.Graphics.Buffer, data: []const u8) void {
     const render_buffer: *RenderBuffer = @ptrCast(@alignCast(render_buffer_opaque));
     const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
-    _ = render_buffer;
 
-    // this.vk_device.cmdUpdateBuffer(this.vk_command_buffer, buffer.vk_buffer, 0, @intCast(data.len), @ptrCast(data.ptr));
-    const mem_ptr: [*]u8 = @ptrCast(@alignCast(this.vk_device.mapMemory(buffer.vk_memory, 0, data.len, .{}) catch unreachable));
-    const mem = mem_ptr[0..data.len];
-    @memcpy(mem, data);
-    this.vk_device.unmapMemory(buffer.vk_memory);
+    this.vk_device.cmdUpdateBuffer(render_buffer.vk_command_buffer, buffer.vk_buffer, 0, @intCast(data.len), @ptrCast(data.ptr));
 }
 
 fn _bindVertexBuffer(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, pipeline_opaque: *seizer.Graphics.Pipeline, vertex_buffer_opaque: *seizer.Graphics.Buffer) void {
@@ -1486,6 +1507,7 @@ fn _uploadDescriptors(this: *@This(), render_buffer_opaque: *seizer.Graphics.Ren
                     .allocation_size = mem_requirements.size,
                     .memory_type_index = mem_type_index,
                 }, null) catch unreachable;
+                render_buffer.vk_device_memory_list.append(this.allocator, vk_device_memory) catch unreachable;
 
                 const descriptor_buffer_infos = arena.allocator().alloc(vk.DescriptorBufferInfo, buffer_data_list.len) catch unreachable;
 
@@ -1579,7 +1601,8 @@ const RenderBuffer = struct {
     vk_fence_finished: vk.Fence,
     display_buffer: *seizer.Display.Buffer,
 
-    vk_buffer_list: std.ArrayListUnmanaged(vk.Buffer) = .{},
+    vk_buffer_list: *std.ArrayListUnmanaged(vk.Buffer),
+    vk_device_memory_list: *std.ArrayListUnmanaged(vk.DeviceMemory),
 };
 
 fn findMemoryTypeIndex(vk_memory_properties: vk.PhysicalDeviceMemoryProperties, memory_requirements: vk.MemoryRequirements) ?u32 {

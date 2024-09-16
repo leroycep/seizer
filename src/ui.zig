@@ -102,7 +102,7 @@ pub const Stage = struct {
                     var transformed_event = event;
                     if (pce.getParent()) |parent| {
                         if (parent.getChildRect(pce)) |transformed_rect| {
-                            transformed_event = seizer.input.Event{ .hover = hover.transform(transformed_rect.transform) };
+                            transformed_event = seizer.input.Event{ .hover = hover.transform(transformed_rect.transformWithTranslation()) };
                         }
                     }
                     if (pce.processEvent(transformed_event)) |hovered| {
@@ -135,7 +135,7 @@ pub const Stage = struct {
                     var transformed_event = event;
                     if (pce.getParent()) |parent| {
                         if (parent.getChildRect(pce)) |transformed_rect| {
-                            transformed_event = seizer.input.Event{ .click = click.transform(transformed_rect.transform) };
+                            transformed_event = seizer.input.Event{ .click = click.transform(transformed_rect.transformWithTranslation()) };
                         }
                     }
                     if (pce.processEvent(transformed_event)) |clicked| {

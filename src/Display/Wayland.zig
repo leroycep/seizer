@@ -6,7 +6,8 @@ connection: wayland.Conn,
 registry: *wayland.wayland.wl_registry,
 globals: Globals = .{},
 
-windows: std.ArrayListUnmanaged(*Window) = .{},
+// (wl_surface id, window)
+windows: std.AutoArrayHashMapUnmanaged(u32, *Window) = .{},
 seats: std.ArrayListUnmanaged(*Seat) = .{},
 
 on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
@@ -96,24 +97,6 @@ pub fn _destroy(this: *@This()) void {
     this.allocator.destroy(this);
 }
 
-fn update(this: *@This()) !void {
-    {
-        var i: usize = this.windows.items.len;
-        while (i > 0) : (i -= 1) {
-            const window = this.windows.items[i - 1];
-            if (window.should_close) {
-                _ = this.windows.swapRemove(i - 1);
-                window.destroy();
-            }
-        }
-    }
-    for (this.windows.items) |window| {
-        if (window.should_render) {
-            try window.render();
-        }
-    }
-}
-
 const Globals = struct {
     wl_compositor: ?*wayland.wayland.wl_compositor = null,
     xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
@@ -142,6 +125,7 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
                 seat.* = .{
                     .wayland_manager = this,
                     .wl_seat = wl_seat,
+                    .focused_window = null,
                 };
                 seat.wl_seat.userdata = seat;
                 seat.wl_seat.on_event = Seat.onSeatCallback;
@@ -164,6 +148,8 @@ fn onXdgWmBaseEvent(xdg_wm_base: *xdg_shell.xdg_wm_base, userdata: ?*anyopaque, 
 }
 
 fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) seizer.Display.Window.CreateError!*seizer.Display.Window {
+    try this.windows.ensureUnusedCapacity(this.allocator, 1);
+
     const size = [2]c_int{ @intCast(options.size[0]), @intCast(options.size[1]) };
 
     const wl_surface = try this.globals.wl_compositor.?.create_surface();
@@ -199,6 +185,8 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
     // const sync_callback = try this.connection.sync();
     // sync_callback.on_event = Window.onFrameCallback;
     // sync_callback.userdata = window;
+
+    this.windows.putAssumeCapacity(window.wl_surface.id, window);
 
     return @ptrCast(window);
 }
@@ -237,6 +225,8 @@ fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, b
     const window: *Window = @ptrCast(@alignCast(window_opaque));
     const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
 
+    window.setupFrameCallback() catch unreachable;
+
     window.wl_surface.attach(buffer.wl_buffer, 0, 0) catch unreachable;
     window.wl_surface.damage_buffer(0, 0, @intCast(buffer.size[0]), @intCast(buffer.size[1])) catch unreachable;
     window.wl_surface.commit() catch unreachable;
@@ -264,13 +254,6 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
     defer wl_dmabuf_buffer_params.destroy() catch {};
 
     for (options.planes) |plane| {
-        std.log.debug("dmabuf plane[{}] = {{fd = {}, offset = {}, stride = {}, modifiers = {}}}", .{
-            plane.index,
-            plane.fd,
-            plane.offset,
-            plane.stride,
-            options.format.modifiers,
-        });
         try wl_dmabuf_buffer_params.add(
             @enumFromInt(plane.fd),
             @intCast(plane.index),
@@ -280,8 +263,6 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
             @intCast((options.format.modifiers) & 0xFFFF_FFFF),
         );
     }
-
-    std.log.debug("wl_dmabuf_buffer_params@{} {}x{} {}", .{ wl_dmabuf_buffer_params.id, options.size[0], options.size[1], options.format.fourcc });
 
     const wl_buffer = try wl_dmabuf_buffer_params.create_immed(
         @intCast(options.size[0]),
@@ -405,8 +386,8 @@ const Window = struct {
     fn setupFrameCallback(this: *@This()) !void {
         if (this.frame_callback != null) return;
         this.frame_callback = try this.wl_surface.frame();
-        this.frame_callback.on_event = onFrameCallback;
-        this.frame_callback.userdata = this;
+        this.frame_callback.?.on_event = onFrameCallback;
+        this.frame_callback.?.userdata = this;
     }
 
     fn onFrameCallback(callback: *wayland.wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wayland.wl_callback.Event) void {
@@ -439,6 +420,7 @@ const Seat = struct {
     wl_pointer: ?*wayland.wayland.wl_pointer = null,
     wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
 
+    focused_window: ?*Window,
     pointer_pos: [2]f32 = .{ 0, 0 },
     scroll_vector: [2]f32 = .{ 0, 0 },
 
@@ -520,32 +502,46 @@ const Seat = struct {
         const this: *@This() = @ptrCast(@alignCast(userdata));
         _ = seat;
         switch (event) {
+            .enter => |enter| {
+                // TODO: set cursor image
+                this.focused_window = this.wayland_manager.windows.get(enter.surface);
+            },
+            .leave => |leave| {
+                const left_window = this.wayland_manager.windows.get(leave.surface);
+                if (std.meta.eql(left_window, this.focused_window)) {
+                    this.focused_window = null;
+                }
+            },
             .motion => |motion| {
-                if (this.wayland_manager.on_event_fn) |on_event| {
-                    this.pointer_pos = [2]f32{ motion.surface_x.toFloat(f32), motion.surface_y.toFloat(f32) };
-                    on_event(seizer.input.Event{ .hover = .{
-                        .pos = this.pointer_pos,
-                        .modifiers = .{ .left = false, .right = false, .middle = false },
-                    } }) catch |err| {
-                        std.debug.print("{s}\n", .{@errorName(err)});
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
-                    };
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        this.pointer_pos = [2]f32{ motion.surface_x.toFloat(f32), motion.surface_y.toFloat(f32) };
+                        on_event(@ptrCast(window), seizer.Display.Window.Event{ .input = .{ .hover = .{
+                            .pos = this.pointer_pos,
+                            .modifiers = .{ .left = false, .right = false, .middle = false },
+                        } } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
                 }
             },
             .button => |button| {
-                if (this.wayland_manager.on_event_fn) |on_event| {
-                    on_event(seizer.input.Event{ .click = .{
-                        .pos = this.pointer_pos,
-                        .button = @enumFromInt(button.button),
-                        .pressed = button.state == .pressed,
-                    } }) catch |err| {
-                        std.debug.print("{s}\n", .{@errorName(err)});
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
-                    };
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        on_event(@ptrCast(window), seizer.Display.Window.Event{ .input = .{ .click = .{
+                            .pos = this.pointer_pos,
+                            .button = @enumFromInt(button.button),
+                            .pressed = button.state == .pressed,
+                        } } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
                 }
             },
             .axis => |axis| {
@@ -555,15 +551,17 @@ const Seat = struct {
                 }
             },
             .frame => {
-                if (this.wayland_manager.on_event_fn) |on_event| {
-                    on_event(seizer.input.Event{ .scroll = .{
-                        .offset = this.scroll_vector,
-                    } }) catch |err| {
-                        std.debug.print("{s}\n", .{@errorName(err)});
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
-                    };
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        on_event(@ptrCast(window), seizer.Display.Window.Event{ .input = .{ .scroll = .{
+                            .offset = this.scroll_vector,
+                        } } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
                 }
                 this.scroll_vector = .{ 0, 0 };
             },

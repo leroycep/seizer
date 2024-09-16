@@ -226,7 +226,7 @@ fn element_getChildRect(this: *@This(), child: Element) ?Element.TransformedRect
         if (parent.getChildRect(this.element())) |rect_transform| {
             return .{
                 .rect = .{ .pos = .{ 0, 0 }, .size = this.size },
-                .transform = seizer.geometry.mat4.mul(f32, transform, rect_transform.transform),
+                .transform = seizer.geometry.mat4.mul(f32, transform, rect_transform.transformWithTranslation()),
             };
         }
     }

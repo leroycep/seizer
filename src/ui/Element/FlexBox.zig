@@ -2,7 +2,7 @@ stage: *ui.Stage,
 reference_count: usize = 1,
 parent: ?Element = null,
 
-children: std.ArrayListUnmanaged(Child) = .{},
+children: std.AutoArrayHashMapUnmanaged(Element, Rect) = .{},
 direction: Direction = .column,
 justification: Justification = .start,
 cross_align: CrossAlign = .start,
@@ -25,11 +25,6 @@ pub const CrossAlign = enum {
     end,
 };
 
-pub const Child = struct {
-    rect: Rect,
-    element: Element,
-};
-
 pub fn create(stage: *ui.Stage) !*@This() {
     const this = try stage.gpa.create(@This());
     this.* = .{
@@ -39,7 +34,7 @@ pub fn create(stage: *ui.Stage) !*@This() {
 }
 
 pub fn appendChild(this: *@This(), child: Element) !void {
-    try this.children.append(this.stage.gpa, .{ .rect = .{ .pos = .{ 0, 0 }, .size = .{ 0, 0 } }, .element = child });
+    try this.children.putNoClobber(this.stage.gpa, child, .{ .pos = .{ 0, 0 }, .size = .{ 0, 0 } });
     child.acquire();
     child.setParent(this.element());
     this.stage.needs_layout = true;
@@ -57,6 +52,7 @@ const INTERFACE = Element.Interface.getTypeErasedFunctions(@This(), .{
     .release_fn = release,
     .set_parent_fn = setParent,
     .get_parent_fn = getParent,
+    .get_child_rect_fn = element_getChildRect,
 
     .process_event_fn = processEvent,
     .get_min_size_fn = getMinSize,
@@ -71,8 +67,8 @@ fn acquire(this: *@This()) void {
 fn release(this: *@This()) void {
     this.reference_count -= 1;
     if (this.reference_count == 0) {
-        for (this.children.items) |child| {
-            child.element.release();
+        for (this.children.keys()) |child| {
+            child.release();
         }
         this.children.deinit(this.stage.gpa);
         this.stage.gpa.destroy(this);
@@ -87,33 +83,57 @@ fn getParent(this: *@This()) ?Element {
     return this.parent;
 }
 
+fn element_getChildRect(this: *@This(), child: Element) ?Element.TransformedRect {
+    const child_rect = this.children.get(child) orelse return null;
+
+    if (this.parent) |parent| {
+        if (parent.getChildRect(this.element())) |rect_transform| {
+            // std.log.debug("{s}:{} parent transform = {any}", .{ @src().file, @src().line, rect_transform.transform });
+            return .{
+                .rect = .{
+                    .pos = .{
+                        rect_transform.rect.pos[0] + child_rect.pos[0],
+                        rect_transform.rect.pos[1] + child_rect.pos[1],
+                    },
+                    .size = child_rect.size,
+                },
+                .transform = rect_transform.transform,
+            };
+        }
+    }
+    return .{
+        .rect = child_rect,
+        .transform = seizer.geometry.mat4.identity(f32),
+    };
+}
+
 fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
     switch (event) {
         .hover => |hover| {
-            for (this.children.items) |child| {
-                if (child.rect.contains(hover.pos)) {
+            for (this.children.keys(), this.children.values()) |child_element, child_rect| {
+                if (child_rect.contains(hover.pos)) {
                     const child_event = event.transform(seizer.geometry.mat4.translate(f32, .{
-                        -child.rect.pos[0],
-                        -child.rect.pos[1],
+                        -child_rect.pos[0],
+                        -child_rect.pos[1],
                         0,
                     }));
 
-                    if (child.element.processEvent(child_event)) |hovered| {
+                    if (child_element.processEvent(child_event)) |hovered| {
                         return hovered;
                     }
                 }
             }
         },
         .click => |click| {
-            for (this.children.items) |child| {
-                if (child.rect.contains(click.pos)) {
+            for (this.children.keys(), this.children.values()) |child_element, child_rect| {
+                if (child_rect.contains(click.pos)) {
                     const child_event = event.transform(seizer.geometry.mat4.translate(f32, .{
-                        -child.rect.pos[0],
-                        -child.rect.pos[1],
+                        -child_rect.pos[0],
+                        -child_rect.pos[1],
                         0,
                     }));
 
-                    if (child.element.processEvent(child_event)) |clicked| {
+                    if (child_element.processEvent(child_event)) |clicked| {
                         return clicked;
                     }
                 }
@@ -135,8 +155,8 @@ pub fn getMinSize(this: *@This()) [2]f32 {
     };
 
     var min_size = [2]f32{ 0, 0 };
-    for (this.children.items) |child| {
-        const child_min = child.element.getMinSize();
+    for (this.children.keys()) |child_element| {
+        const child_min = child_element.getMinSize();
 
         min_size[main_axis] += child_min[main_axis];
         min_size[cross_axis] = @max(min_size[cross_axis], child_min[cross_axis]);
@@ -157,12 +177,12 @@ pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
     };
 
     // Do a first pass where we divide the space equally between the children
-    const main_equal_space_per_child = max_size[main_axis] / @as(f32, @floatFromInt(this.children.items.len));
+    const main_equal_space_per_child = max_size[main_axis] / @as(f32, @floatFromInt(this.children.count()));
 
     var main_space_used: f32 = 0;
     var cross_min_width: f32 = min_size[cross_axis];
     var children_requesting_space: f32 = 0;
-    for (this.children.items) |*child| {
+    for (this.children.keys(), this.children.values()) |child_element, *child_rect| {
         var constraint_min: [2]f32 = undefined;
         var constraint_max: [2]f32 = undefined;
 
@@ -172,13 +192,13 @@ pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
         constraint_max[main_axis] = main_equal_space_per_child;
         constraint_max[cross_axis] = max_size[cross_axis];
 
-        child.rect.size = child.element.layout(constraint_min, constraint_max);
-        if (child.rect.size[main_axis] >= main_equal_space_per_child) {
+        child_rect.size = child_element.layout(constraint_min, constraint_max);
+        if (child_rect.size[main_axis] >= main_equal_space_per_child) {
             children_requesting_space += 1;
         }
 
-        main_space_used += child.rect.size[main_axis];
-        cross_min_width = @max(cross_min_width, child.rect.size[cross_axis]);
+        main_space_used += child_rect.size[main_axis];
+        cross_min_width = @max(cross_min_width, child_rect.size[cross_axis]);
     }
 
     // Do a second pass where we allocate more space to any children that used their full amount of space
@@ -190,33 +210,33 @@ pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
         main_space_used = 0;
         cross_min_width = min_size[cross_axis];
         children_requesting_space = 0;
-        for (this.children.items) |*child| {
+        for (this.children.keys(), this.children.values()) |child_element, *child_rect| {
             var constraint_min: [2]f32 = undefined;
             var constraint_max: [2]f32 = undefined;
 
-            constraint_min[main_axis] = child.rect.size[main_axis];
-            constraint_min[cross_axis] = child.rect.size[cross_axis];
+            constraint_min[main_axis] = child_rect.size[main_axis];
+            constraint_min[cross_axis] = child_rect.size[cross_axis];
 
-            if (child.rect.size[main_axis] >= main_equal_space_per_child) {
-                constraint_max[main_axis] = child.rect.size[main_axis] + main_space_per_grow;
+            if (child_rect.size[main_axis] >= main_equal_space_per_child) {
+                constraint_max[main_axis] = child_rect.size[main_axis] + main_space_per_grow;
             } else {
-                constraint_max[main_axis] = child.rect.size[main_axis];
+                constraint_max[main_axis] = child_rect.size[main_axis];
             }
             constraint_max[cross_axis] = max_size[cross_axis];
 
-            child.rect.size = child.element.layout(constraint_min, constraint_max);
-            if (child.rect.size[main_axis] >= main_equal_space_per_child) {
+            child_rect.size = child_element.layout(constraint_min, constraint_max);
+            if (child_rect.size[main_axis] >= main_equal_space_per_child) {
                 children_requesting_space += 1;
             }
 
-            main_space_used += child.rect.size[main_axis];
-            cross_min_width = @max(cross_min_width, child.rect.size[cross_axis]);
+            main_space_used += child_rect.size[main_axis];
+            cross_min_width = @max(cross_min_width, child_rect.size[cross_axis]);
         }
     }
 
     main_space_used = @max(content_min_size[main_axis], main_space_used);
 
-    const num_items: f32 = @floatFromInt(this.children.items.len);
+    const num_items: f32 = @floatFromInt(this.children.count());
 
     const space_before: f32 = switch (this.justification) {
         .start, .space_between => 0,
@@ -238,16 +258,16 @@ pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
 
     var main_pos: f32 = space_before;
 
-    for (this.children.items) |*child| {
-        child.rect.pos[main_axis] = main_pos;
+    for (this.children.values()) |*child_rect| {
+        child_rect.pos[main_axis] = main_pos;
 
-        child.rect.pos[cross_axis] = switch (this.cross_align) {
+        child_rect.pos[cross_axis] = switch (this.cross_align) {
             .start => 0,
-            .center => (cross_axis_size - child.rect.size[cross_axis]) / 2,
-            .end => cross_axis_size - child.rect.size[cross_axis],
+            .center => (cross_axis_size - child_rect.size[cross_axis]) / 2,
+            .end => cross_axis_size - child_rect.size[cross_axis],
         };
 
-        main_pos += child.rect.size[main_axis] + space_between;
+        main_pos += child_rect.size[main_axis] + space_between;
     }
 
     var bounds = [2]f32{ 0, 0 };
@@ -257,13 +277,13 @@ pub fn layout(this: *@This(), min_size: [2]f32, max_size: [2]f32) [2]f32 {
 }
 
 fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
-    for (this.children.items) |child| {
-        child.element.render(canvas, .{
+    for (this.children.keys(), this.children.values()) |child_element, child_rect| {
+        child_element.render(canvas, .{
             .pos = .{
-                rect.pos[0] + child.rect.pos[0],
-                rect.pos[1] + child.rect.pos[1],
+                rect.pos[0] + child_rect.pos[0],
+                rect.pos[1] + child_rect.pos[1],
             },
-            .size = child.rect.size,
+            .size = child_rect.size,
         });
     }
 }

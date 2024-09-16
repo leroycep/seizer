@@ -40,6 +40,7 @@ const INTERFACE = Element.Interface.getTypeErasedFunctions(@This(), .{
     .release_fn = release,
     .set_parent_fn = setParent,
     .get_parent_fn = getParent,
+    .get_child_rect_fn = element_getChildRect,
 
     .process_event_fn = processEvent,
     .get_min_size_fn = getMinSize,
@@ -67,6 +68,29 @@ fn setParent(this: *@This(), new_parent: ?Element) void {
 
 fn getParent(this: *@This()) ?Element {
     return this.parent;
+}
+
+fn element_getChildRect(this: *@This(), child: Element) ?Element.TransformedRect {
+    if (!std.meta.eql(this.child, child)) return null;
+
+    if (this.parent) |parent| {
+        if (parent.getChildRect(this.element())) |parent_rect_transform| {
+            return .{
+                .rect = .{
+                    .pos = .{
+                        parent_rect_transform.rect.pos[0] + this.child_rect.pos[0],
+                        parent_rect_transform.rect.pos[1] + this.child_rect.pos[1],
+                    },
+                    .size = this.child_rect.size,
+                },
+                .transform = parent_rect_transform.transform,
+            };
+        }
+    }
+    return .{
+        .rect = this.child_rect,
+        .transform = seizer.geometry.mat4.identity(f32),
+    };
 }
 
 fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {

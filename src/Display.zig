@@ -44,6 +44,7 @@ pub const Window = opaque {
     pub const Event = union(enum) {
         resize: [2]u32,
         should_close,
+        input: seizer.input.Event,
     };
 };
 
@@ -122,5 +123,6 @@ pub inline fn destroyBuffer(this: @This(), buffer: *Buffer) void {
 }
 
 const builtin = @import("builtin");
+const seizer = @import("./seizer.zig");
 const std = @import("std");
 const xev = @import("xev");

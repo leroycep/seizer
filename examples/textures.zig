@@ -206,7 +206,6 @@ fn render(window: *seizer.Display.Window) !void {
 
     const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
 
-    // gfx.uploadUniformTexture(render_buffer, pipeline, 1, 0, player_texture);
     gfx.interface.setViewport(gfx.pointer, render_buffer, .{
         .pos = .{ 0, 0 },
         .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },

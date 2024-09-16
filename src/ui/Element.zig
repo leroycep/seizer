@@ -15,6 +15,14 @@ const Element = @This();
 pub const TransformedRect = struct {
     rect: Rect,
     transform: [4][4]f32,
+
+    pub fn transformWithTranslation(this: @This()) [4][4]f32 {
+        return seizer.geometry.mat4.mul(
+            f32,
+            seizer.geometry.mat4.translate(f32, .{ -this.rect.pos[0], -this.rect.pos[1], 0 }),
+            this.transform,
+        );
+    }
 };
 
 pub const Interface = struct {

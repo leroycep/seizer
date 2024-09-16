@@ -21,6 +21,7 @@ font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 vertex_buffers: [10]*seizer.Graphics.Buffer,
 current_vertex_buffer_index: usize = 0,
 
+begin_rendering_options: seizer.Graphics.RenderBuffer.BeginRenderingOptions,
 scissor: ?seizer.geometry.Rect(f32) = null,
 projection: [4][4]f32,
 
@@ -247,6 +248,7 @@ pub fn init(
         .font_pages = font_pages,
 
         .vertex_buffers = vertex_buffers,
+        .begin_rendering_options = undefined,
         .projection = undefined,
     };
 }
@@ -275,9 +277,10 @@ pub const BeginOptions = struct {
     window_size: [2]u32,
     invert_y: bool = false,
     scissor: ?struct { [2]i32, [2]u32 } = null,
+    clear_color: [4]f32,
 };
 
-pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, options: BeginOptions) Transformed {
+pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, options: BeginOptions) Transformed {
     this.window_size = [2]f32{
         @floatFromInt(options.window_size[0]),
         @floatFromInt(options.window_size[1]),
@@ -298,6 +301,10 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
         else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
     };
 
+    this.begin_rendering_options = .{
+        .clear_color = options.clear_color,
+    };
+
     this.current_batch = .{
         .vertex_offset = 0,
         .vertex_count = undefined,
@@ -310,33 +317,60 @@ pub fn begin(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, opti
 
     this.texture_ids.shrinkRetainingCapacity(0);
     this.texture_ids.putAssumeCapacityNoClobber(this.blank_texture, 0);
-    command_buffer.uploadUniformBuffer(this.pipeline, 0, 0, std.mem.asBytes(&this.projection), 0);
-    command_buffer.uploadUniformTexture(this.pipeline, 1, 0, this.blank_texture);
     this.next_texture_id = 1;
 
     return Transformed{
         .canvas = this,
-        .command_buffer = command_buffer,
+        .render_buffer = render_buffer,
         .transform = this.current_batch.uniforms.transform,
         .scissor = this.current_batch.scissor,
     };
 }
 
-pub fn end(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer) void {
+pub fn end(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer) void {
     this.flush();
 
-    command_buffer.uploadToBuffer(this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+    const SortByTextureId = struct {
+        ids: []const u32,
 
-    command_buffer.beginRendering(.{ .clear_color = null });
-    command_buffer.bindPipeline(this.pipeline);
-    command_buffer.bindVertexBuffer(this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
+        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
+            return ctx.ids[a_index] < ctx.ids[b_index];
+        }
+    };
+    this.texture_ids.sort(SortByTextureId{ .ids = this.texture_ids.values() });
+
+    this.graphics.uploadToBuffer(render_buffer, this.vertex_buffers[this.current_vertex_buffer_index], std.mem.sliceAsBytes(this.vertices.items));
+    this.graphics.uploadDescriptors(render_buffer, this.pipeline, seizer.Graphics.Pipeline.UploadDescriptorsOptions{
+        .writes = &[_]seizer.Graphics.Pipeline.DescriptorWrite{
+            .{
+                .binding = 0,
+                .offset = 0,
+                .data = .{
+                    .buffer = &.{
+                        std.mem.asBytes(&this.projection),
+                    },
+                },
+            },
+            .{
+                .binding = 1,
+                .offset = 0,
+                .data = .{
+                    .sampler2D = this.texture_ids.keys(),
+                },
+            },
+        },
+    });
+
+    this.graphics.beginRendering(render_buffer, this.begin_rendering_options);
+    this.graphics.bindPipeline(render_buffer, this.pipeline);
+    this.graphics.bindVertexBuffer(render_buffer, this.pipeline, this.vertex_buffers[this.current_vertex_buffer_index]);
 
     for (this.batches.items) |batch| {
-        command_buffer.setScissor(batch.scissor.pos, batch.scissor.size);
-        command_buffer.pushConstants(this.pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
-        command_buffer.drawPrimitives(batch.vertex_count, 1, batch.vertex_offset, 0);
+        this.graphics.setScissor(render_buffer, batch.scissor.pos, batch.scissor.size);
+        this.graphics.pushConstants(render_buffer, this.pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
+        this.graphics.drawPrimitives(render_buffer, batch.vertex_count, 1, batch.vertex_offset, 0);
     }
-    command_buffer.endRendering();
+    this.graphics.endRendering(render_buffer);
 }
 
 pub fn setScissor(this: *@This(), pos: [2]i32, size: [2]u32) void {
@@ -453,14 +487,12 @@ pub const TextWriter = struct {
 };
 
 /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
-pub fn addVertices(this: *@This(), command_buffer: seizer.Graphics.CommandBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, scissor: Scissor, vertices: []const Vertex) void {
+pub fn addVertices(this: *@This(), transform: [4][4]f32, texture: *seizer.Graphics.Texture, scissor: Scissor, vertices: []const Vertex) void {
     if (vertices.len == 0) return;
 
     const texture_slot = this.texture_ids.getOrPutAssumeCapacity(texture);
     if (!texture_slot.found_existing) {
         texture_slot.value_ptr.* = this.next_texture_id;
-        command_buffer.uploadUniformTexture(this.pipeline, 1, texture_slot.value_ptr.*, texture);
-
         this.next_texture_id += 1;
     }
 
@@ -495,12 +527,12 @@ pub fn flush(this: *@This()) void {
 /// A transformed canvas
 pub const Transformed = struct {
     canvas: *Canvas,
-    command_buffer: seizer.Graphics.CommandBuffer,
+    render_buffer: *seizer.Graphics.RenderBuffer,
     transform: [4][4]f32,
     scissor: Scissor,
 
     pub fn rect(this: @This(), pos: [2]f32, size: [2]f32, options: RectOptions) void {
-        this.canvas.addVertices(this.command_buffer, this.transform, options.texture orelse this.canvas.blank_texture, this.scissor, &.{
+        this.canvas.addVertices(this.transform, options.texture orelse this.canvas.blank_texture, this.scissor, &.{
             // triangle 1
             .{
                 .pos = pos ++ [1]f32{options.depth},
@@ -666,7 +698,7 @@ pub const Transformed = struct {
             midpoint[1] + half_length * forward[1] + half_width * right[1],
         };
 
-        this.canvas.addVertices(this.command_buffer, this.transform, this.canvas.blank_texture, this.scissor, &.{
+        this.canvas.addVertices(this.transform, this.canvas.blank_texture, this.scissor, &.{
             .{
                 .pos = back_left ++ [1]f32{options.depth},
                 .uv = .{ 0, 0 },
@@ -703,7 +735,7 @@ pub const Transformed = struct {
 
     pub fn transformed(this: @This(), transform: [4][4]f32) Transformed {
         return Transformed{
-            .command_buffer = this.command_buffer,
+            .render_buffer = this.render_buffer,
             .canvas = this.canvas,
             .transform = geometry.mat4.mul(f32, this.transform, transform),
             .scissor = this.scissor,
@@ -739,7 +771,7 @@ pub const Transformed = struct {
         };
         return Transformed{
             .canvas = this.canvas,
-            .command_buffer = this.command_buffer,
+            .render_buffer = this.render_buffer,
             .transform = this.transform,
             .scissor = new_scissor,
         };

@@ -577,7 +577,6 @@ pub const Conn = struct {
                     log.err("{}: {} {?s}", .{ e.object_id, e.code, e.message });
                 },
                 .delete_id => |d| {
-                    log.debug("wl object id {} deleted", .{d.id});
                     if (conn.objects.fetchRemove(d.id)) |kv| {
                         kv.value.interface.delete(kv.value);
                         conn.id_pool.destroy(d.id);

@@ -304,12 +304,8 @@ pub inline fn endRendering(gfx: Graphics, render_buffer: *RenderBuffer) void {
     return gfx.interface.endRendering(gfx.pointer, render_buffer);
 }
 
-pub inline fn uploadUniformTexture(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, binding: u32, index: u32, texture: ?*Texture) void {
-    return gfx.interface.uploadUniformTexture(gfx.pointer, render_buffer, pipeline, binding, index, texture);
-}
-
-pub inline fn uploadUniformBuffer(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, binding: u32, index: u32, data: []const u8, offset: u32) void {
-    return gfx.interface.uploadUniformBuffer(gfx.pointer, render_buffer, pipeline, binding, index, data, offset);
+pub inline fn uploadDescriptors(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, options: Pipeline.UploadDescriptorsOptions) void {
+    return gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, options);
 }
 
 pub inline fn uploadToBuffer(gfx: Graphics, render_buffer: *RenderBuffer, buffer: *Buffer, data: []const u8) void {
@@ -328,8 +324,13 @@ pub inline fn drawPrimitives(gfx: Graphics, render_buffer: *RenderBuffer, vertex
     return gfx.interface.drawPrimitives(gfx.pointer, render_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-// pushConstants: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, stages: Graphics.Pipeline.Stages, data: []const u8, offset: u32) void,
-// setScissor: *const fn (?*anyopaque, *RenderBuffer, position: [2]i32, size: [2]u32) void,
+pub inline fn setScissor(gfx: Graphics, render_buffer: *RenderBuffer, position: [2]i32, size: [2]u32) void {
+    return gfx.interface.setScissor(gfx.pointer, render_buffer, position, size);
+}
+
+pub inline fn pushConstants(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, stages: Pipeline.Stages, data: []const u8, offset: u32) void {
+    return gfx.interface.pushConstants(gfx.pointer, render_buffer, pipeline, stages, data, offset);
+}
 
 const builtin = @import("builtin");
 const seizer = @import("./seizer.zig");
