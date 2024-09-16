@@ -462,7 +462,11 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
         .image_type = .@"2d",
         .format = switch (image.pixelFormat()) {
             .rgba32 => .r8g8b8a8_unorm,
-            else => return error.UnsupportedFormat,
+            .grayscale16 => .r16_unorm,
+            else => |f| {
+                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                return error.UnsupportedFormat;
+            },
         },
         .extent = .{ .width = @intCast(image.width), .height = @intCast(image.height), .depth = 1 },
         .mip_levels = 1,
@@ -609,9 +613,20 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
         .view_type = .@"2d",
         .format = switch (image.pixelFormat()) {
             .rgba32 => .r8g8b8a8_unorm,
-            else => return error.UnsupportedFormat,
+            .grayscale16 => .r16_unorm,
+            else => |f| {
+                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                return error.UnsupportedFormat;
+            },
         },
-        .components = .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+        .components = switch (image.pixelFormat()) {
+            .rgba32 => .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
+            .grayscale16 => .{ .r = .identity, .g = .r, .b = .r, .a = .identity },
+            else => |f| {
+                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                return error.UnsupportedFormat;
+            },
+        },
         .subresource_range = vk.ImageSubresourceRange{
             .aspect_mask = .{ .color_bit = true },
             .base_mip_level = 0,
