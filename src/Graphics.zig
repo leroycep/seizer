@@ -20,9 +20,9 @@ pub const Interface = struct {
     destroyPipeline: *const fn (?*anyopaque, *Pipeline) void,
     createBuffer: *const fn (?*anyopaque, Buffer.CreateOptions) Buffer.CreateError!*Buffer,
     destroyBuffer: *const fn (?*anyopaque, *Buffer) void,
+
     createSwapchain: *const fn (?*anyopaque, seizer.Display, *seizer.Display.Window, Swapchain.CreateOptions) Swapchain.CreateError!*Swapchain,
     destroySwapchain: *const fn (?*anyopaque, *Swapchain) void,
-
     swapchainGetRenderBuffer: *const fn (?*anyopaque, *Swapchain, Swapchain.GetRenderBufferOptions) Swapchain.GetRenderBufferError!*RenderBuffer,
     swapchainPresentRenderBuffer: *const fn (?*anyopaque, seizer.Display, *seizer.Display.Window, *Swapchain, *RenderBuffer) Swapchain.PresentRenderBufferError!void,
     swapchainReleaseRenderBuffer: *const fn (?*anyopaque, *Swapchain, *RenderBuffer) void,
@@ -33,9 +33,9 @@ pub const Interface = struct {
     drawPrimitives: *const fn (?*anyopaque, *RenderBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
     uploadToBuffer: *const fn (?*anyopaque, *RenderBuffer, buffer: *Graphics.Buffer, data: []const u8) void,
     bindVertexBuffer: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, buffer: *Graphics.Buffer) void,
-    uploadUniformTexture: *const fn (?*anyopaque, *RenderBuffer, *Graphics.Pipeline, binding: u32, index: u32, texture: ?*Graphics.Texture) void,
-    uploadUniformBuffer: *const fn (?*anyopaque, *RenderBuffer, *Graphics.Pipeline, binding: u32, index: u32, data: []const u8, offset: u32) void,
+    uploadDescriptors: *const fn (?*anyopaque, *RenderBuffer, *Pipeline, Pipeline.UploadDescriptorsOptions) void,
     pushConstants: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, stages: Graphics.Pipeline.Stages, data: []const u8, offset: u32) void,
+    setViewport: *const fn (?*anyopaque, *RenderBuffer, RenderBuffer.SetViewportOptions) void,
     setScissor: *const fn (?*anyopaque, *RenderBuffer, position: [2]i32, size: [2]u32) void,
 };
 
@@ -169,16 +169,12 @@ pub const Pipeline = opaque {
 
     pub const UniformDescription = struct {
         binding: u32,
-        type: Type,
+        type: DescriptorType,
         count: u32,
         stages: Stages,
         size: u32,
-
-        pub const Type = enum {
-            sampler2D,
-            buffer,
-        };
     };
+
     pub const Stages = packed struct(u2) {
         vertex: bool = false,
         fragment: bool = false,
@@ -196,6 +192,26 @@ pub const Pipeline = opaque {
         pub const Type = enum {
             f32,
             u8,
+        };
+    };
+
+    pub const DescriptorType = enum {
+        sampler2D,
+        buffer,
+    };
+
+    pub const UploadDescriptorsOptions = struct {
+        writes: []const DescriptorWrite,
+    };
+
+    pub const DescriptorWrite = struct {
+        binding: u32,
+        offset: u32,
+        data: Data,
+
+        pub const Data = union(DescriptorType) {
+            sampler2D: []const *Texture,
+            buffer: []const []const u8,
         };
     };
 };
@@ -222,6 +238,14 @@ pub fn createBuffer(gfx: Graphics, options: Buffer.CreateOptions) Buffer.CreateE
 pub fn destroyBuffer(gfx: Graphics, pipeline: *Buffer) void {
     return gfx.interface.destroyBuffer(gfx.pointer, pipeline);
 }
+
+pub const DescriptorSet = opaque {
+    pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread };
+    pub const CreateOptions = struct {
+        num_frames: u32 = 3,
+        size: [2]u32,
+    };
+};
 
 pub const Swapchain = opaque {
     pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread, UnsupportedFormat, DisplayConnectionLost };
@@ -263,6 +287,13 @@ pub const RenderBuffer = opaque {
     pub const BeginRenderingOptions = struct {
         clear_color: [4]f32 = .{ 0, 0, 0, 1 },
     };
+
+    pub const SetViewportOptions = struct {
+        pos: [2]f32,
+        size: [2]f32,
+        min_depth: f32 = 0,
+        max_depth: f32 = 1,
+    };
 };
 
 pub inline fn beginRendering(gfx: Graphics, render_buffer: *RenderBuffer, options: RenderBuffer.BeginRenderingOptions) void {
@@ -272,6 +303,33 @@ pub inline fn beginRendering(gfx: Graphics, render_buffer: *RenderBuffer, option
 pub inline fn endRendering(gfx: Graphics, render_buffer: *RenderBuffer) void {
     return gfx.interface.endRendering(gfx.pointer, render_buffer);
 }
+
+pub inline fn uploadUniformTexture(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, binding: u32, index: u32, texture: ?*Texture) void {
+    return gfx.interface.uploadUniformTexture(gfx.pointer, render_buffer, pipeline, binding, index, texture);
+}
+
+pub inline fn uploadUniformBuffer(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, binding: u32, index: u32, data: []const u8, offset: u32) void {
+    return gfx.interface.uploadUniformBuffer(gfx.pointer, render_buffer, pipeline, binding, index, data, offset);
+}
+
+pub inline fn uploadToBuffer(gfx: Graphics, render_buffer: *RenderBuffer, buffer: *Buffer, data: []const u8) void {
+    return gfx.interface.uploadToBuffer(gfx.pointer, render_buffer, buffer, data);
+}
+
+pub inline fn bindPipeline(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline) void {
+    return gfx.interface.bindPipeline(gfx.pointer, render_buffer, pipeline);
+}
+
+pub inline fn bindVertexBuffer(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, buffer: *Buffer) void {
+    return gfx.interface.bindVertexBuffer(gfx.pointer, render_buffer, pipeline, buffer);
+}
+
+pub inline fn drawPrimitives(gfx: Graphics, render_buffer: *RenderBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void {
+    return gfx.interface.drawPrimitives(gfx.pointer, render_buffer, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+// pushConstants: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, stages: Graphics.Pipeline.Stages, data: []const u8, offset: u32) void,
+// setScissor: *const fn (?*anyopaque, *RenderBuffer, position: [2]i32, size: [2]u32) void,
 
 const builtin = @import("builtin");
 const seizer = @import("./seizer.zig");

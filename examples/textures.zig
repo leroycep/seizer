@@ -51,17 +51,27 @@ const VERTS = [_]Vertex{
 
 pub const main = seizer.main;
 
+var display: seizer.Display = undefined;
+var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
+var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
+
 var player_texture: *seizer.Graphics.Texture = undefined;
 var pipeline: *seizer.Graphics.Pipeline = undefined;
 var vertex_buffer: *seizer.Graphics.Buffer = undefined;
 
 pub fn init() !void {
-    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    display = try seizer.Display.create(seizer.platform.allocator(), seizer.platform.loop(), .{});
+    errdefer display.destroy();
 
-    _ = try seizer.platform.createWindow(.{
+    gfx = try seizer.Graphics.create(seizer.platform.allocator(), .{});
+    errdefer gfx.destroy();
+
+    window_global = try display.createWindow(.{
         .title = "Textures - Seizer Example",
+        .on_event = onWindowEvent,
         .on_render = render,
+        .size = .{ 640, 480 },
     });
 
     var player_image = try seizer.zigimg.Image.fromMemory(seizer.platform.allocator(), @embedFile("assets/wedge.png"));
@@ -162,25 +172,67 @@ pub fn init() !void {
 
 /// This is a global deinit, not window specific. This is important because windows can hold onto Graphics resources.
 fn deinit() void {
+    display.destroyWindow(window_global);
+    if (swapchain_opt) |swapchain| gfx.destroySwapchain(swapchain);
     gfx.destroyPipeline(pipeline);
     gfx.destroyTexture(player_texture);
     gfx.destroyBuffer(vertex_buffer);
     gfx.destroy();
+    display.destroy();
 }
 
-fn render(window: seizer.Window) !void {
-    const cmd_buf = try gfx.begin(.{
-        .size = window.getSize(),
-        .clear_color = null,
+fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Event) !void {
+    _ = window;
+    switch (event) {
+        .should_close => seizer.platform.setShouldExit(true),
+        .resize => |r| {
+            std.log.info("resize window = {}x{}", .{ r[0], r[1] });
+            if (swapchain_opt) |swapchain| {
+                gfx.destroySwapchain(swapchain);
+                swapchain_opt = null;
+            }
+        },
+    }
+}
+
+fn render(window: *seizer.Display.Window) !void {
+    const window_size = display.windowGetSize(window);
+
+    const swapchain = swapchain_opt orelse create_swapchain: {
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        swapchain_opt = new_swapchain;
+        break :create_swapchain new_swapchain;
+    };
+
+    const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
+
+    // gfx.uploadUniformTexture(render_buffer, pipeline, 1, 0, player_texture);
+    gfx.interface.setViewport(gfx.pointer, render_buffer, .{
+        .pos = .{ 0, 0 },
+        .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
     });
+    gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
 
-    cmd_buf.uploadUniformTexture(pipeline, 0, 0, player_texture);
-    cmd_buf.uploadToBuffer(vertex_buffer, std.mem.asBytes(&VERTS));
-    cmd_buf.bindPipeline(pipeline);
-    cmd_buf.bindVertexBuffer(pipeline, vertex_buffer);
-    cmd_buf.drawPrimitives(6, 1, 0, 0);
+    gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, .{
+        .writes = &.{
+            .{
+                .binding = 0,
+                .offset = 0,
+                .data = .{ .sampler2D = &.{player_texture} },
+            },
+        },
+    });
+    gfx.uploadToBuffer(render_buffer, vertex_buffer, std.mem.asBytes(&VERTS));
 
-    try window.presentFrame(try cmd_buf.end());
+    gfx.beginRendering(render_buffer, .{
+        .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
+    });
+    gfx.bindPipeline(render_buffer, pipeline);
+    gfx.bindVertexBuffer(render_buffer, pipeline, vertex_buffer);
+    gfx.drawPrimitives(render_buffer, 6, 1, 0, 0);
+    gfx.endRendering(render_buffer);
+
+    try gfx.swapchainPresentRenderBuffer(display, window, swapchain, render_buffer);
 }
 
 const seizer = @import("seizer");
