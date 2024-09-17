@@ -7,10 +7,7 @@ vk_instance: VulkanInstance,
 vk_device: VulkanDevice,
 
 vk_command_pool: vk.CommandPool,
-vk_descriptor_pool: vk.DescriptorPool,
 vk_graphics_queue: vk.Queue,
-
-vk_descriptor_set_layout: vk.DescriptorSetLayout,
 
 vk_device_properties: vk.PhysicalDeviceProperties,
 image_format: vk.Format,
@@ -48,6 +45,7 @@ pub const GRAPHICS_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.G
     .uploadToBuffer = _uploadToBuffer,
     .bindVertexBuffer = _bindVertexBuffer,
     .uploadDescriptors = _uploadDescriptors,
+    .bindDescriptorSet = _bindDescriptorSet,
     .pushConstants = _pushConstants,
     .setViewport = _setViewport,
     .setScissor = _setScissor,
@@ -161,78 +159,6 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
 
     const vk_device_properties = vk_instance.getPhysicalDeviceProperties(device_result.physical_device);
 
-    // create render pass
-    // const vk_render_pass = vk_device.createRenderPass(&vk.RenderPassCreateInfo{
-    //     .attachment_count = 1,
-    //     .p_attachments = &[_]vk.AttachmentDescription{
-    //         .{
-    //             .format = DEFAULT_IMAGE_FORMAT,
-    //             .samples = .{ .@"1_bit" = true },
-    //             .load_op = .clear,
-    //             .store_op = .store,
-    //             .stencil_load_op = .dont_care,
-    //             .stencil_store_op = .dont_care,
-    //             .initial_layout = .undefined,
-    //             .final_layout = .color_attachment_optimal,
-    //         },
-    //     },
-    //     .subpass_count = 1,
-    //     .p_subpasses = &[_]vk.SubpassDescription{
-    //         .{
-    //             .pipeline_bind_point = .graphics,
-    //             .color_attachment_count = 1,
-    //             .p_color_attachments = &[_]vk.AttachmentReference{
-    //                 .{
-    //                     .attachment = 0,
-    //                     .layout = .color_attachment_optimal,
-    //                 },
-    //             },
-    //         },
-    //     },
-    // }, null) catch |err| switch (err) {
-    //     error.OutOfHostMemory => return error.OutOfMemory,
-    //     error.Unknown => return error.InitializationFailed,
-    //     error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
-    // };
-    // errdefer vk_device.destroyRenderPass(vk_render_pass, null);
-
-    const vk_descriptor_pool = vk_device.createDescriptorPool(&vk.DescriptorPoolCreateInfo{
-        .flags = .{ .free_descriptor_set_bit = true },
-        .max_sets = 10,
-        .pool_size_count = 2,
-        .p_pool_sizes = &[2]vk.DescriptorPoolSize{
-            .{ .type = .uniform_buffer, .descriptor_count = 4096 },
-            .{ .type = .combined_image_sampler, .descriptor_count = 4096 },
-        },
-    }, null) catch unreachable;
-
-    const vk_descriptor_binding_flags_create_info = vk.DescriptorSetLayoutBindingFlagsCreateInfo{
-        .binding_count = 2,
-        .p_binding_flags = &[2]vk.DescriptorBindingFlags{
-            .{ .partially_bound_bit = true },
-            .{ .partially_bound_bit = true },
-        },
-    };
-
-    const vk_descriptor_set_layout = vk_device.createDescriptorSetLayout(&vk.DescriptorSetLayoutCreateInfo{
-        .p_next = &vk_descriptor_binding_flags_create_info,
-        .binding_count = 2,
-        .p_bindings = &[2]vk.DescriptorSetLayoutBinding{
-            .{
-                .binding = 0,
-                .descriptor_type = .uniform_buffer,
-                .descriptor_count = 10,
-                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
-            },
-            .{
-                .binding = 1,
-                .descriptor_type = .combined_image_sampler,
-                .descriptor_count = 10,
-                .stage_flags = .{ .vertex_bit = true, .fragment_bit = true },
-            },
-        },
-    }, null) catch unreachable;
-
     const this = try allocator.create(@This());
     errdefer allocator.destroy(this);
 
@@ -243,14 +169,10 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
 
         .vk_instance = vk_instance,
         .vk_device = vk_device,
-        .vk_descriptor_pool = vk_descriptor_pool,
         .vk_command_pool = vk_command_pool,
         .image_format = DEFAULT_IMAGE_FORMAT,
 
-        .vk_descriptor_set_layout = vk_descriptor_set_layout,
-
         .vk_graphics_queue = this.vk_device.getDeviceQueue(device_result.queue_family_index, 0),
-        // .vk_render_pass = vk_render_pass,
 
         .vk_device_properties = vk_device_properties,
         .vk_memory_properties = this.vk_instance.getPhysicalDeviceMemoryProperties(device_result.physical_device),
@@ -412,8 +334,6 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
 }
 
 fn destroy(this: *@This()) void {
-    this.vk_device.destroyDescriptorSetLayout(this.vk_descriptor_set_layout, null);
-    this.vk_device.destroyDescriptorPool(this.vk_descriptor_pool, null);
     this.vk_device.destroyCommandPool(this.vk_command_pool, null);
     this.vk_device.destroyDevice(null);
     this.vk_instance.destroyInstance(null);
@@ -742,7 +662,18 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         };
     }
 
+    const descriptor_binding_flags_list = this.allocator.alloc(vk.DescriptorBindingFlags, uniform_binding_list.len) catch unreachable;
+    defer this.allocator.free(descriptor_binding_flags_list);
+    @memset(descriptor_binding_flags_list, vk.DescriptorBindingFlags{ .partially_bound_bit = true });
+
+    const vk_descriptor_binding_flags_create_info = vk.DescriptorSetLayoutBindingFlagsCreateInfo{
+        .binding_count = @intCast(descriptor_binding_flags_list.len),
+        .p_binding_flags = descriptor_binding_flags_list.ptr,
+    };
+
     const vk_descriptor_set_layout = this.vk_device.createDescriptorSetLayout(&vk.DescriptorSetLayoutCreateInfo{
+        .p_next = &vk_descriptor_binding_flags_create_info,
+        .flags = .{ .update_after_bind_pool_bit = true },
         .binding_count = @intCast(uniform_binding_list.len),
         .p_bindings = uniform_binding_list.ptr,
     }, null) catch unreachable;
@@ -847,6 +778,8 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         .stencil_attachment_format = .undefined,
     };
 
+    const base_pipeline: ?*Pipeline = @ptrCast(@alignCast(options.base_pipeline));
+
     var pipelines: [1]vk.Pipeline = undefined;
     _ = this.vk_device.createGraphicsPipelines(.null_handle, 1, &[_]vk.GraphicsPipelineCreateInfo{
         .{
@@ -913,7 +846,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
             .layout = pipeline_layout,
             .render_pass = .null_handle,
             .subpass = 0,
-            .base_pipeline_handle = .null_handle,
+            .base_pipeline_handle = if (base_pipeline) |base| base.vk_pipeline else .null_handle,
             .base_pipeline_index = -1,
         },
     }, null, &pipelines) catch unreachable;
@@ -1120,12 +1053,9 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     }, vk_command_buffers.ptr) catch unreachable;
     errdefer this.vk_device.freeCommandBuffers(this.vk_command_pool, @intCast(vk_command_buffers.len), vk_command_buffers.ptr);
 
-    const vk_descriptor_set_layouts = try this.allocator.alloc(vk.DescriptorSetLayout, elements.len);
-    defer this.allocator.free(vk_descriptor_set_layouts);
-    @memset(vk_descriptor_set_layouts, this.vk_descriptor_set_layout);
-
     for (elements_slice.items(.vk_descriptor_pool)) |*vk_descriptor_pool| {
         vk_descriptor_pool.* = this.vk_device.createDescriptorPool(&vk.DescriptorPoolCreateInfo{
+            .flags = .{ .update_after_bind_bit = true },
             .max_sets = 10,
             .pool_size_count = 2,
             .p_pool_sizes = &[2]vk.DescriptorPoolSize{
@@ -1425,7 +1355,7 @@ fn _bindVertexBuffer(this: *@This(), render_buffer_opaque: *seizer.Graphics.Rend
     this.vk_device.cmdBindVertexBuffers(render_buffer.vk_command_buffer, 0, 1, &[1]vk.Buffer{vertex_buffer.vk_buffer}, &[1]vk.DeviceSize{0});
 }
 
-fn _uploadDescriptors(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, pipeline_opaque: *seizer.Graphics.Pipeline, options: seizer.Graphics.Pipeline.UploadDescriptorsOptions) void {
+fn _uploadDescriptors(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, pipeline_opaque: *seizer.Graphics.Pipeline, options: seizer.Graphics.Pipeline.UploadDescriptorsOptions) *seizer.Graphics.DescriptorSet {
     const render_buffer: *RenderBuffer = @ptrCast(@alignCast(render_buffer_opaque));
     const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
 
@@ -1532,7 +1462,15 @@ fn _uploadDescriptors(this: *@This(), render_buffer_opaque: *seizer.Graphics.Ren
         null,
     );
 
-    this.vk_device.cmdBindDescriptorSets(render_buffer.vk_command_buffer, .graphics, pipeline.vk_pipeline_layout, 0, vk_descriptor_sets.len, &vk_descriptor_sets, 0, null);
+    return @ptrFromInt(@intFromEnum(vk_descriptor_sets[0]));
+}
+
+fn _bindDescriptorSet(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, pipeline_opaque: *seizer.Graphics.Pipeline, descriptor_set_opaque: *seizer.Graphics.DescriptorSet) void {
+    const render_buffer: *RenderBuffer = @ptrCast(@alignCast(render_buffer_opaque));
+    const pipeline: *Pipeline = @ptrCast(@alignCast(pipeline_opaque));
+    const vk_descriptor_set: vk.DescriptorSet = @enumFromInt(@intFromPtr(descriptor_set_opaque));
+
+    this.vk_device.cmdBindDescriptorSets(render_buffer.vk_command_buffer, .graphics, pipeline.vk_pipeline_layout, 0, 1, &.{vk_descriptor_set}, 0, null);
 }
 
 fn _pushConstants(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuffer, pipeline_opaque: *seizer.Graphics.Pipeline, stages: seizer.Graphics.Pipeline.Stages, data: []const u8, offset: u32) void {

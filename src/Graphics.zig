@@ -33,7 +33,8 @@ pub const Interface = struct {
     drawPrimitives: *const fn (?*anyopaque, *RenderBuffer, vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32) void,
     uploadToBuffer: *const fn (?*anyopaque, *RenderBuffer, buffer: *Graphics.Buffer, data: []const u8) void,
     bindVertexBuffer: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, buffer: *Graphics.Buffer) void,
-    uploadDescriptors: *const fn (?*anyopaque, *RenderBuffer, *Pipeline, Pipeline.UploadDescriptorsOptions) void,
+    uploadDescriptors: *const fn (?*anyopaque, *RenderBuffer, *Pipeline, Pipeline.UploadDescriptorsOptions) *DescriptorSet,
+    bindDescriptorSet: *const fn (?*anyopaque, *RenderBuffer, *Pipeline, *DescriptorSet) void,
     pushConstants: *const fn (?*anyopaque, *RenderBuffer, pipeline: *Graphics.Pipeline, stages: Graphics.Pipeline.Stages, data: []const u8, offset: u32) void,
     setViewport: *const fn (?*anyopaque, *RenderBuffer, RenderBuffer.SetViewportOptions) void,
     setScissor: *const fn (?*anyopaque, *RenderBuffer, position: [2]i32, size: [2]u32) void,
@@ -129,6 +130,7 @@ pub fn destroyTexture(gfx: Graphics, texture: *Texture) void {
 pub const Pipeline = opaque {
     pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread, UnsupportedFormat, ShaderLinkingFailed };
     pub const CreateOptions = struct {
+        base_pipeline: ?*Pipeline = null,
         vertex_shader: *Shader,
         fragment_shader: *Shader,
         blend: ?Blend,
@@ -239,14 +241,6 @@ pub fn destroyBuffer(gfx: Graphics, pipeline: *Buffer) void {
     return gfx.interface.destroyBuffer(gfx.pointer, pipeline);
 }
 
-pub const DescriptorSet = opaque {
-    pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread };
-    pub const CreateOptions = struct {
-        num_frames: u32 = 3,
-        size: [2]u32,
-    };
-};
-
 pub const Swapchain = opaque {
     pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread, UnsupportedFormat, DisplayConnectionLost };
     pub const CreateOptions = struct {
@@ -304,8 +298,14 @@ pub inline fn endRendering(gfx: Graphics, render_buffer: *RenderBuffer) void {
     return gfx.interface.endRendering(gfx.pointer, render_buffer);
 }
 
-pub inline fn uploadDescriptors(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, options: Pipeline.UploadDescriptorsOptions) void {
+pub const DescriptorSet = opaque {};
+
+pub inline fn uploadDescriptors(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, options: Pipeline.UploadDescriptorsOptions) *DescriptorSet {
     return gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, options);
+}
+
+pub inline fn bindDescriptorSet(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, descriptor_set: *DescriptorSet) void {
+    return gfx.interface.bindDescriptorSet(gfx.pointer, render_buffer, pipeline, descriptor_set);
 }
 
 pub inline fn uploadToBuffer(gfx: Graphics, render_buffer: *RenderBuffer, buffer: *Buffer, data: []const u8) void {

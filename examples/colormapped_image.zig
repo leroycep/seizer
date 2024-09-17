@@ -58,18 +58,7 @@ pub fn init() !void {
     });
     errdefer gfx.destroyTexture(colormap_texture);
 
-    const default_vertex_shader = try gfx.createShader(.{
-        .target = .vertex,
-        .sampler_count = 0,
-        .source = switch (gfx.interface.driver) {
-            // .gles3v0 => .{ .glsl = @embedFile("./Canvas/vs.glsl") },
-            .vulkan => .{ .spirv = &seizer.Canvas.DEFAULT_VERTEX_SHADER_VULKAN },
-            else => |driver| std.debug.panic("colormapped_image example does not support {} driver", .{driver}),
-        },
-        .entry_point_name = "main",
-    });
-    defer gfx.destroyShader(default_vertex_shader);
-
+    // create a Canvas pipeline variation to use a colormap texture to render monochrome images
     const colormap_fragment_shader = try gfx.createShader(.{
         .target = .fragment,
         .sampler_count = 1,
@@ -82,72 +71,15 @@ pub fn init() !void {
     });
     defer gfx.destroyShader(colormap_fragment_shader);
 
-    colormap_pipeline = try gfx.createPipeline(.{
-        .vertex_shader = default_vertex_shader,
+    colormap_pipeline = try canvas.createPipelineVariation(.{
         .fragment_shader = colormap_fragment_shader,
-        .blend = .{
-            .src_color_factor = .src_alpha,
-            .dst_color_factor = .one_minus_src_alpha,
-            .color_op = .add,
-            .src_alpha_factor = .src_alpha,
-            .dst_alpha_factor = .one_minus_src_alpha,
-            .alpha_op = .add,
-        },
-        .primitive_type = .triangle,
-        .push_constants = .{
-            .size = @sizeOf(seizer.Canvas.UniformData),
-            .stages = .{ .vertex = true, .fragment = true },
-        },
-        .uniforms = &[_]seizer.Graphics.Pipeline.UniformDescription{
-            .{
-                .binding = 0,
-                .size = @sizeOf(seizer.Canvas.GlobalConstants),
-                .type = .buffer,
-                .count = 1,
-                .stages = .{ .vertex = true },
-            },
-            .{
-                .binding = 1,
-                .size = 0,
-                .type = .sampler2D,
-                .count = 10,
-                .stages = .{ .fragment = true },
-            },
+        .extra_uniforms = &[_]seizer.Graphics.Pipeline.UniformDescription{
             .{
                 .binding = 2,
                 .size = @sizeOf(seizer.Canvas.GlobalConstants),
                 .type = .buffer,
                 .count = 1,
                 .stages = .{ .fragment = true },
-            },
-        },
-        .vertex_layout = &[_]seizer.Graphics.Pipeline.VertexAttribute{
-            .{
-                .attribute_index = 0,
-                .buffer_slot = 0,
-                .len = 3,
-                .type = .f32,
-                .normalized = false,
-                .stride = @sizeOf(seizer.Canvas.Vertex),
-                .offset = @offsetOf(seizer.Canvas.Vertex, "pos"),
-            },
-            .{
-                .attribute_index = 1,
-                .buffer_slot = 0,
-                .len = 2,
-                .type = .f32,
-                .normalized = false,
-                .stride = @sizeOf(seizer.Canvas.Vertex),
-                .offset = @offsetOf(seizer.Canvas.Vertex, "uv"),
-            },
-            .{
-                .attribute_index = 2,
-                .buffer_slot = 0,
-                .len = 4,
-                .type = .u8,
-                .normalized = false,
-                .stride = @sizeOf(seizer.Canvas.Vertex),
-                .offset = @offsetOf(seizer.Canvas.Vertex, "color"),
             },
         },
     });
@@ -198,71 +130,29 @@ fn render(window: *seizer.Display.Window) !void {
     });
     gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
 
-    const c = canvas.begin(render_buffer, .{
+    // split our canvas into two different modes of rendering
+    const regular_canvas_rendering = canvas.begin(render_buffer, .{
         .window_size = window_size,
         .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
 
     const colormap_texture_id = canvas.addTexture(colormap_texture);
-
-    c.rect(.{ 0, 0 }, .{ 480, 480 }, .{ .texture = texture });
-
-    // TODO: integrate multiple render pipelines into Canvas API?
-    // What follows is `canvas.end(render_buffer)`, with a couple modifications, mainly to uploadDescriptors
-    canvas.flush();
-
-    const SortByTextureId = struct {
-        ids: []const u32,
-
-        pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
-            return ctx.ids[a_index] < ctx.ids[b_index];
-        }
-    };
-    canvas.texture_ids.sort(SortByTextureId{ .ids = canvas.texture_ids.values() });
-
-    canvas.graphics.uploadToBuffer(render_buffer, canvas.vertex_buffers[canvas.current_vertex_buffer_index], std.mem.sliceAsBytes(canvas.vertices.items));
-    canvas.graphics.uploadDescriptors(render_buffer, colormap_pipeline, seizer.Graphics.Pipeline.UploadDescriptorsOptions{
-        .writes = &[_]seizer.Graphics.Pipeline.DescriptorWrite{
-            .{
-                .binding = 0,
-                .offset = 0,
-                .data = .{
-                    .buffer = &.{
-                        std.mem.asBytes(&canvas.projection),
-                    },
-                },
-            },
-            .{
-                .binding = 1,
-                .offset = 0,
-                .data = .{
-                    .sampler2D = canvas.texture_ids.keys(),
-                },
-            },
-            .{
-                .binding = 2,
-                .offset = 0,
-                .data = .{
-                    .buffer = &.{std.mem.asBytes(&ColormapUniformData{
-                        .min_value = 1.0 / @as(f32, @floatFromInt(std.math.maxInt(u16))),
-                        .max_value = 1,
-                        .colormap_texture_id = colormap_texture_id,
-                    })},
-                },
-            },
+    const colormap_canvas_rendering = regular_canvas_rendering.withPipeline(colormap_pipeline, &.{
+        .{
+            .binding = 2,
+            .data = std.mem.asBytes(&ColormapUniformData{
+                .min_value = 1.0 / @as(f32, @floatFromInt(std.math.maxInt(u16))),
+                .max_value = 1,
+                .colormap_texture_id = colormap_texture_id,
+            }),
         },
     });
 
-    canvas.graphics.beginRendering(render_buffer, canvas.begin_rendering_options);
-    canvas.graphics.bindPipeline(render_buffer, colormap_pipeline);
-    canvas.graphics.bindVertexBuffer(render_buffer, colormap_pipeline, canvas.vertex_buffers[canvas.current_vertex_buffer_index]);
+    // render the image twice, once with the regular shader and one with our colormapping shader
+    regular_canvas_rendering.rect(.{ 0, 0 }, .{ 480, 480 }, .{ .texture = texture });
+    colormap_canvas_rendering.rect(.{ 480, 0 }, .{ 480, 480 }, .{ .texture = texture });
 
-    for (canvas.batches.items) |batch| {
-        canvas.graphics.setScissor(render_buffer, batch.scissor.pos, batch.scissor.size);
-        canvas.graphics.pushConstants(render_buffer, colormap_pipeline, .{ .vertex = true, .fragment = true }, std.mem.asBytes(&batch.uniforms), 0);
-        canvas.graphics.drawPrimitives(render_buffer, batch.vertex_count, 1, batch.vertex_offset, 0);
-    }
-    canvas.graphics.endRendering(render_buffer);
+    canvas.end(render_buffer);
 
     try gfx.swapchainPresentRenderBuffer(display, window, swapchain, render_buffer);
 }
