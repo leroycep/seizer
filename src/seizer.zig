@@ -11,6 +11,8 @@ pub const Graphics = @import("./Graphics.zig");
 pub const NinePatch = @import("./NinePatch.zig");
 pub const Platform = @import("./Platform.zig");
 
+pub const colormaps = @import("./colormaps.zig");
+
 // re-exported libraries
 pub const tvg = @import("tvg");
 pub const zigimg = @import("zigimg");

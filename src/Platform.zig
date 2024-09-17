@@ -15,6 +15,8 @@ readFile: fn (options: ReadFileOptions) void,
 setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
+getRenderDocAPI: fn () ?*@import("renderdoc").API_1_6_0,
+
 pub const DeinitFn = *const fn () void;
 
 pub const AddButtonInputOptions = struct {

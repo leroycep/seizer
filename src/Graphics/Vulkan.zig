@@ -431,7 +431,7 @@ const Texture = struct {
     vk_sampler: vk.Sampler,
 };
 
-fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.Texture.CreateOptions) seizer.Graphics.Texture.CreateError!*seizer.Graphics.Texture {
+fn _createTexture(this: *@This(), image: zigimg.ImageUnmanaged, options: seizer.Graphics.Texture.CreateOptions) seizer.Graphics.Texture.CreateError!*seizer.Graphics.Texture {
     const vk_copy_buffer = this.vk_device.createBuffer(&vk.BufferCreateInfo{
         .size = image.imageByteSize(),
         .usage = .{ .transfer_src_bit = true },
@@ -463,6 +463,7 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
         .format = switch (image.pixelFormat()) {
             .rgba32 => .r8g8b8a8_unorm,
             .grayscale16 => .r16_unorm,
+            .float32 => .r32g32b32a32_sfloat,
             else => |f| {
                 std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
@@ -614,6 +615,7 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
         .format = switch (image.pixelFormat()) {
             .rgba32 => .r8g8b8a8_unorm,
             .grayscale16 => .r16_unorm,
+            .float32 => .r32g32b32a32_sfloat,
             else => |f| {
                 std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
@@ -622,6 +624,7 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
         .components = switch (image.pixelFormat()) {
             .rgba32 => .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             .grayscale16 => .{ .r = .identity, .g = .r, .b = .r, .a = .identity },
+            .float32 => .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             else => |f| {
                 std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
@@ -704,12 +707,6 @@ const Pipeline = struct {
     vk_pipeline_layout: vk.PipelineLayout,
     vk_pipeline: vk.Pipeline,
     vk_descriptor_set_layout: vk.DescriptorSetLayout,
-    uniforms: std.AutoArrayHashMapUnmanaged(u32, Uniform),
-
-    const Uniform = struct {
-        buffer: vk.Buffer,
-        memory: vk.DeviceMemory,
-    };
 };
 
 fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptions) seizer.Graphics.Pipeline.CreateError!*seizer.Graphics.Pipeline {
@@ -728,46 +725,9 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         },
     };
 
-    // key = binding, value = buffer
-    var uniforms = std.AutoArrayHashMap(u32, Pipeline.Uniform).init(this.allocator);
-    defer {
-        for (uniforms.values()) |uniform| {
-            this.vk_device.freeMemory(uniform.memory, null);
-            this.vk_device.destroyBuffer(uniform.buffer, null);
-        }
-        uniforms.deinit();
-    }
-
     const uniform_binding_list = try this.allocator.alloc(vk.DescriptorSetLayoutBinding, options.uniforms.len);
     defer this.allocator.free(uniform_binding_list);
     for (uniform_binding_list, options.uniforms) |*uniform_binding, uniform_description| {
-        switch (uniform_description.type) {
-            .buffer => {
-                try uniforms.ensureUnusedCapacity(1);
-
-                const vk_buffer = this.vk_device.createBuffer(&vk.BufferCreateInfo{
-                    .size = uniform_description.size,
-                    .usage = .{ .uniform_buffer_bit = true, .transfer_dst_bit = true },
-                    .sharing_mode = .exclusive,
-                }, null) catch unreachable;
-
-                const mem_requirements = this.vk_device.getBufferMemoryRequirements(vk_buffer);
-                const mem_type_index = findMemoryTypeIndex(this.vk_memory_properties, mem_requirements) orelse unreachable;
-
-                const vk_uniform_memory = this.vk_device.allocateMemory(&vk.MemoryAllocateInfo{
-                    .allocation_size = mem_requirements.size,
-                    .memory_type_index = mem_type_index,
-                }, null) catch unreachable;
-
-                this.vk_device.bindBufferMemory(vk_buffer, vk_uniform_memory, 0) catch unreachable;
-
-                uniforms.putAssumeCapacity(uniform_description.binding, .{
-                    .buffer = vk_buffer,
-                    .memory = vk_uniform_memory,
-                });
-            },
-            else => {},
-        }
         uniform_binding.* = vk.DescriptorSetLayoutBinding{
             .binding = uniform_description.binding,
             .descriptor_type = switch (uniform_description.type) {
@@ -965,9 +925,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         .vk_pipeline = pipelines[0],
         .vk_pipeline_layout = pipeline_layout,
         .vk_descriptor_set_layout = vk_descriptor_set_layout,
-        .uniforms = uniforms.unmanaged,
     };
-    uniforms.unmanaged = .{};
 
     return @ptrCast(pipeline);
 }
@@ -978,7 +936,6 @@ fn _destroyPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) 
     this.vk_device.destroyPipeline(pipeline.vk_pipeline, null);
     this.vk_device.destroyPipelineLayout(pipeline.vk_pipeline_layout, null);
     this.vk_device.destroyDescriptorSetLayout(pipeline.vk_descriptor_set_layout, null);
-    pipeline.uniforms.deinit(this.allocator);
 
     this.allocator.destroy(pipeline);
 }
@@ -1297,6 +1254,10 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
     const render_buffer = try swapchain.render_buffers.create();
     errdefer swapchain.render_buffers.destroy(render_buffer);
 
+    if (seizer.platform.getRenderDocAPI()) |renderdoc_api| {
+        _ = renderdoc_api.StartFrameCapture(null, null);
+    }
+
     const slice = swapchain.elements.slice();
     for (slice.items(.free), slice.items(.vk_fence_finished), 0..) |*is_free, is_finished_fence, i| {
         if (!is_free.*) continue;
@@ -1369,6 +1330,13 @@ fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window
     }, render_buffer.vk_fence_finished) catch unreachable;
 
     display.windowPresentBuffer(window, render_buffer.display_buffer);
+
+    if (seizer.platform.getRenderDocAPI()) |renderdoc_api| {
+        // std.log.debug("{s}:{}", .{ @src().file, @src().line });
+        if (renderdoc_api.IsFrameCapturing(null, null) == 1) {
+            _ = renderdoc_api.EndFrameCapture(null, null);
+        }
+    }
 
     swapchain.render_buffers.destroy(render_buffer);
 }

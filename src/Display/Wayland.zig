@@ -403,12 +403,6 @@ const Window = struct {
                     }
                     return;
                 };
-
-                // if (this.wayland.renderdoc.api) |renderdoc_api| {
-                //     if (renderdoc_api.IsFrameCapturing(null, null) == 1) {
-                //         _ = renderdoc_api.EndFrameCapture(null, null);
-                //     }
-                // }
             },
         }
     }

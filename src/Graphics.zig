@@ -14,7 +14,7 @@ pub const Interface = struct {
     destroy: *const fn (?*anyopaque) void,
     createShader: *const fn (?*anyopaque, Shader.CreateOptions) Shader.CreateError!*Shader,
     destroyShader: *const fn (?*anyopaque, *Shader) void,
-    createTexture: *const fn (?*anyopaque, zigimg.Image, Texture.CreateOptions) Texture.CreateError!*Texture,
+    createTexture: *const fn (?*anyopaque, zigimg.ImageUnmanaged, Texture.CreateOptions) Texture.CreateError!*Texture,
     destroyTexture: *const fn (?*anyopaque, *Texture) void,
     createPipeline: *const fn (?*anyopaque, Pipeline.CreateOptions) Pipeline.CreateError!*Pipeline,
     destroyPipeline: *const fn (?*anyopaque, *Pipeline) void,
@@ -118,7 +118,7 @@ pub const Texture = opaque {
     };
 };
 
-pub fn createTexture(gfx: Graphics, image: zigimg.Image, options: Texture.CreateOptions) Texture.CreateError!*Texture {
+pub fn createTexture(gfx: Graphics, image: zigimg.ImageUnmanaged, options: Texture.CreateOptions) Texture.CreateError!*Texture {
     return gfx.interface.createTexture(gfx.pointer, image, options);
 }
 

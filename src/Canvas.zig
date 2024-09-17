@@ -18,6 +18,7 @@ blank_texture: *seizer.Graphics.Texture,
 font: Font,
 font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 
+// TODO: dynamically allocate more when necessary
 vertex_buffers: [10]*seizer.Graphics.Buffer,
 current_vertex_buffer_index: usize = 0,
 
@@ -63,6 +64,18 @@ pub const LineOptions = struct {
     color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
 };
 
+pub const DEFAULT_VERTEX_SHADER_VULKAN = align_source_words: {
+    const words_align1 = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.vertex.vulkan.spv"));
+    const aligned_words: [words_align1.len]u32 = words_align1[0..words_align1.len].*;
+    break :align_source_words aligned_words;
+};
+
+pub const DEFAULT_FRAGMENT_SHADER_VULKAN = align_source_words: {
+    const words_align1 = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.fragment.vulkan.spv"));
+    const aligned_words: [words_align1.len]u32 = words_align1[0..words_align1.len].*;
+    break :align_source_words aligned_words;
+};
+
 pub fn init(
     allocator: std.mem.Allocator,
     graphics: seizer.Graphics,
@@ -72,23 +85,12 @@ pub fn init(
         texture_slots: usize = 10,
     },
 ) !@This() {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const align_allocator = arena.allocator();
-
     const vertex_shader = try graphics.createShader(seizer.Graphics.Shader.CreateOptions{
         .target = .vertex,
         .sampler_count = 1,
         .source = switch (graphics.interface.driver) {
             .gles3v0 => .{ .glsl = @embedFile("./Canvas/vs.glsl") },
-            .vulkan => align_source_words: {
-                const words = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.vertex.vulkan.spv"));
-                const aligned_words = try align_allocator.alloc(u32, words.len);
-                for (aligned_words, words) |*aligned_word, word| {
-                    aligned_word.* = word;
-                }
-                break :align_source_words .{ .spirv = aligned_words };
-            },
+            .vulkan => .{ .spirv = &DEFAULT_VERTEX_SHADER_VULKAN },
             else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
         },
         .entry_point_name = "main",
@@ -100,14 +102,7 @@ pub fn init(
         .sampler_count = 0,
         .source = switch (graphics.interface.driver) {
             .gles3v0 => .{ .glsl = @embedFile("./Canvas/fs.glsl") },
-            .vulkan => align_source_words: {
-                const words = std.mem.bytesAsSlice(u32, @embedFile("./Canvas/default_shader.fragment.vulkan.spv"));
-                const aligned_words = try align_allocator.alloc(u32, words.len);
-                for (aligned_words, words) |*aligned_word, word| {
-                    aligned_word.* = word;
-                }
-                break :align_source_words .{ .spirv = aligned_words };
-            },
+            .vulkan => .{ .spirv = &DEFAULT_FRAGMENT_SHADER_VULKAN },
             else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
         },
         .entry_point_name = "main",
@@ -191,7 +186,7 @@ pub fn init(
         .{ .r = 0xFF, .g = 0xFF, .b = 0xFF, .a = 0xFF },
     };
 
-    const blank_texture = try graphics.createTexture(zigimg.Image{
+    const blank_texture = try graphics.createTexture(zigimg.ImageUnmanaged{
         .width = 1,
         .height = 1,
         .pixels = .{ .rgba32 = &blank_texture_pixels },
@@ -216,7 +211,7 @@ pub fn init(
         var font_image = try zigimg.Image.fromMemory(allocator, image_bytes);
         defer font_image.deinit();
 
-        const page_texture = try graphics.createTexture(font_image, .{});
+        const page_texture = try graphics.createTexture(font_image.toUnmanaged(), .{});
 
         font_pages.putAssumeCapacity(page_id, .{
             .texture = page_texture,
@@ -325,6 +320,16 @@ pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, optio
         .transform = this.current_batch.uniforms.transform,
         .scissor = this.current_batch.scissor,
     };
+}
+
+pub fn addTexture(this: *@This(), texture: *seizer.Graphics.Texture) u32 {
+    const gop = this.texture_ids.getOrPut(this.allocator, texture) catch unreachable;
+    if (gop.found_existing) {
+        return gop.value_ptr.*;
+    }
+    gop.value_ptr.* = this.next_texture_id;
+    this.next_texture_id += 1;
+    return gop.value_ptr.*;
 }
 
 pub fn end(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer) void {
@@ -783,17 +788,17 @@ const FontPage = struct {
     size: [2]f32,
 };
 
-const Vertex = struct {
+pub const Vertex = struct {
     pos: [3]f32,
     uv: [2]f32,
     color: [4]u8,
 };
 
-const GlobalConstants = extern struct {
+pub const GlobalConstants = extern struct {
     projection: [4][4]f32,
 };
 
-const UniformData = extern struct {
+pub const UniformData = extern struct {
     transform: [4][4]f32,
     texture_id: u32,
 };
@@ -805,7 +810,7 @@ const Batch = struct {
     scissor: Scissor,
 };
 
-const Scissor = extern struct {
+pub const Scissor = extern struct {
     pos: [2]i32,
     size: [2]u32,
 };

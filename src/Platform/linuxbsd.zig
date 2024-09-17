@@ -10,6 +10,8 @@ pub const PLATFORM = seizer.Platform{
     .readFile = readFile,
     .setDeinitCallback = setDeinitFn,
     .setEventCallback = setEventCallback,
+
+    .getRenderDocAPI = platform_getRenderDocAPI,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = builtin.mode == .Debug }){};
@@ -84,6 +86,9 @@ fn _setShouldExit(new_should_exit: bool) void {
     should_exit = new_should_exit;
 }
 
+fn platform_getRenderDocAPI() ?*@import("renderdoc").API_1_6_0 {
+    return renderdoc.api;
+}
 // pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
 //     if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
 //         return graphics;
