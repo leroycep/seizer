@@ -33,13 +33,13 @@ pub fn init() !void {
 
     const ui_image_size = [2]u32{ @intCast(ui_image.width), @intCast(ui_image.height) };
 
-    ui_texture = try gfx.createTexture(ui_image, .{});
+    ui_texture = try gfx.createTexture(ui_image.toUnmanaged(), .{});
     errdefer gfx.destroyTexture(ui_texture);
 
     var character_image = try seizer.zigimg.Image.fromMemory(seizer.platform.allocator(), @embedFile("./assets/wedge.png"));
     defer character_image.deinit();
 
-    character_texture = try gfx.createTexture(character_image, .{});
+    character_texture = try gfx.createTexture(character_image.toUnmanaged(), .{});
     errdefer gfx.destroyTexture(character_texture);
 
     // initialize ui stage and elements
