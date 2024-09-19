@@ -40,6 +40,7 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
                 swapchain_opt = null;
             }
         },
+        .input => |_| {},
     }
 }
 
