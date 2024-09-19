@@ -3,9 +3,6 @@ with import <nixpkgs> {};
 mkShell {
   name = "dotnet";
   packages = [
-    dotnet-sdk_8
-    glfw
-    freetype
     vulkan-headers
     vulkan-loader
     vulkan-validation-layers
@@ -15,11 +12,6 @@ mkShell {
     tracy               # Graphics profiler
     vulkan-tools-lunarg # vkconfig
     pkg-config
-  ];
-
-  buildInputs = with pkgs; [
-    glfw
-    freetype
   ];
 
   LD_LIBRARY_PATH="${glfw}/lib:${freetype}/lib:${vulkan-loader}/lib:${vulkan-validation-layers}/lib:${renderdoc}/lib";

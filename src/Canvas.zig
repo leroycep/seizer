@@ -567,22 +567,18 @@ pub const TextWriter = struct {
 pub fn addVertices(this: *@This(), pipeline: *seizer.Graphics.Pipeline, extra_uniform_buffers: ?[]const ExtraUniformBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, scissor: Scissor, vertices: []const Vertex) void {
     if (vertices.len == 0) return;
 
-    const texture_slot = this.texture_ids.getOrPutAssumeCapacity(texture);
-    if (!texture_slot.found_existing) {
-        texture_slot.value_ptr.* = this.next_texture_id;
-        this.next_texture_id += 1;
-    }
+    const texture_id = this.addTexture(texture);
 
     const is_pipeline_changed = pipeline != this.current_batch.pipeline;
     const is_extra_uniform_buffers_changed = !std.meta.eql(extra_uniform_buffers, this.current_batch.extra_uniform_buffers);
     const is_transform_changed = !std.meta.eql(transform, this.current_batch.uniforms.transform);
-    const is_texture_changed = this.current_batch.uniforms.texture_id != texture_slot.value_ptr.*;
+    const is_texture_changed = this.current_batch.uniforms.texture_id != texture_id;
     const is_scissor_changed = !std.meta.eql(scissor, this.current_batch.scissor);
     if (is_pipeline_changed or is_extra_uniform_buffers_changed or is_transform_changed or is_texture_changed or is_scissor_changed) {
         this.flush();
         this.current_batch.uniforms = .{
             .transform = transform,
-            .texture_id = texture_slot.value_ptr.*,
+            .texture_id = texture_id,
         };
         this.current_batch.scissor = scissor;
         this.current_batch.pipeline = pipeline;

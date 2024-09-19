@@ -15,7 +15,7 @@ pub fn init() !void {
     errdefer gfx.destroy();
 
     window_global = try display.createWindow(.{
-        .title = "UI Stage - Seizer Example",
+        .title = "Bitmap Font - Seizer Example",
         .size = .{ 640, 480 },
         .on_event = onWindowEvent,
         .on_render = render,

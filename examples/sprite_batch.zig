@@ -1,7 +1,11 @@
 pub const main = seizer.main;
 
+var display: seizer.Display = undefined;
+var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
+var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 var canvas: seizer.Canvas = undefined;
+
 var player_image_size: [2]f32 = .{ 1, 1 };
 var player_texture: *seizer.Graphics.Texture = undefined;
 var sprites: std.MultiArrayList(Sprite) = .{};
@@ -37,13 +41,19 @@ pub fn keepInBounds(positions: []const [2]f32, velocities: [][2]f32, sizes: []co
 }
 
 pub fn init() !void {
-    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    prng = std.Random.DefaultPrng.init(1337);
+
+    display = try seizer.Display.create(seizer.platform.allocator(), seizer.platform.loop(), .{});
+    errdefer display.destroy();
+
+    gfx = try seizer.Graphics.create(seizer.platform.allocator(), .{});
     errdefer gfx.destroy();
 
-    _ = try seizer.platform.createWindow(.{
+    window_global = try display.createWindow(.{
         .title = "Sprite Batch - Seizer Example",
+        .size = .{ 640, 480 },
+        .on_event = onWindowEvent,
         .on_render = render,
-        .on_destroy = deinit,
     });
 
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
@@ -57,21 +67,42 @@ pub fn init() !void {
         @floatFromInt(player_image.height),
     };
 
-    player_texture = try gfx.createTexture(player_image, .{});
+    player_texture = try gfx.createTexture(player_image.toUnmanaged(), .{});
     errdefer gfx.destroyTexture(player_texture);
 
-    prng = std.rand.DefaultPrng.init(1337);
+    seizer.platform.setDeinitCallback(deinit);
 }
 
-pub fn deinit(window: seizer.Window) void {
-    _ = window;
+pub fn deinit() void {
     sprites.deinit(seizer.platform.allocator());
     gfx.destroyTexture(player_texture);
     canvas.deinit();
+    if (swapchain_opt) |swapchain| {
+        gfx.destroySwapchain(swapchain);
+        swapchain_opt = null;
+    }
+    display.destroyWindow(window_global);
     gfx.destroy();
+    display.destroy();
 }
 
-fn render(window: seizer.Window) !void {
+fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Event) !void {
+    _ = window;
+    switch (event) {
+        .should_close => seizer.platform.setShouldExit(true),
+        .resize => {
+            if (swapchain_opt) |swapchain| {
+                gfx.destroySwapchain(swapchain);
+                swapchain_opt = null;
+            }
+        },
+        .input => {},
+    }
+}
+
+fn render(window: *seizer.Display.Window) !void {
+    const window_size = display.windowGetSize(window);
+
     const frame_start = std.time.nanoTimestamp();
     defer {
         const frame_end = std.time.nanoTimestamp();
@@ -82,7 +113,7 @@ fn render(window: seizer.Window) !void {
     }
     const world_bounds = WorldBounds{
         .min = .{ 0, 0 },
-        .max = .{ @floatFromInt(window.getSize()[0]), @floatFromInt(window.getSize()[1]) },
+        .max = .{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
     };
 
     // update sprites
@@ -119,13 +150,24 @@ fn render(window: seizer.Window) !void {
         });
     }
 
-    const cmd_buf = try gfx.begin(.{
-        .size = window.getSize(),
-        .clear_color = null,
-    });
+    // begin rendering
+    const swapchain = swapchain_opt orelse create_swapchain: {
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        swapchain_opt = new_swapchain;
+        break :create_swapchain new_swapchain;
+    };
 
-    const c = canvas.begin(cmd_buf, .{
-        .window_size = window.getSize(),
+    const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
+
+    gfx.interface.setViewport(gfx.pointer, render_buffer, .{
+        .pos = .{ 0, 0 },
+        .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
+    });
+    gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
+
+    const c = canvas.begin(render_buffer, .{
+        .window_size = window_size,
+        .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
 
     for (sprites.items(.pos), sprites.items(.size)) |pos, size| {
@@ -137,18 +179,17 @@ fn render(window: seizer.Window) !void {
     }
 
     var text_pos = [2]f32{ 50, 50 };
-    const text_size = c.printText(text_pos, "sprite count = {}", .{sprites.len}, .{});
-    text_pos[1] += text_size[1];
+    text_pos[1] += c.printText(text_pos, "sprite count = {}", .{sprites.len}, .{})[1];
 
     var frametime_total: f32 = 0;
     for (frametimes) |f| {
         frametime_total += @floatFromInt(f);
     }
-    _ = c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{});
+    text_pos[1] += c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
 
-    canvas.end(cmd_buf);
+    canvas.end(render_buffer);
 
-    try window.presentFrame(try cmd_buf.end());
+    try gfx.swapchainPresentRenderBuffer(display, window, swapchain, render_buffer);
 }
 
 const seizer = @import("seizer");
