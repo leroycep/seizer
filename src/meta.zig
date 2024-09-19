@@ -21,7 +21,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                     const ptr_cast_fns = struct {
                         pub fn one_param(param0: Params[0]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -30,7 +30,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn two_param(param0: Params[0], param1: Params[1]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -40,7 +40,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn three_param(param0: Params[0], param1: Params[1], param2: Params[2]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -51,7 +51,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn four_param(param0: Params[0], param1: Params[1], param2: Params[2], param3: Params[3]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -63,7 +63,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn five_param(param0: Params[0], param1: Params[1], param2: Params[2], param3: Params[3], param4: Params[4]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -76,7 +76,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn six_param(param0: Params[0], param1: Params[1], param2: Params[2], param3: Params[3], param4: Params[4], param5: Params[5]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
@@ -90,7 +90,7 @@ pub fn interfaceFromConcreteTypeFns(Interface: type, T: type, comptime concrete_
                         }
                         pub fn seven_param(param0: Params[0], param1: Params[1], param2: Params[2], param3: Params[3], param4: Params[4], param5: Params[5], param6: Params[6]) fn_info.return_type.? {
                             return @call(
-                                .always_inline,
+                                .auto,
                                 @field(concrete_type_fns, field.name),
                                 .{
                                     @as(*T, @ptrCast(@alignCast(param0))),
