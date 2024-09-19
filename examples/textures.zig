@@ -77,7 +77,7 @@ pub fn init() !void {
     var player_image = try seizer.zigimg.Image.fromMemory(seizer.platform.allocator(), @embedFile("assets/wedge.png"));
     defer player_image.deinit();
 
-    player_texture = try gfx.createTexture(player_image, .{});
+    player_texture = try gfx.createTexture(player_image.toUnmanaged(), .{});
     std.log.info("Texture is {}x{} pixels", .{ player_image.width, player_image.height });
 
     vertex_buffer = try gfx.createBuffer(.{ .size = @sizeOf(@TypeOf(VERTS)) });
@@ -185,13 +185,11 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
     _ = window;
     switch (event) {
         .should_close => seizer.platform.setShouldExit(true),
-        .resize => |r| {
-            std.log.info("resize window = {}x{}", .{ r[0], r[1] });
-            if (swapchain_opt) |swapchain| {
-                gfx.destroySwapchain(swapchain);
-                swapchain_opt = null;
-            }
+        .resize => if (swapchain_opt) |swapchain| {
+            gfx.destroySwapchain(swapchain);
+            swapchain_opt = null;
         },
+        else => {},
     }
 }
 
@@ -212,7 +210,7 @@ fn render(window: *seizer.Display.Window) !void {
     });
     gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
 
-    gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, .{
+    const descriptor_set = gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, .{
         .writes = &.{
             .{
                 .binding = 0,
@@ -228,6 +226,7 @@ fn render(window: *seizer.Display.Window) !void {
     });
     gfx.bindPipeline(render_buffer, pipeline);
     gfx.bindVertexBuffer(render_buffer, pipeline, vertex_buffer);
+    gfx.bindDescriptorSet(render_buffer, pipeline, descriptor_set);
     gfx.drawPrimitives(render_buffer, 6, 1, 0, 0);
     gfx.endRendering(render_buffer);
 
