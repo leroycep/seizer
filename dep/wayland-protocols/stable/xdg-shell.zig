@@ -33,6 +33,7 @@ pub const xdg_wm_base = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -51,6 +52,7 @@ pub const xdg_wm_base = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -213,6 +215,7 @@ pub const xdg_positioner = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_positioner",
@@ -230,6 +233,7 @@ pub const xdg_positioner = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -502,6 +506,7 @@ pub const xdg_surface = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -520,6 +525,7 @@ pub const xdg_surface = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -775,6 +781,7 @@ pub const xdg_toplevel = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -793,6 +800,7 @@ pub const xdg_toplevel = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1403,6 +1411,7 @@ pub const xdg_popup = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -1421,6 +1430,7 @@ pub const xdg_popup = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }

@@ -233,17 +233,24 @@ fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, b
 }
 
 const Buffer = struct {
+    allocator: std.mem.Allocator,
     size: [2]u32,
     wl_buffer: *wayland.wayland.wl_buffer,
     userdata: ?*anyopaque,
-    on_release: *const fn (?*anyopaque, *seizer.Display.Buffer) void,
+    on_release: ?*const fn (?*anyopaque, *seizer.Display.Buffer) void,
+
+    fn onWlBufferDelete(wl_buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque) void {
+        _ = wl_buffer;
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        this.allocator.destroy(this);
+    }
 
     fn onWlBufferEvent(wl_buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque, event: wayland.wayland.wl_buffer.Event) void {
         _ = wl_buffer;
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
-            .release => {
-                this.on_release(this.userdata, @ptrCast(this));
+            .release => if (this.on_release) |on_release| {
+                on_release(this.userdata, @ptrCast(this));
             },
         }
     }
@@ -272,6 +279,7 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
     );
     const buffer = try this.allocator.create(Buffer);
     buffer.* = .{
+        .allocator = this.allocator,
         .size = options.size,
         .wl_buffer = wl_buffer,
         .userdata = options.userdata,
@@ -279,6 +287,7 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
     };
 
     wl_buffer.userdata = buffer;
+    wl_buffer.on_delete = Buffer.onWlBufferDelete;
     wl_buffer.on_event = Buffer.onWlBufferEvent;
 
     return @ptrCast(buffer);
@@ -286,10 +295,14 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
 
 fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Display.Buffer) void {
     const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
+    _ = this;
 
+    // tell the wayland server to destroy this buffer.
+    // We wait until the server tells us it is deleted to destroy the memory on our side.
+    // (See Buffer.onWlDelete)
     buffer.wl_buffer.destroy() catch unreachable;
-
-    this.allocator.destroy(buffer);
+    buffer.userdata = null;
+    buffer.on_release = null;
 }
 
 const Window = struct {

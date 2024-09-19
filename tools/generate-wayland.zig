@@ -113,6 +113,7 @@ pub fn main() !void {
             \\    conn: *wayland.Conn,
             \\    id: u32,
             \\    userdata: ?*anyopaque = null,
+            \\    on_delete: ?*const fn(this: *@This(), userdata: ?*anyopaque) void = null,
             \\
         );
         if (interface.events.items.len > 0) {
@@ -156,6 +157,7 @@ pub fn main() !void {
             \\
             \\    /// This should only be called when the wayland display sends the `delete_id` event
             \\    pub fn delete(this: *@This()) void {
+            \\        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
             \\        this.conn.id_pool.destroy(this.id);
             \\        this.conn.allocator.destroy(this);
             \\    }

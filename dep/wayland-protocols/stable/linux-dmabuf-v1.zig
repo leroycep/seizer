@@ -87,6 +87,7 @@ pub const zwp_linux_dmabuf_v1 = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -105,6 +106,7 @@ pub const zwp_linux_dmabuf_v1 = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -265,6 +267,7 @@ pub const zwp_linux_buffer_params_v1 = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -283,6 +286,7 @@ pub const zwp_linux_buffer_params_v1 = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -575,6 +579,7 @@ pub const zwp_linux_dmabuf_feedback_v1 = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -593,6 +598,7 @@ pub const zwp_linux_dmabuf_feedback_v1 = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }

@@ -29,6 +29,7 @@ pub const wl_display = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -47,6 +48,7 @@ pub const wl_display = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -175,6 +177,7 @@ pub const wl_registry = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -193,6 +196,7 @@ pub const wl_registry = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -267,6 +271,7 @@ pub const wl_callback = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -285,6 +290,7 @@ pub const wl_callback = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -313,6 +319,7 @@ pub const wl_compositor = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_compositor",
@@ -330,6 +337,7 @@ pub const wl_compositor = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -384,6 +392,7 @@ pub const wl_shm_pool = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_shm_pool",
@@ -401,6 +410,7 @@ pub const wl_shm_pool = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -506,6 +516,7 @@ pub const wl_shm = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -524,6 +535,7 @@ pub const wl_shm = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -854,6 +866,7 @@ pub const wl_buffer = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -872,6 +885,7 @@ pub const wl_buffer = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -928,6 +942,7 @@ pub const wl_data_offer = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -946,6 +961,7 @@ pub const wl_data_offer = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1189,6 +1205,7 @@ pub const wl_data_source = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -1207,6 +1224,7 @@ pub const wl_data_source = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1383,6 +1401,7 @@ pub const wl_data_device = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -1401,6 +1420,7 @@ pub const wl_data_device = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1599,6 +1619,7 @@ pub const wl_data_device_manager = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_data_device_manager",
@@ -1616,6 +1637,7 @@ pub const wl_data_device_manager = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1685,6 +1707,7 @@ pub const wl_shell = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_shell",
@@ -1702,6 +1725,7 @@ pub const wl_shell = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -1754,6 +1778,7 @@ pub const wl_shell_surface = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -1772,6 +1797,7 @@ pub const wl_shell_surface = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -2205,6 +2231,7 @@ pub const wl_surface = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -2223,6 +2250,7 @@ pub const wl_surface = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -2748,6 +2776,7 @@ pub const wl_seat = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -2766,6 +2795,7 @@ pub const wl_seat = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -2946,6 +2976,7 @@ pub const wl_pointer = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -2964,6 +2995,7 @@ pub const wl_pointer = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -3291,6 +3323,7 @@ pub const wl_keyboard = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -3309,6 +3342,7 @@ pub const wl_keyboard = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -3455,6 +3489,7 @@ pub const wl_touch = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -3473,6 +3508,7 @@ pub const wl_touch = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -3558,6 +3594,7 @@ pub const wl_output = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
     on_event: ?*const fn (this: *@This(), userdata: ?*anyopaque, event: Event) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
@@ -3576,6 +3613,7 @@ pub const wl_output = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -3804,6 +3842,7 @@ pub const wl_region = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_region",
@@ -3821,6 +3860,7 @@ pub const wl_region = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -3915,6 +3955,7 @@ pub const wl_subcompositor = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_subcompositor",
@@ -3932,6 +3973,7 @@ pub const wl_subcompositor = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
@@ -4058,6 +4100,7 @@ pub const wl_subsurface = struct {
     conn: *wayland.Conn,
     id: u32,
     userdata: ?*anyopaque = null,
+    on_delete: ?*const fn (this: *@This(), userdata: ?*anyopaque) void = null,
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_subsurface",
@@ -4075,6 +4118,7 @@ pub const wl_subsurface = struct {
 
     /// This should only be called when the wayland display sends the `delete_id` event
     pub fn delete(this: *@This()) void {
+        if (this.on_delete) |on_delete| on_delete(this, this.userdata);
         this.conn.id_pool.destroy(this.id);
         this.conn.allocator.destroy(this);
     }
