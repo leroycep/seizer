@@ -19,6 +19,8 @@ pub const Interface = struct {
     createWindow: *const fn (?*anyopaque, Window.CreateOptions) Window.CreateError!*Window,
     destroyWindow: *const fn (?*anyopaque, *Window) void,
 
+    windowSetUserdata: *const fn (?*anyopaque, *Window, ?*anyopaque) void,
+    windowGetUserdata: *const fn (?*anyopaque, *Window) ?*anyopaque,
     windowGetSize: *const fn (?*anyopaque, *Window) [2]u32,
     windowPresentBuffer: *const fn (?*anyopaque, *Window, *Buffer) void,
 
@@ -78,6 +80,14 @@ pub inline fn windowGetSize(this: @This(), window: *Window) [2]u32 {
 
 pub inline fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) void {
     return this.interface.windowPresentBuffer(this.pointer, window, buffer);
+}
+
+pub inline fn windowSetUserdata(this: @This(), window: *Window, userdata: ?*anyopaque) void {
+    return this.interface.windowSetUserdata(this.pointer, window, userdata);
+}
+
+pub inline fn windowGetUserdata(this: @This(), window: *Window) ?*anyopaque {
+    return this.interface.windowGetUserdata(this.pointer, window);
 }
 
 // -- Display Buffers --

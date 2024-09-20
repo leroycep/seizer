@@ -10,8 +10,6 @@ globals: Globals = .{},
 windows: std.AutoArrayHashMapUnmanaged(u32, *Window) = .{},
 seats: std.ArrayListUnmanaged(*Seat) = .{},
 
-on_event_fn: ?*const fn (event: seizer.input.Event) anyerror!void = null,
-
 pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Display.Interface, @This(), .{
     .name = "Wayland",
     .create = _create,
@@ -21,6 +19,8 @@ pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Di
 
     .windowGetSize = _windowGetSize,
     .windowPresentBuffer = _windowPresentBuffer,
+    .windowSetUserdata = _windowSetUserdata,
+    .windowGetUserdata = _windowGetUserdata,
 
     .createBufferFromDMA_BUF = _createBufferFromDMA_BUF,
     .destroyBuffer = _destroyBuffer,
@@ -207,6 +207,19 @@ fn _destroyWindow(this: *@This(), window_opaque: *seizer.Display.Window) void {
     window.xdg_surface.destroy() catch {};
     window.wl_surface.destroy() catch {};
 
+    window.xdg_toplevel.userdata = null;
+    window.xdg_surface.userdata = null;
+    window.wl_surface.userdata = null;
+
+    window.xdg_toplevel.on_event = null;
+    window.xdg_surface.on_event = null;
+    window.wl_surface.on_event = null;
+
+    if (window.frame_callback) |frame_callback| {
+        frame_callback.userdata = null;
+        frame_callback.on_event = null;
+    }
+
     this.allocator.destroy(window);
 }
 
@@ -218,6 +231,20 @@ fn _windowGetSize(this: *@This(), window_opaque: *seizer.Display.Window) [2]u32 
         @intCast(window.window_size[0]),
         @intCast(window.window_size[1]),
     };
+}
+
+fn _windowSetUserdata(this: *@This(), window_opaque: *seizer.Display.Window, userdata: ?*anyopaque) void {
+    const window: *Window = @ptrCast(@alignCast(window_opaque));
+    _ = this;
+
+    window.userdata = userdata;
+}
+
+fn _windowGetUserdata(this: *@This(), window_opaque: *seizer.Display.Window) ?*anyopaque {
+    const window: *Window = @ptrCast(@alignCast(window_opaque));
+    _ = this;
+
+    return window.userdata;
 }
 
 fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, buffer_opaque: *seizer.Display.Buffer) void {
@@ -332,16 +359,6 @@ const Window = struct {
     pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         this.should_close = should_close;
-    }
-
-    pub fn setUserdata(userdata: ?*anyopaque, user_userdata: ?*anyopaque) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
-        this.userdata = user_userdata;
-    }
-
-    pub fn getUserdata(this_ptr: ?*anyopaque) ?*anyopaque {
-        const this: *@This() = @ptrCast(@alignCast(this_ptr.?));
-        return this.userdata;
     }
 
     fn onXdgSurfaceEvent(xdg_surface: *xdg_shell.xdg_surface, userdata: ?*anyopaque, event: xdg_shell.xdg_surface.Event) void {
@@ -473,33 +490,24 @@ const Seat = struct {
             .key => |k| {
                 const key: seizer.input.keyboard.Key = @enumFromInt(@as(u16, @intCast(k.key)));
 
-                if (this.wayland_manager.on_event_fn) |on_event| {
-                    on_event(seizer.input.Event{ .key = .{
-                        .key = key,
-                        .scancode = k.key,
-                        .action = switch (k.state) {
-                            .pressed => .press,
-                            .released => .release,
-                        },
-                        .mods = .{},
-                    } }) catch |err| {
-                        std.debug.print("{s}\n", .{@errorName(err)});
-                        if (@errorReturnTrace()) |trace| {
-                            std.debug.dumpStackTrace(trace.*);
-                        }
-                    };
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        on_event(@ptrCast(window), .{ .input = seizer.input.Event{ .key = .{
+                            .key = key,
+                            .scancode = k.key,
+                            .action = switch (k.state) {
+                                .pressed => .press,
+                                .released => .release,
+                            },
+                            .mods = .{},
+                        } } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
                 }
-
-                // const actions = this.wayland_manager.key_bindings.get(.{ .keyboard = key }) orelse return;
-                // for (actions.items) |action| {
-                //     action.on_event(k.state == .pressed) catch |err| {
-                //         std.debug.print("{s}\n", .{@errorName(err)});
-                //         if (@errorReturnTrace()) |trace| {
-                //             std.debug.dumpStackTrace(trace.*);
-                //         }
-                //         break;
-                //     };
-                // }
             },
             else => {},
         }
