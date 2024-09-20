@@ -17,7 +17,7 @@ pub fn init() !void {
     errdefer gfx.destroy();
 
     window_global = try display.createWindow(.{
-        .title = "Sprite Batch - Seizer Example",
+        .title = "TinyVG - Seizer Example",
         .size = .{ 640, 480 },
         .on_event = onWindowEvent,
         .on_render = render,
