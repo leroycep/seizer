@@ -16,6 +16,8 @@ var prng: std.rand.DefaultPrng = undefined;
 
 var frametimes: [256]u64 = [_]u64{0} ** 256;
 var frametime_index: usize = 0;
+var between_frame_timer: std.time.Timer = undefined;
+var time_between_frames: [256]u64 = [_]u64{0} ** 256;
 
 const Sprite = struct {
     pos: [2]f32,
@@ -70,6 +72,8 @@ pub fn init() !void {
     player_texture = try gfx.createTexture(player_image.toUnmanaged(), .{});
     errdefer gfx.destroyTexture(player_texture);
 
+    between_frame_timer = try std.time.Timer.start();
+
     seizer.platform.setDeinitCallback(deinit);
 }
 
@@ -102,6 +106,8 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
 
 fn render(window: *seizer.Display.Window) !void {
     const window_size = display.windowGetSize(window);
+
+    time_between_frames[frametime_index] = between_frame_timer.lap();
 
     const frame_start = std.time.nanoTimestamp();
     defer {
@@ -186,6 +192,12 @@ fn render(window: *seizer.Display.Window) !void {
         frametime_total += @floatFromInt(f);
     }
     text_pos[1] += c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
+
+    var between_frame_total: f32 = 0;
+    for (time_between_frames) |f| {
+        between_frame_total += @floatFromInt(f);
+    }
+    text_pos[1] += c.printText(text_pos, "avg. time between frames = {d:0.2} ms", .{between_frame_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
 
     canvas.end(render_buffer);
 
