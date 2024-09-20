@@ -1184,10 +1184,6 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
     const render_buffer = try swapchain.render_buffers.create();
     errdefer swapchain.render_buffers.destroy(render_buffer);
 
-    if (seizer.platform.getRenderDocAPI()) |renderdoc_api| {
-        _ = renderdoc_api.StartFrameCapture(null, null);
-    }
-
     const slice = swapchain.elements.slice();
     for (slice.items(.free), slice.items(.vk_fence_finished), 0..) |*is_free, is_finished_fence, i| {
         if (!is_free.*) continue;
@@ -1262,7 +1258,6 @@ fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window
     display.windowPresentBuffer(window, render_buffer.display_buffer);
 
     if (seizer.platform.getRenderDocAPI()) |renderdoc_api| {
-        // std.log.debug("{s}:{}", .{ @src().file, @src().line });
         if (renderdoc_api.IsFrameCapturing(null, null) == 1) {
             _ = renderdoc_api.EndFrameCapture(null, null);
         }
