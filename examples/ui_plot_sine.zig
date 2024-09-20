@@ -1,20 +1,26 @@
 pub const main = seizer.main;
 
+var display: seizer.Display = undefined;
+var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
+var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 var canvas: seizer.Canvas = undefined;
+
 var ui_texture: *seizer.Graphics.Texture = undefined;
 var _stage: *seizer.ui.Stage = undefined;
 
 pub fn init() !void {
-    seizer.platform.setEventCallback(onEvent);
+    display = try seizer.Display.create(seizer.platform.allocator(), seizer.platform.loop(), .{});
+    errdefer display.destroy();
 
-    gfx = try seizer.platform.createGraphics(seizer.platform.allocator(), .{});
+    gfx = try seizer.Graphics.create(seizer.platform.allocator(), .{});
     errdefer gfx.destroy();
 
-    _ = try seizer.platform.createWindow(.{
-        .title = "UI Stage - Seizer Example",
+    window_global = try display.createWindow(.{
+        .title = "UI Plot Sine - Seizer Example",
+        .size = .{ 640, 480 },
+        .on_event = onWindowEvent,
         .on_render = render,
-        .on_destroy = deinit,
     });
 
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
@@ -25,7 +31,7 @@ pub fn init() !void {
 
     const ui_image_size = [2]u32{ @intCast(ui_image.width), @intCast(ui_image.height) };
 
-    ui_texture = try gfx.createTexture(ui_image, .{});
+    ui_texture = try gfx.createTexture(ui_image.toUnmanaged(), .{});
     errdefer gfx.destroyTexture(ui_texture);
 
     _stage = try seizer.ui.Stage.create(seizer.platform.allocator(), .{
@@ -84,40 +90,64 @@ pub fn init() !void {
         x.* = std.math.tau * @as(f32, @floatFromInt(i)) / 360;
         y.* = @sin(x.*);
     }
+
+    seizer.platform.setDeinitCallback(deinit);
 }
 
-pub fn deinit(window: seizer.Window) void {
-    _ = window;
+pub fn deinit() void {
+    display.destroyWindow(window_global);
+    if (swapchain_opt) |swapchain| gfx.destroySwapchain(swapchain);
     _stage.destroy();
     gfx.destroyTexture(ui_texture);
     canvas.deinit();
     gfx.destroy();
+    display.destroy();
 }
 
-fn onEvent(event: seizer.input.Event) !void {
-    if (_stage.processEvent(event) == null) {
-        // add game control here, as the event wasn't applicable to the GUI
+fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Event) !void {
+    _ = window;
+    switch (event) {
+        .should_close => seizer.platform.setShouldExit(true),
+        .resize => {
+            if (swapchain_opt) |swapchain| {
+                gfx.destroySwapchain(swapchain);
+                swapchain_opt = null;
+            }
+            _stage.needs_layout = true;
+        },
+        .input => |input_event| if (_stage.processEvent(input_event) == null) {
+            // add game control here, as the event wasn't applicable to the GUI
+        },
     }
 }
 
-fn render(window: seizer.Window) !void {
-    const cmd_buf = try gfx.begin(.{
-        .size = window.getSize(),
+fn render(window: *seizer.Display.Window) !void {
+    const window_size = display.windowGetSize(window);
+
+    const swapchain = swapchain_opt orelse create_swapchain: {
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        swapchain_opt = new_swapchain;
+        break :create_swapchain new_swapchain;
+    };
+
+    const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
+
+    gfx.interface.setViewport(gfx.pointer, render_buffer, .{
+        .pos = .{ 0, 0 },
+        .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
+    });
+    gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
+
+    const c = canvas.begin(render_buffer, .{
+        .window_size = window_size,
         .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
 
-    const c = canvas.begin(cmd_buf, .{
-        .window_size = window.getSize(),
-    });
+    _stage.render(c, [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) });
 
-    const window_size = [2]f32{ @floatFromInt(window.getSize()[0]), @floatFromInt(window.getSize()[1]) };
+    canvas.end(render_buffer);
 
-    _stage.needs_layout = true;
-    _stage.render(c, window_size);
-
-    canvas.end(cmd_buf);
-
-    try window.presentFrame(try cmd_buf.end());
+    try gfx.swapchainPresentRenderBuffer(display, window, swapchain, render_buffer);
 }
 
 const seizer = @import("seizer");
