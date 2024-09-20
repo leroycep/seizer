@@ -197,7 +197,7 @@ fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
 
     const canvas = parent_canvas
         .scissored(rect)
-        .transformed(seizer.geometry.mat4.translate(f32, .{ -rect.pos[0], -rect.pos[1], 0 }))
+        .transformed(seizer.geometry.mat4.translate(f32, .{ rect.pos[0], rect.pos[1], 0 }))
         .transformed(panZoomTransform(
         rect.size,
         this.size,
