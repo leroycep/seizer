@@ -220,6 +220,15 @@ fn _destroyWindow(this: *@This(), window_opaque: *seizer.Display.Window) void {
         frame_callback.on_event = null;
     }
 
+    for (this.seats.items) |seat| {
+        if (seat.focused_window) |focused_window| {
+            if (focused_window == window) {
+                seat.focused_window = null;
+                break;
+            }
+        }
+    }
+
     this.allocator.destroy(window);
 }
 
