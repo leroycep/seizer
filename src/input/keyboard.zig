@@ -93,6 +93,10 @@ pub const Key = enum(u16) {
     right = 106,
     down = 108,
 
+    pagedown = 109,
+    insert = 110,
+    delete = 111,
+
     leftmeta = 125,
 
     // misc buttons

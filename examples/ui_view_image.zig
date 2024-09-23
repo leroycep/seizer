@@ -90,6 +90,9 @@ pub fn init() !void {
     const hello_button = try seizer.ui.Element.Button.create(stage, "Hello");
     defer hello_button.element().release();
 
+    const text_field = try seizer.ui.Element.TextField.create(stage);
+    defer text_field.element().release();
+
     // put elements into containers
     stage.setRoot(flexbox.element());
 
@@ -105,6 +108,7 @@ pub fn init() !void {
     try pan_zoom_flexbox.appendChild(character_image_element.element());
     try pan_zoom_flexbox.appendChild(image_element.element());
     try pan_zoom_flexbox.appendChild(hello_button.element());
+    try pan_zoom_flexbox.appendChild(text_field.element());
 
     // setup global deinit callback
     seizer.platform.setDeinitCallback(deinit);

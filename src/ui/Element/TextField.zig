@@ -1,4 +1,7 @@
-element: Element,
+stage: *ui.Stage,
+reference_count: usize = 1,
+parent: ?Element = null,
+
 text: std.ArrayListUnmanaged(u8) = .{},
 /// Minimum width of the text area in ems.
 width: f32 = 16,
@@ -11,25 +14,10 @@ focused_style: ui.Style,
 
 on_enter: ?ui.Callable(fn (*@This()) void) = null,
 
-const INTERFACE = Element.Interface{
-    .destroy_fn = destroy,
-    .get_min_size_fn = getMinSize,
-    .layout_fn = layout,
-    .render_fn = render,
-    .on_hover_fn = onHover,
-    .on_click_fn = onClick,
-    .on_text_input_fn = onTextInput,
-    .on_key_fn = onKey,
-    .on_select_fn = onSelect,
-};
-
-pub fn new(stage: *ui.Stage) !*@This() {
+pub fn create(stage: *ui.Stage) !*@This() {
     const this = try stage.gpa.create(@This());
     this.* = .{
-        .element = .{
-            .stage = stage,
-            .interface = &INTERFACE,
-        },
+        .stage = stage,
         .default_style = stage.default_style,
         .hovered_style = stage.default_style,
         .focused_style = stage.default_style,
@@ -37,12 +25,243 @@ pub fn new(stage: *ui.Stage) !*@This() {
     return this;
 }
 
-pub fn destroy(element: *Element) void {
-    const this: *@This() = @fieldParentPtr("element", element);
-    this.text.clearAndFree(this.element.stage.gpa);
-    this.cursor_pos = 0;
-    this.selection_start = 0;
-    this.element.stage.gpa.destroy(this);
+pub fn element(this: *@This()) Element {
+    return .{
+        .ptr = this,
+        .interface = &INTERFACE,
+    };
+}
+
+const INTERFACE = Element.Interface.getTypeErasedFunctions(@This(), .{
+    .acquire_fn = acquire,
+    .release_fn = release,
+    .set_parent_fn = setParent,
+    .get_parent_fn = getParent,
+
+    .process_event_fn = processEvent,
+    .get_min_size_fn = getMinSize,
+    .render_fn = render,
+});
+
+fn acquire(this: *@This()) void {
+    this.reference_count += 1;
+}
+
+fn release(this: *@This()) void {
+    this.reference_count -= 1;
+    if (this.reference_count == 0) {
+        this.text.deinit(this.stage.gpa);
+        this.cursor_pos = 0;
+        this.selection_start = 0;
+        this.stage.gpa.destroy(this);
+    }
+}
+
+fn setParent(this: *@This(), new_parent: ?Element) void {
+    this.parent = new_parent;
+}
+
+fn getParent(this: *@This()) ?Element {
+    return this.parent;
+}
+
+fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
+    const style = if (this.stage.isFocused(this.element()))
+        this.focused_style
+    else if (this.stage.isHovered(this.element()))
+        this.hovered_style
+    else
+        this.default_style;
+
+    const min_size = this.getMinSize();
+
+    switch (event) {
+        .hover => |hover| {
+            if (this.stage.isPointerCaptureElement(this.element())) {
+                const click_pos = [2]f32{
+                    hover.pos[0] - MARGIN[0] - style.padding.min[0],
+                    hover.pos[1] - MARGIN[1] - style.padding.min[1],
+                };
+
+                // check if the mouse is above or below the text field
+                if (hover.pos[1] < 0) {
+                    this.cursor_pos = 0;
+                    return this.element();
+                } else if (hover.pos[1] > min_size[1]) {
+                    this.cursor_pos = this.text.items.len;
+                    return this.element();
+                }
+
+                // check if the mouse is to the left or the right of the text field
+                if (hover.pos[0] < 0) {
+                    this.cursor_pos = 0;
+                    return this.element();
+                } else if (hover.pos[0] > min_size[0]) {
+                    this.cursor_pos = this.text.items.len;
+                    return this.element();
+                }
+
+                var layouter = style.text_font.textLayouter(style.text_scale);
+                var prev_x: f32 = 0;
+                for (this.text.items, 0..) |character, index| {
+                    layouter.addCharacter(character);
+                    if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
+                        const dist_prev = click_pos[0] - prev_x;
+                        const dist_this = layouter.pos[0] - click_pos[0];
+                        if (dist_prev < dist_this) {
+                            this.cursor_pos = index;
+                        } else {
+                            this.cursor_pos = index + 1;
+                        }
+                        break;
+                    }
+                    prev_x = layouter.pos[0];
+                } else {
+                    this.cursor_pos = this.text.items.len;
+                }
+            }
+
+            return this.element();
+        },
+
+        .click => |click| {
+            if (!click.pressed and click.button == .left) {
+                this.stage.releasePointer(this.element());
+            }
+            if (click.button != .left) return null;
+
+            if (!click.pressed) return this.element();
+
+            this.stage.setFocusedElement(this.element());
+            this.stage.capturePointer(this.element());
+
+            const click_pos = [2]f32{
+                click.pos[0] - MARGIN[0] - style.padding.min[0],
+                click.pos[1] - MARGIN[1] - style.padding.min[1],
+            };
+
+            var layouter = style.text_font.textLayouter(style.text_scale);
+            var prev_x: f32 = 0;
+            for (this.text.items, 0..) |character, index| {
+                layouter.addCharacter(character);
+                if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
+                    const dist_prev = click_pos[0] - prev_x;
+                    const dist_this = layouter.pos[0] - click_pos[0];
+                    if (dist_prev < dist_this) {
+                        this.selection_start = index;
+                        this.cursor_pos = index;
+                    } else {
+                        this.selection_start = index + 1;
+                        this.cursor_pos = index + 1;
+                    }
+                    break;
+                }
+                prev_x = layouter.pos[0];
+            } else {
+                this.selection_start = this.text.items.len;
+                this.cursor_pos = this.text.items.len;
+            }
+
+            return this.element();
+        },
+        .key => |key| {
+            if (!this.stage.isFocused(this.element())) {
+                // We don't want the TextField to absorb any other key events unless it is focused
+                switch (key.key) {
+                    .enter => if (key.action == .press or key.action == .repeat) {
+                        this.stage.setFocusedElement(this.element());
+                        return this.element();
+                    },
+                    else => {},
+                }
+                return null;
+            }
+            switch (key.key) {
+                .left => if (key.action == .press or key.action == .repeat) {
+                    this.cursor_pos = if (key.mods.control)
+                        0
+                    else
+                        nextLeft(this.text.items, this.cursor_pos);
+                    if (!key.mods.shift) {
+                        this.selection_start = this.cursor_pos;
+                    }
+                    return this.element();
+                },
+                .right => if (key.action == .press or key.action == .repeat) {
+                    this.cursor_pos = if (key.mods.control)
+                        this.text.items.len
+                    else
+                        nextRight(this.text.items, this.cursor_pos);
+                    if (!key.mods.shift) {
+                        this.selection_start = this.cursor_pos;
+                    }
+                    return this.element();
+                },
+                .backspace => if (key.action == .press or key.action == .repeat) {
+                    const src_pos = @max(this.selection_start, this.cursor_pos);
+                    const overwrite_pos = if (this.selection_start == this.cursor_pos)
+                        nextLeft(this.text.items, this.cursor_pos)
+                    else
+                        @min(this.selection_start, this.cursor_pos);
+
+                    const bytes_removed = src_pos - overwrite_pos;
+                    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+                    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+                    this.cursor_pos = overwrite_pos;
+                    this.selection_start = overwrite_pos;
+                    return this.element();
+                },
+                .delete => if (key.action == .press or key.action == .repeat) {
+                    const src_pos = if (this.selection_start == this.cursor_pos)
+                        nextRight(this.text.items, this.cursor_pos)
+                    else
+                        @max(this.selection_start, this.cursor_pos);
+                    const overwrite_pos = @min(this.selection_start, this.cursor_pos);
+
+                    const bytes_removed = src_pos - overwrite_pos;
+                    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+                    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+                    this.cursor_pos = overwrite_pos;
+                    this.selection_start = overwrite_pos;
+                    return this.element();
+                },
+                .enter => if (key.action == .press or key.action == .repeat) {
+                    if (this.on_enter) |on_enter| {
+                        on_enter.call(.{this});
+                    }
+                    return this.element();
+                },
+                .esc => if (key.action == .press or key.action == .repeat) {
+                    this.stage.focused_element = null;
+                },
+                else => {},
+            }
+            return this.element();
+        },
+        .text => |text| {
+            // Delete any text that is currently selected
+            const src_pos = @max(this.selection_start, this.cursor_pos);
+            const overwrite_pos = @min(this.selection_start, this.cursor_pos);
+
+            const bytes_removed = src_pos - overwrite_pos;
+            std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+            this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+            this.cursor_pos = overwrite_pos;
+
+            // Append new text
+            this.text.insertSlice(this.stage.gpa, this.cursor_pos, text.text.slice()) catch @panic("OOM");
+            this.cursor_pos += text.text.len;
+            this.selection_start = this.cursor_pos;
+
+            return this.element();
+        },
+        else => {},
+    }
+
+    return null;
 }
 
 const MARGIN = [2]f32{
@@ -50,12 +269,13 @@ const MARGIN = [2]f32{
     2,
 };
 
-pub fn getMinSize(element: *Element) [2]f32 {
-    const this: *@This() = @fieldParentPtr("element", element);
-
-    const is_hovered = this.element.stage.hovered_element == &this.element;
-    const is_focused = this.element.stage.focused_element == &this.element;
-    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
+pub fn getMinSize(this: *@This()) [2]f32 {
+    const style = if (this.stage.isFocused(this.element()))
+        this.focused_style
+    else if (this.stage.isHovered(this.element()))
+        this.hovered_style
+    else
+        this.default_style;
 
     return .{
         this.width * style.text_font.lineHeight * style.text_scale + style.padding.size()[0] + 2 * MARGIN[0],
@@ -63,35 +283,22 @@ pub fn getMinSize(element: *Element) [2]f32 {
     };
 }
 
-pub fn layout(element: *Element, min_size: [2]f32, max_size: [2]f32) [2]f32 {
-    const this: *@This() = @fieldParentPtr("element", element);
-    _ = min_size;
+fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
+    const style = if (this.stage.isFocused(this.element()))
+        this.focused_style
+    else if (this.stage.isHovered(this.element()))
+        this.hovered_style
+    else
+        this.default_style;
 
-    const is_hovered = this.element.stage.hovered_element == &this.element;
-    const is_focused = this.element.stage.focused_element == &this.element;
-    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
-
-    return .{
-        max_size[0],
-        style.text_font.lineHeight * style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
-    };
-}
-
-fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
-    const this: *@This() = @fieldParentPtr("element", element);
-
-    const is_hovered = this.element.stage.hovered_element == &this.element;
-    const is_focused = this.element.stage.focused_element == &this.element;
-    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
-
-    style.background_image.draw(canvas, .{
+    style.background_image.draw(parent_canvas, .{
         .pos = .{
             rect.pos[0] + MARGIN[0],
             rect.pos[1] + MARGIN[1],
         },
         .size = [2]f32{
-            this.element.rect.size[0] - 2 * MARGIN[0],
-            canvas.font.lineHeight * style.text_scale + style.padding.size()[1],
+            rect.size[0] - 2 * MARGIN[0],
+            parent_canvas.canvas.font.lineHeight * style.text_scale + style.padding.size()[1],
         },
     }, .{
         .scale = 1,
@@ -106,14 +313,13 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
     const pre_selection_size = style.text_font.textSize(this.text.items[0..selection_start], style.text_scale);
     const selection_size = style.text_font.textSize(this.text.items[selection_start..selection_end], style.text_scale);
 
-    canvas.pushScissor(.{
+    const canvas = parent_canvas.scissored(.{ .pos = .{
         rect.pos[0] + MARGIN[0],
         rect.pos[1] + MARGIN[1],
-    }, .{
-        this.element.rect.size[0] - 2 * MARGIN[0],
+    }, .size = .{
+        rect.size[0] - 2 * MARGIN[0],
         style.text_font.lineHeight * style.text_scale + style.padding.size()[1],
-    });
-    defer canvas.popScissor();
+    } });
 
     _ = canvas.writeText(.{
         rect.pos[0] + MARGIN[0] + style.padding.min[0],
@@ -123,10 +329,10 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
         .scale = style.text_scale,
         .color = style.text_color,
     });
-    if (is_focused) {
+    if (this.stage.isFocused(this.element())) {
         canvas.rect(
             .{ rect.pos[0] + MARGIN[0] + style.padding.min[0] + pre_cursor_size[0], rect.pos[1] + MARGIN[1] + style.padding.min[1] },
-            .{ style.text_scale, canvas.font.lineHeight * style.text_scale },
+            .{ style.text_scale, canvas.canvas.font.lineHeight * style.text_scale },
             .{
                 .color = style.text_color,
             },
@@ -137,210 +343,6 @@ fn render(element: *Element, canvas: *Canvas, rect: Rect) void {
             .{ .color = .{ 0xFF, 0xFF, 0xFF, 0xAA } },
         );
     }
-}
-
-fn onHover(element: *Element, pos_parent: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr("element", element);
-    const pos = .{
-        pos_parent[0] - this.element.rect.pos[0],
-        pos_parent[1] - this.element.rect.pos[1],
-    };
-
-    const is_hovered = this.element.stage.focused_element == &this.element;
-    const is_focused = this.element.stage.focused_element == &this.element;
-    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
-
-    if (this.element.stage.pointer_capture_element == &this.element) {
-        const click_pos = [2]f32{
-            pos[0] - MARGIN[0] - style.padding.min[0],
-            pos[1] - MARGIN[1] - style.padding.min[1],
-        };
-
-        // check if the mouse is above or below the text field
-        if (pos[1] < 0) {
-            this.cursor_pos = 0;
-            return &this.element;
-        } else if (pos[1] > this.element.rect.size[1]) {
-            this.cursor_pos = this.text.items.len;
-            return &this.element;
-        }
-
-        // check if the mouse is to the left or the right of the text field
-        if (pos[0] < 0) {
-            this.cursor_pos = 0;
-            return &this.element;
-        } else if (pos[0] > this.element.rect.size[0]) {
-            this.cursor_pos = this.text.items.len;
-            return &this.element;
-        }
-
-        var layouter = style.text_font.textLayouter(style.text_scale);
-        var prev_x: f32 = 0;
-        for (this.text.items, 0..) |character, index| {
-            layouter.addCharacter(character);
-            if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
-                const dist_prev = click_pos[0] - prev_x;
-                const dist_this = layouter.pos[0] - click_pos[0];
-                if (dist_prev < dist_this) {
-                    this.cursor_pos = index;
-                } else {
-                    this.cursor_pos = index + 1;
-                }
-                break;
-            }
-            prev_x = layouter.pos[0];
-        } else {
-            this.cursor_pos = this.text.items.len;
-        }
-    }
-
-    return &this.element;
-}
-
-fn onClick(element: *Element, event_parent: ui.event.Click) bool {
-    const this: *@This() = @fieldParentPtr("element", element);
-
-    const is_hovered = this.element.stage.focused_element == &this.element;
-    const is_focused = this.element.stage.focused_element == &this.element;
-    const style = if (is_focused) this.focused_style else if (is_hovered) this.hovered_style else this.default_style;
-
-    const event = event_parent.translate(.{ -this.element.rect.pos[0], -this.element.rect.pos[1] });
-
-    if (!event.pressed and event.button == .left and this.element.stage.pointer_capture_element == &this.element) {
-        this.element.stage.pointer_capture_element = null;
-    }
-    if (!event.pressed or event.button != .left) return false;
-
-    this.element.stage.focused_element = &this.element;
-    this.element.stage.pointer_capture_element = &this.element;
-
-    const click_pos = [2]f32{
-        event.pos[0] - MARGIN[0] - style.padding.min[0],
-        event.pos[1] - MARGIN[1] - style.padding.min[1],
-    };
-
-    var layouter = style.text_font.textLayouter(style.text_scale);
-    var prev_x: f32 = 0;
-    for (this.text.items, 0..) |character, index| {
-        layouter.addCharacter(character);
-        if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
-            const dist_prev = click_pos[0] - prev_x;
-            const dist_this = layouter.pos[0] - click_pos[0];
-            if (dist_prev < dist_this) {
-                this.selection_start = index;
-                this.cursor_pos = index;
-            } else {
-                this.selection_start = index + 1;
-                this.cursor_pos = index + 1;
-            }
-            break;
-        }
-        prev_x = layouter.pos[0];
-    } else {
-        this.selection_start = this.text.items.len;
-        this.cursor_pos = this.text.items.len;
-    }
-
-    return true;
-}
-
-fn onTextInput(element: *Element, event: ui.event.TextInput) bool {
-    const this: *@This() = @fieldParentPtr("element", element);
-
-    // Delete any text that is currently selected
-    const src_pos = @max(this.selection_start, this.cursor_pos);
-    const overwrite_pos = @min(this.selection_start, this.cursor_pos);
-
-    const bytes_removed = src_pos - overwrite_pos;
-    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-    this.cursor_pos = overwrite_pos;
-
-    // Append new text
-    this.text.insertSlice(this.element.stage.gpa, this.cursor_pos, event.text.slice()) catch @panic("OOM");
-    this.cursor_pos += event.text.len;
-    this.selection_start = this.cursor_pos;
-
-    return true;
-}
-
-fn onKey(element: *Element, event: ui.event.Key) bool {
-    const this: *@This() = @fieldParentPtr("element", element);
-    if (this.element.stage.focused_element != &this.element) {
-        // We don't want the TextField to absorb any other key events unless it is focused
-        switch (event.key) {
-            .enter => if (event.action == .press or event.action == .repeat) {
-                this.element.stage.focused_element = &this.element;
-                return true;
-            },
-            else => {},
-        }
-        return false;
-    }
-    switch (event.key) {
-        .left => if (event.action == .press or event.action == .repeat) {
-            this.cursor_pos = if (event.mods.control)
-                0
-            else
-                nextLeft(this.text.items, this.cursor_pos);
-            if (!event.mods.shift) {
-                this.selection_start = this.cursor_pos;
-            }
-            return true;
-        },
-        .right => if (event.action == .press or event.action == .repeat) {
-            this.cursor_pos = if (event.mods.control)
-                this.text.items.len
-            else
-                nextRight(this.text.items, this.cursor_pos);
-            if (!event.mods.shift) {
-                this.selection_start = this.cursor_pos;
-            }
-            return true;
-        },
-        .backspace => if (event.action == .press or event.action == .repeat) {
-            const src_pos = @max(this.selection_start, this.cursor_pos);
-            const overwrite_pos = if (this.selection_start == this.cursor_pos)
-                nextLeft(this.text.items, this.cursor_pos)
-            else
-                @min(this.selection_start, this.cursor_pos);
-
-            const bytes_removed = src_pos - overwrite_pos;
-            std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-            this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-            this.cursor_pos = overwrite_pos;
-            this.selection_start = overwrite_pos;
-            return true;
-        },
-        .delete => if (event.action == .press or event.action == .repeat) {
-            const src_pos = if (this.selection_start == this.cursor_pos)
-                nextRight(this.text.items, this.cursor_pos)
-            else
-                @max(this.selection_start, this.cursor_pos);
-            const overwrite_pos = @min(this.selection_start, this.cursor_pos);
-
-            const bytes_removed = src_pos - overwrite_pos;
-            std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-            this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-            this.cursor_pos = overwrite_pos;
-            this.selection_start = overwrite_pos;
-            return true;
-        },
-        .enter => if (event.action == .press or event.action == .repeat) {
-            if (this.on_enter) |on_enter| {
-                on_enter.call(.{this});
-            }
-            return true;
-        },
-        .escape => if (event.action == .press or event.action == .repeat) {
-            this.element.stage.focused_element = null;
-        },
-        else => {},
-    }
-    return true;
 }
 
 fn nextLeft(text: []const u8, pos: usize) usize {
@@ -361,12 +363,6 @@ fn nextRight(text: []const u8, pos: usize) usize {
         new_pos += 1;
     }
     return new_pos;
-}
-
-fn onSelect(element: *Element, direction: [2]f32) ?*Element {
-    const this: *@This() = @fieldParentPtr("element", element);
-    _ = direction;
-    return &this.element;
 }
 
 const seizer = @import("../../seizer.zig");

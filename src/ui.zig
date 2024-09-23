@@ -130,7 +130,9 @@ pub const Stage = struct {
             },
 
             .click => |click| {
-                this.setFocusedElement(null);
+                if (click.pressed) {
+                    this.setFocusedElement(null);
+                }
                 if (this.pointer_capture_element) |pce| {
                     var transformed_event = event;
                     if (pce.getParent()) |parent| {
@@ -181,7 +183,7 @@ pub const Stage = struct {
                 return null;
             },
 
-            .text_input => |_| {
+            .text => |_| {
                 if (this.focused_element) |focused| {
                     if (focused.processEvent(event)) |element| {
                         return element;
@@ -206,6 +208,10 @@ pub const Stage = struct {
                 return null;
             },
         }
+    }
+
+    pub fn isPointerCaptureElement(this: *@This(), element: Element) bool {
+        return this.pointer_capture_element != null and this.pointer_capture_element.?.ptr == element.ptr and this.pointer_capture_element.?.interface == element.interface;
     }
 
     pub fn capturePointer(this: *@This(), new_pointer_capture_element: Element) void {
@@ -235,6 +241,10 @@ pub const Stage = struct {
         this.hovered_element = new_hover_opt;
     }
 
+    pub fn isHovered(this: *@This(), element: Element) bool {
+        return this.hovered_element != null and this.hovered_element.?.ptr == element.ptr and this.hovered_element.?.interface == element.interface;
+    }
+
     pub fn setFocusedElement(this: *@This(), new_focus_opt: ?Element) void {
         if (new_focus_opt) |new_focus| {
             new_focus.acquire();
@@ -243,6 +253,10 @@ pub const Stage = struct {
             focus.release();
         }
         this.focused_element = new_focus_opt;
+    }
+
+    pub fn isFocused(this: *@This(), element: Element) bool {
+        return this.focused_element != null and this.focused_element.?.ptr == element.ptr and this.focused_element.?.interface == element.interface;
     }
 };
 

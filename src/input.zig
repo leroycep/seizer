@@ -6,7 +6,7 @@ pub const Event = union(enum) {
     hover: Hover,
     click: Click,
     scroll: Scroll,
-    text_input: TextInput,
+    text: Text,
     key: Key,
 
     pub const Hover = struct {
@@ -48,7 +48,7 @@ pub const Event = union(enum) {
         offset: [2]f32,
     };
 
-    pub const TextInput = struct {
+    pub const Text = struct {
         text: std.BoundedArray(u8, 16),
     };
 
