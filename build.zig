@@ -21,6 +21,12 @@ pub fn build(b: *Builder) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const import_wayland = b.option(bool, "wayland", "enable wayland display backend (defaults to true on linux)") orelse switch (target.result.os.tag) {
+        .linux => true,
+        .windows => false,
+        else => false,
+    };
+
     // Dependencies
     const zigimg_dep = b.dependency("zigimg", .{
         .target = target,
@@ -62,6 +68,10 @@ pub fn build(b: *Builder) !void {
         .imports = &.{
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
         },
+    });
+
+    const xkb_module = b.addModule("xkb", .{
+        .root_source_file = b.path("dep/xkb/xkb.zig"),
     });
 
     const wayland_module = b.addModule("wayland", .{
@@ -195,10 +205,10 @@ pub fn build(b: *Builder) !void {
         module.addImport("vulkan", vkzig_bindings);
     }
 
-    const import_wayland = target.result.os.tag == .linux;
     if (import_wayland) {
         module.addImport("wayland", wayland_module);
         module.addImport("wayland-protocols", wayland_protocols_module);
+        module.addImport("xkb", xkb_module);
     }
 
     const check_step = b.step("check", "check that everything compiles");
@@ -262,14 +272,14 @@ pub fn build(b: *Builder) !void {
 
     const test_all = b.step("test-all", "run all tests");
 
-    const test_gamepad_exe = b.addTest(.{
-        .root_source_file = b.path("src/Gamepad.zig"),
+    const test_xkb_exe = b.addTest(.{
+        .root_source_file = b.path("dep/xkb/xkb.zig"),
         .target = target,
         .optimize = optimize,
     });
-    const test_gamepad_run_exe = b.addRunArtifact(test_gamepad_exe);
-    const test_gamepad = b.step("test-gamepad", "Run gamepad tests");
-    test_gamepad.dependOn(&test_gamepad_run_exe.step);
+    const test_xkb_run_exe = b.addRunArtifact(test_xkb_exe);
+    const test_xkb = b.step("test-xkb", "Run xkb tests");
+    test_xkb.dependOn(&test_xkb_run_exe.step);
 
-    test_all.dependOn(test_gamepad);
+    test_all.dependOn(test_xkb);
 }

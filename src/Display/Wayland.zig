@@ -457,6 +457,10 @@ const Seat = struct {
     pointer_pos: [2]f32 = .{ 0, 0 },
     scroll_vector: [2]f32 = .{ 0, 0 },
 
+    keymap: ?[]align(std.mem.page_size) const u8 = null,
+    keyboard_repeat_rate: u32 = 0,
+    keyboard_repeat_delay: u32 = 0,
+
     fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata));
         _ = seat;
@@ -496,6 +500,29 @@ const Seat = struct {
         const this: *@This() = @ptrCast(@alignCast(userdata));
         _ = seat;
         switch (event) {
+            .keymap => |keymap_info| {
+                defer std.posix.close(@intCast(@intFromEnum(keymap_info.fd)));
+                if (keymap_info.format != .xkb_v1) return;
+
+                const new_keymap = std.posix.mmap(null, keymap_info.size, std.posix.PROT.READ, .{ .TYPE = .PRIVATE }, @intFromEnum(keymap_info.fd), 0) catch |err| {
+                    std.log.warn("Failed to mmap keymap from wayland compositor: {}", .{err});
+                    return;
+                };
+
+                if (this.keymap) |old_keymap| {
+                    std.posix.munmap(old_keymap);
+                    this.keymap = null;
+                }
+                this.keymap = new_keymap;
+                std.debug.print("keymap =\n```\n{s}\n```\n", .{new_keymap});
+            },
+            .repeat_info => |repeat_info| {
+                this.keyboard_repeat_rate = @intCast(repeat_info.rate);
+                this.keyboard_repeat_delay = @intCast(repeat_info.delay);
+            },
+            .modifiers => |m| {
+                std.log.debug("modifiers = {}", .{m});
+            },
             .key => |k| {
                 const key: seizer.input.keyboard.Key = @enumFromInt(@as(u16, @intCast(k.key)));
 
