@@ -42,6 +42,9 @@ pub fn loadFromPrefixes(prefixes: []const []const u8, library_name: []const u8) 
         if (path_buffer[prefix.len -| 1] == '/') {
             @memcpy(path_buffer[prefix.len..][0..library_name.len], library_name);
             path = path_buffer[0 .. prefix.len + library_name.len];
+        } else if (prefix.len == 0) {
+            @memcpy(path_buffer[0..library_name.len], library_name);
+            path = path_buffer[0..library_name.len];
         } else {
             path_buffer[prefix.len] = '/';
             @memcpy(path_buffer[prefix.len + 1 ..][0..library_name.len], library_name);
