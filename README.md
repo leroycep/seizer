@@ -32,6 +32,30 @@ constantly break.
 
 ## FAQ
 
+> How do I run the examples on NixOS?
+
+Mostly included because NixOS is my daily driver OS.
+
+First, [make you have OpenGL enabled](https://nixos.wiki/wiki/OpenGL).
+
+Second, make sure that `libEGL` and `vulkan-loader` are available in `LD_LIBRARY_PATH`, [or `NIX_LD_LIBRARY_PATH` if you are using nix-ld](https://github.com/nix-community/nix-ld).
+
+And third, run the examples with an explicit target. For example:
+
+```
+zig build example-clear-run -Dtarget=x86_64-linux-gnu
+```
+
+Without the above step, Zig will use the native target. When targeting native Zig will use dynamic loader specific to NixOS,
+at some path like `/nix/store/r8qsxm85rlxzdac7988psm7gimg4dl3q-glibc-2.39-52/lib/ld-linux-x86-64.so.2`. Giving Zig the generic
+target we tell it to use the standard location of the dynamic loader, `/usr/lib64/ld-linux-x86-64.so.2`.
+
+You can also explicitly set the dynamic loader path:
+
+```
+zig build example-clear-run -Ddynamic-linker=/lib64/ld-linux-x86-64.so.2
+```
+
 > Why should I use `seizer` over SDL or GLFW?
 
 You probably shouldn't, at the moment. I'm using it for the following reasons:

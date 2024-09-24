@@ -13,12 +13,6 @@ pub fn getLibrarySearchPaths(allocator: std.mem.Allocator) !LibraryPaths {
     try prefixes_to_try.append(try arena.dupe(u8, "."));
     try prefixes_to_try.append(try arena.dupe(u8, ""));
     try prefixes_to_try.append(try arena.dupe(u8, "/usr/lib/"));
-    if (std.process.getEnvVarOwned(arena, "NIX_LD_LIBRARY_PATH")) |path_list| {
-        var path_list_iter = std.mem.tokenize(u8, path_list, ":");
-        while (path_list_iter.next()) |path| {
-            try prefixes_to_try.append(path);
-        }
-    } else |_| {}
     if (std.process.getEnvVarOwned(arena, "LD_LIBRARY_PATH")) |path_list| {
         var path_list_iter = std.mem.tokenize(u8, path_list, ":");
         while (path_list_iter.next()) |path| {

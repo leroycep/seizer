@@ -174,6 +174,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
         },
     });
+    module.link_libc = true;
 
     if (target.result.os.tag == .wasi) {
         module.export_symbol_names = &.{
@@ -187,7 +188,6 @@ pub fn build(b: *Builder) !void {
     const import_egl = target.result.os.tag != .wasi;
     if (import_egl) {
         module.addImport("EGL", egl_module);
-        module.link_libc = true;
     }
 
     const vulkan_compile_shaders_step = b.step("vulkan-compile-shaders", "Compile Canvas shaders to SPIR-V using glslc (requires glslc to be installed)");
