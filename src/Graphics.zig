@@ -56,11 +56,29 @@ pub const CreateOptions = struct {
     backends: []const *const Interface = DEFAULT_BACKENDS,
     app_name: ?[:0]const u8 = null,
     app_version: ?std.SemanticVersion = null,
+    library_search_prefixes: ?[]const []const u8 = null,
 };
 
 pub fn create(allocator: std.mem.Allocator, options: CreateOptions) !Graphics {
+    var library_prefixes_arena = std.heap.ArenaAllocator.init(allocator);
+
+    const library_search_prefixes = if (options.library_search_prefixes) |prefixes|
+        prefixes
+    else get_library_search_paths: {
+        const library_prefixes = @"dynamic-library-utils".getLibrarySearchPaths(allocator) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.LibraryLoadFailed,
+        };
+        library_prefixes_arena = library_prefixes.arena;
+        break :get_library_search_paths library_prefixes.paths.items;
+    };
+    defer library_prefixes_arena.deinit();
+
+    var options_tweaked = options;
+    options_tweaked.library_search_prefixes = library_search_prefixes;
+
     for (options.backends) |backend_interface| {
-        if (backend_interface.create(allocator, options)) |graphics_backend| {
+        if (backend_interface.create(allocator, options_tweaked)) |graphics_backend| {
             return graphics_backend;
         } else |err| {
             std.log.scoped(.seizer).warn("Failed to create {} graphics context: {}", .{ backend_interface.driver, err });
@@ -333,6 +351,7 @@ pub inline fn pushConstants(gfx: Graphics, render_buffer: *RenderBuffer, pipelin
 }
 
 const builtin = @import("builtin");
+const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const seizer = @import("./seizer.zig");
 const std = @import("std");
 const zigimg = @import("zigimg");

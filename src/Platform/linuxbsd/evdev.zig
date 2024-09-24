@@ -3,11 +3,10 @@ loop: *xev.Loop,
 devices: std.SegmentedList(*Device, 16),
 mapping_db: seizer.input.gamepad.DB,
 input_device_dir: std.fs.Dir,
-button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
 const EvDev = @This();
 
-pub fn init(gpa: std.mem.Allocator, loop: *xev.Loop, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !EvDev {
+pub fn init(gpa: std.mem.Allocator, loop: *xev.Loop) !EvDev {
     var mapping_db = try seizer.input.gamepad.DB.init(gpa, .{});
     errdefer mapping_db.deinit();
 
@@ -20,7 +19,6 @@ pub fn init(gpa: std.mem.Allocator, loop: *xev.Loop, button_bindings: *const std
         .devices = .{},
         .mapping_db = mapping_db,
         .input_device_dir = input_device_dir,
-        .button_bindings = button_bindings,
     };
 }
 
@@ -44,7 +42,7 @@ pub fn scanForDevices(this: *@This()) !void {
 
         const std_file = try this.input_device_dir.openFile(dev.name, .{});
 
-        const device = Device.fromFile(this.gpa, this.loop, std_file, &this.mapping_db, this.button_bindings) catch {
+        const device = Device.fromFile(this.gpa, this.loop, std_file, &this.mapping_db) catch {
             std_file.close();
             continue;
         };
@@ -66,8 +64,6 @@ const Device = struct {
     abs_to_index: std.AutoHashMapUnmanaged(u16, AbsIndex),
     axis_count: u16,
     hat_count: u16,
-
-    button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)),
 
     const Name = [256]u8;
 
@@ -91,7 +87,7 @@ const Device = struct {
         }
     }
 
-    pub fn fromFile(gpa: std.mem.Allocator, loop: *xev.Loop, file: std.fs.File, mapping_db: *const seizer.input.gamepad.DB, button_bindings: *const std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions))) !*Device {
+    pub fn fromFile(gpa: std.mem.Allocator, loop: *xev.Loop, file: std.fs.File, mapping_db: *const seizer.input.gamepad.DB) !*Device {
         const device = try gpa.create(Device);
         errdefer gpa.destroy(device);
 
@@ -114,8 +110,6 @@ const Device = struct {
             .abs_to_index = .{},
             .hat_count = 0,
             .axis_count = 0,
-
-            .button_bindings = button_bindings,
         };
         _ = std.os.linux.ioctl(fd, IOCTL.GET_ID, @intFromPtr(&device.id));
         _ = std.os.linux.ioctl(fd, IOCTL.GET_NAME(@sizeOf(Device.Name)), @intFromPtr(&device.name));
@@ -471,11 +465,12 @@ fn onInputEvent(device: *Device, input_event: InputEvent) !void {
             .KEY => if (device.button_code_to_index.get(input_event.code)) |btn_index| do_output: {
                 const output = mapping.buttons[btn_index] orelse break :do_output;
                 switch (output) {
-                    .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                        for (actions.items) |action| {
-                            try action.on_event(input_event.value > 0);
-                        }
-                    },
+                    .button => |_| {}, //|gamepad_btn_code|,
+                    // if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                    //     for (actions.items) |action| {
+                    //         try action.on_event(input_event.value > 0);
+                    //     }
+                    // },
                     .axis => {
                         // TODO: implement
                     },
@@ -507,11 +502,12 @@ fn onInputEvent(device: *Device, input_event: InputEvent) !void {
 
                         const output = mapping.hats[hat_index][hat_subindex] orelse return;
                         switch (output) {
-                            .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(input_event.value != 0);
-                                }
-                            },
+                            .button => {},
+                            // |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                            //     for (actions.items) |action| {
+                            //         try action.on_event(input_event.value != 0);
+                            //     }
+                            // },
                             .axis => {
                                 // TODO: implement
                             },
@@ -519,11 +515,12 @@ fn onInputEvent(device: *Device, input_event: InputEvent) !void {
 
                         const anti_output = mapping.hats[hat_index][hat_anti_index] orelse return;
                         switch (anti_output) {
-                            .button => |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
-                                for (actions.items) |action| {
-                                    try action.on_event(false);
-                                }
-                            },
+                            .button => {},
+                            // |gamepad_btn_code| if (device.button_bindings.get(.{ .gamepad = gamepad_btn_code })) |actions| {
+                            //     for (actions.items) |action| {
+                            //         try action.on_event(false);
+                            //     }
+                            // },
                             .axis => {
                                 // TODO: implement
                             },

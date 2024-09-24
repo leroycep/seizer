@@ -4,23 +4,17 @@ pub const PLATFORM = seizer.Platform{
     .allocator = getAllocator,
     .loop = _getLoop,
     .setShouldExit = _setShouldExit,
-    // .createWindow = createWindow,
-    // .addButtonInput = addButtonInput,
     .writeFile = writeFile,
     .readFile = readFile,
     .setDeinitCallback = setDeinitFn,
     .setEventCallback = setEventCallback,
-
-    .getRenderDocAPI = platform_getRenderDocAPI,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = builtin.mode == .Debug }){};
 var loop: xev.Loop = undefined;
 var evdev: EvDev = undefined;
 var should_exit: bool = false;
-var key_bindings: std.AutoHashMapUnmanaged(seizer.Platform.Binding, std.ArrayListUnmanaged(seizer.Platform.AddButtonInputOptions)) = .{};
 var deinit_fn: ?seizer.Platform.DeinitFn = null;
-var renderdoc: @import("renderdoc") = undefined;
 
 pub fn main() anyerror!void {
     const root = @import("root");
@@ -34,27 +28,9 @@ pub fn main() anyerror!void {
     loop = try xev.Loop.init(.{});
     defer loop.deinit();
 
-    defer {
-        var iter = key_bindings.valueIterator();
-        while (iter.next()) |actions| {
-            actions.deinit(gpa.allocator());
-        }
-        key_bindings.deinit(gpa.allocator());
-    }
-
-    evdev = try EvDev.init(gpa.allocator(), &loop, &key_bindings);
+    evdev = try EvDev.init(gpa.allocator(), &loop);
     defer evdev.deinit();
     try evdev.scanForDevices();
-
-    {
-        var library_prefixes = @"dynamic-library-utils".getLibrarySearchPaths(gpa.allocator()) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
-            else => return error.LibraryLoadFailed,
-        };
-        defer library_prefixes.arena.deinit();
-
-        renderdoc = @import("renderdoc").loadUsingPrefixes(library_prefixes.paths.items);
-    }
 
     // Call root module's `init()` function
     root.init() catch |err| {
@@ -86,41 +62,6 @@ fn _setShouldExit(new_should_exit: bool) void {
     should_exit = new_should_exit;
 }
 
-fn platform_getRenderDocAPI() ?*@import("renderdoc").API_1_6_0 {
-    return renderdoc.api;
-}
-// pub fn createGraphics(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraphicsOptions) seizer.Platform.CreateGraphicsError!seizer.Graphics {
-//     if (seizer.Graphics.impl.vulkan.create(allocator, options)) |graphics| {
-//         return graphics;
-//     } else |err| {
-//         std.log.warn("Failed to create vulkan context: {}", .{err});
-//         if (@errorReturnTrace()) |err_return_trace| {
-//             std.debug.dumpStackTrace(err_return_trace.*);
-//         }
-//     }
-
-//     // if (seizer.Graphics.impl.gles3v0.create(allocator, options)) |graphics| {
-//     //     return graphics;
-//     // } else |err| {
-//     //     std.log.warn("Failed to create gles3v0 context: {}", .{err});
-//     //     if (@errorReturnTrace()) |err_return_trace| {
-//     //         std.debug.dumpStackTrace(err_return_trace.*);
-//     //     }
-//     // }
-
-//     return error.InitializationFailed;
-// }
-
-pub fn addButtonInput(options: seizer.Platform.AddButtonInputOptions) anyerror!void {
-    for (options.default_bindings) |button_code| {
-        const gop = try key_bindings.getOrPut(gpa.allocator(), button_code);
-        if (!gop.found_existing) {
-            gop.value_ptr.* = .{};
-        }
-        try gop.value_ptr.append(gpa.allocator(), options);
-    }
-}
-
 pub fn writeFile(options: seizer.Platform.WriteFileOptions) void {
     linuxbsd_fs.writeFile(gpa.allocator(), options);
 }
@@ -142,7 +83,6 @@ pub const EvDev = @import("./linuxbsd/evdev.zig");
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
-const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const xev = @import("xev");
 const seizer = @import("../seizer.zig");
 const builtin = @import("builtin");

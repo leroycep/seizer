@@ -15,6 +15,8 @@ vk_memory_properties: vk.PhysicalDeviceMemoryProperties,
 // drm_format_modifier_properties_list: std.ArrayListUnmanaged(vk.DrmFormatModifierPropertiesEXT),
 // drm_format_modifier_list: std.ArrayListUnmanaged(u64),
 
+renderdoc: @import("renderdoc"),
+
 const VulkanImpl = @This();
 
 const DEFAULT_IMAGE_FORMAT = .r8g8b8a8_unorm;
@@ -52,14 +54,12 @@ pub const GRAPHICS_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.G
 });
 
 pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOptions) seizer.Graphics.CreateError!seizer.Graphics {
-    var library_prefixes = @"dynamic-library-utils".getLibrarySearchPaths(allocator) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return error.LibraryLoadFailed,
-    };
-    defer library_prefixes.arena.deinit();
+    const library_prefixes = options.library_search_prefixes orelse std.debug.panic("Graphics.create should have populated `library_search_prefixes` if the user did not", .{});
+
+    const renderdoc = @import("renderdoc").loadUsingPrefixes(library_prefixes);
 
     // allocate a fixed memory location for fn_tables
-    var libvulkan = @"dynamic-library-utils".loadFromPrefixes(library_prefixes.paths.items, "libvulkan.so") catch |err| switch (err) {
+    var libvulkan = @"dynamic-library-utils".loadFromPrefixes(library_prefixes, "libvulkan.so") catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.LibraryLoadFailed,
     };
@@ -176,33 +176,9 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
 
         .vk_device_properties = vk_device_properties,
         .vk_memory_properties = this.vk_instance.getPhysicalDeviceMemoryProperties(device_result.physical_device),
-        // .drm_format_modifier_properties_list = .{},
-        // .drm_format_modifier_list = .{},
+
+        .renderdoc = renderdoc,
     };
-
-    // get format properties
-    // var vk_drm_modifier_properties = vk.DrmFormatModifierPropertiesListEXT{
-    //     .drm_format_modifier_count = 0,
-    //     .p_drm_format_modifier_properties = null,
-    // };
-    // var vk_format_properties = vk.FormatProperties2{
-    //     .p_next = &vk_drm_modifier_properties,
-    //     .format_properties = undefined,
-    // };
-    // this.vk_instance.getPhysicalDeviceFormatProperties2(device_result.physical_device, this.image_format, &vk_format_properties);
-
-    // try this.drm_format_modifier_properties_list.resize(this.allocator, vk_drm_modifier_properties.drm_format_modifier_count);
-    // vk_drm_modifier_properties = vk.DrmFormatModifierPropertiesListEXT{
-    //     .drm_format_modifier_count = @intCast(this.drm_format_modifier_properties_list.items.len),
-    //     .p_drm_format_modifier_properties = this.drm_format_modifier_properties_list.items.ptr,
-    // };
-
-    // this.vk_instance.getPhysicalDeviceFormatProperties2(device_result.physical_device, this.image_format, &vk_format_properties);
-
-    // try this.drm_format_modifier_list.resize(this.allocator, this.drm_format_modifier_properties_list.items.len);
-    // for (this.drm_format_modifier_properties_list.items, this.drm_format_modifier_list.items) |properties, *drm_modifier| {
-    //     drm_modifier.* = properties.drm_format_modifier;
-    // }
 
     return .{
         .pointer = this,
@@ -1257,7 +1233,7 @@ fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window
 
     display.windowPresentBuffer(window, render_buffer.display_buffer);
 
-    if (seizer.platform.getRenderDocAPI()) |renderdoc_api| {
+    if (this.renderdoc.api) |renderdoc_api| {
         if (renderdoc_api.IsFrameCapturing(null, null) == 1) {
             _ = renderdoc_api.EndFrameCapture(null, null);
         }

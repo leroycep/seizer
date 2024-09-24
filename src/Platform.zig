@@ -15,20 +15,7 @@ readFile: fn (options: ReadFileOptions) void,
 setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
-getRenderDocAPI: fn () ?*@import("renderdoc").API_1_6_0,
-
 pub const DeinitFn = *const fn () void;
-
-pub const AddButtonInputOptions = struct {
-    title: []const u8,
-    on_event: *const fn (pressed: bool) anyerror!void,
-    default_bindings: []const Binding,
-};
-
-pub const Binding = union(enum) {
-    keyboard: input.keyboard.Key,
-    gamepad: input.gamepad.Button,
-};
 
 pub const FileError = error{NotFound};
 pub const WriteFileCallbackFn = *const fn (userdata: ?*anyopaque, FileError!void) void;
