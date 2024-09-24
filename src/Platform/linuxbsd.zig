@@ -12,7 +12,7 @@ pub const PLATFORM = seizer.Platform{
 
 var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = builtin.mode == .Debug }){};
 var loop: xev.Loop = undefined;
-var evdev: EvDev = undefined;
+// var evdev: EvDev = undefined;
 var should_exit: bool = false;
 var deinit_fn: ?seizer.Platform.DeinitFn = null;
 
@@ -28,9 +28,9 @@ pub fn main() anyerror!void {
     loop = try xev.Loop.init(.{});
     defer loop.deinit();
 
-    evdev = try EvDev.init(gpa.allocator(), &loop);
-    defer evdev.deinit();
-    try evdev.scanForDevices();
+    // evdev = try EvDev.init(gpa.allocator(), &loop);
+    // defer evdev.deinit();
+    // try evdev.scanForDevices();
 
     // Call root module's `init()` function
     root.init() catch |err| {

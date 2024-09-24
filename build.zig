@@ -128,13 +128,14 @@ pub fn build(b: *Builder) !void {
             // generate wayland core protocol
             const generate_protocol_wayland = b.addRunArtifact(generate_wayland_exe);
             generate_protocol_wayland.addFileArg(b.path("dep/wayland/src/wayland.xml"));
-            generate_protocol_wayland.addArg("5");
+            generate_protocol_wayland.addArg("4");
+            generate_protocol_wayland.addArg("wl_shm@1");
             write_wayland_protocols.addCopyFileToSource(generate_protocol_wayland.captureStdOut(), "dep/wayland/src/wayland.zig");
 
             // generate xdg-shell protocol
             const generate_protocol_xdg_shell = b.addRunArtifact(generate_wayland_exe);
             generate_protocol_xdg_shell.addFileArg(b.path("dep/wayland-protocols/stable/xdg-shell.xml"));
-            generate_protocol_xdg_shell.addArg("2");
+            generate_protocol_xdg_shell.addArg("1");
             write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_shell.captureStdOut(), "dep/wayland-protocols/stable/xdg-shell.zig");
 
             // generate linux dmabuf protocol

@@ -59,7 +59,7 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
     const renderdoc = @import("renderdoc").loadUsingPrefixes(library_prefixes);
 
     // allocate a fixed memory location for fn_tables
-    var libvulkan = @"dynamic-library-utils".loadFromPrefixes(library_prefixes, "libvulkan.so") catch |err| switch (err) {
+    var libvulkan = @"dynamic-library-utils".loadFromPrefixes(library_prefixes, "libvulkan.so.1") catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.LibraryLoadFailed,
     };
@@ -897,6 +897,7 @@ const Swapchain = struct {
     size: [2]u32,
     image_format: vk.Format,
     vk_device_memory: vk.DeviceMemory,
+    display_buffer_type: seizer.Display.Buffer.Type,
 
     elements: std.MultiArrayList(Element),
     render_buffers: std.heap.MemoryPool(RenderBuffer),
@@ -930,6 +931,11 @@ const Swapchain = struct {
 fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Display.Window, options: seizer.Graphics.Swapchain.CreateOptions) seizer.Graphics.Swapchain.CreateError!*seizer.Graphics.Swapchain {
     _ = window;
 
+    const display_buffer_type = if (display.isCreateBufferFromDMA_BUF_Supported())
+        seizer.Display.Buffer.Type.dma_buf
+    else
+        seizer.Display.Buffer.Type.opaque_fd;
+
     var elements = std.MultiArrayList(Swapchain.Element){};
     errdefer {
         var slice = elements.slice();
@@ -951,7 +957,10 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     for (elements_slice.items(.vk_image)) |*vk_image| {
         vk_image.* = this.vk_device.createImage(&vk.ImageCreateInfo{
             .p_next = &vk.ExternalMemoryImageCreateInfo{
-                .handle_types = .{ .dma_buf_bit_ext = true },
+                .handle_types = switch (display_buffer_type) {
+                    .opaque_fd => .{ .opaque_fd_bit = true },
+                    .dma_buf => .{ .dma_buf_bit_ext = true },
+                },
             },
             .image_type = .@"2d",
             .format = this.image_format,
@@ -1058,54 +1067,88 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
 
         .elements = elements,
         .render_buffers = try std.heap.MemoryPool(RenderBuffer).initPreheated(this.allocator, options.num_frames),
+        .display_buffer_type = display_buffer_type,
     };
 
     // create display buffer handles from image views
-    for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image)) |*display_buffer, vk_image| {
-        const dmabuf_format = seizer.Display.Buffer.DmaBufFormat{
-            .fourcc = switch (this.image_format) {
-                .r8g8b8a8_unorm => .ABGR8888,
-                else => unreachable,
-            },
-            .plane_count = 1,
-            .modifiers = 0,
-        };
+    switch (display_buffer_type) {
+        .dma_buf => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image)) |*display_buffer, vk_image| {
+            const dmabuf_format = seizer.Display.Buffer.DmaBufFormat{
+                .fourcc = switch (this.image_format) {
+                    .r8g8b8a8_unorm => .ABGR8888,
+                    else => unreachable,
+                },
+                .plane_count = 1,
+                .modifiers = 0,
+            };
 
-        const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
-            .memory = vk_device_memory,
-            .handle_type = .{ .dma_buf_bit_ext = true },
-        }) catch unreachable; // TODO
+            const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
+                .memory = vk_device_memory,
+                .handle_type = .{ .dma_buf_bit_ext = true },
+            }) catch unreachable; // TODO
 
-        var dma_buf_planes: [1]seizer.Display.Buffer.DmaBufPlane = undefined;
+            var dma_buf_planes: [1]seizer.Display.Buffer.DmaBufPlane = undefined;
 
-        const plane_layout = this.vk_device.getImageSubresourceLayout(vk_image, &vk.ImageSubresource{
-            .aspect_mask = .{
-                .color_bit = true,
-                // .memory_plane_0_bit_ext = i == 0,
-                // .memory_plane_1_bit_ext = i == 1,
-                // .memory_plane_2_bit_ext = i == 2,
-            },
-            .mip_level = 0,
-            .array_layer = 0,
-        });
+            const plane_layout = this.vk_device.getImageSubresourceLayout(vk_image, &vk.ImageSubresource{
+                .aspect_mask = .{
+                    .color_bit = true,
+                    // .memory_plane_0_bit_ext = i == 0,
+                    // .memory_plane_1_bit_ext = i == 1,
+                    // .memory_plane_2_bit_ext = i == 2,
+                },
+                .mip_level = 0,
+                .array_layer = 0,
+            });
 
-        dma_buf_planes[0] = .{
-            .fd = memory_fd,
-            .index = @intCast(0),
-            .offset = @intCast(plane_layout.offset),
-            .stride = @intCast(plane_layout.row_pitch),
-        };
+            dma_buf_planes[0] = .{
+                .fd = memory_fd,
+                .index = @intCast(0),
+                .offset = @intCast(plane_layout.offset),
+                .stride = @intCast(plane_layout.row_pitch),
+            };
 
-        display_buffer.* = display.createBufferFromDMA_BUF(.{
-            .size = options.size,
-            .format = dmabuf_format,
-            .planes = &dma_buf_planes,
-            .userdata = swapchain,
-            .on_release = Swapchain.onDisplayBufferReleased,
-        }) catch |err| switch (err) {
-            error.ConnectionLost => return error.DisplayConnectionLost,
-            else => |e| return e,
-        };
+            display_buffer.* = display.createBufferFromDMA_BUF(.{
+                .size = options.size,
+                .format = dmabuf_format,
+                .planes = &dma_buf_planes,
+                .userdata = swapchain,
+                .on_release = Swapchain.onDisplayBufferReleased,
+            }) catch |err| switch (err) {
+                error.ConnectionLost => return error.DisplayConnectionLost,
+                else => |e| return e,
+            };
+        },
+        .opaque_fd => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image)) |*display_buffer, vk_image| {
+            const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
+                .memory = vk_device_memory,
+                .handle_type = .{ .opaque_fd_bit = true },
+            }) catch unreachable; // TODO
+
+            const layout = this.vk_device.getImageSubresourceLayout(vk_image, &vk.ImageSubresource{
+                .aspect_mask = .{
+                    .color_bit = true,
+                },
+                .mip_level = 0,
+                .array_layer = 0,
+            });
+
+            display_buffer.* = display.createBufferFromOpaqueFd(.{
+                .fd = memory_fd,
+                .offset = @intCast(layout.offset),
+                .pool_size = @intCast(layout.size),
+                .size = options.size,
+                .stride = @intCast(layout.row_pitch),
+                .format = switch (this.image_format) {
+                    .r8g8b8a8_unorm => .ABGR8888,
+                    else => return error.UnsupportedFormat,
+                },
+                .userdata = swapchain,
+                .on_release = Swapchain.onDisplayBufferReleased,
+            }) catch |err| switch (err) {
+                error.ConnectionLost => return error.DisplayConnectionLost,
+                else => |e| return e,
+            };
+        },
     }
 
     @memset(elements_slice.items(.vk_buffer_list), .{});

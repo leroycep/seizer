@@ -22,7 +22,12 @@ pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Di
     .windowSetUserdata = _windowSetUserdata,
     .windowGetUserdata = _windowGetUserdata,
 
+    .isCreateBufferFromDMA_BUF_Supported = _isCreateBufferFromDMA_BUF_Supported,
+    .isCreateBufferFromOpaqueFdSupported = _isCreateBufferFromOpaqueFdSupported,
+
     .createBufferFromDMA_BUF = _createBufferFromDMA_BUF,
+    .createBufferFromOpaqueFd = _createBufferFromOpaqueFd,
+
     .destroyBuffer = _destroyBuffer,
 });
 
@@ -68,8 +73,9 @@ pub fn _create(allocator: std.mem.Allocator, loop: *xev.Loop) seizer.Display.Cre
         std.log.scoped(.seizer).warn("wayland: xdg_wm_base extension missing", .{});
         return error.ExtensionMissing;
     }
-    if (this.globals.zwp_linux_dmabuf_v1 == null) {
+    if (this.globals.zwp_linux_dmabuf_v1 == null and this.globals.wl_shm == null) {
         std.log.scoped(.seizer).warn("wayland: zwp_linux_dmabuf_v1 extension missing", .{});
+        std.log.scoped(.seizer).warn("wayland: wl_shm extension missing", .{});
         return error.ExtensionMissing;
     }
 
@@ -101,6 +107,7 @@ const Globals = struct {
     wl_compositor: ?*wayland.wayland.wl_compositor = null,
     xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
     zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
+    wl_shm: ?*wayland.wayland.wl_shm = null,
 };
 
 fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
@@ -114,6 +121,8 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
                 this.globals.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
                 this.globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_shm.INTERFACE.name) and global.version >= wayland.wayland.wl_shm.INTERFACE.version) {
+                this.globals.wl_shm = registry.bind(wayland.wayland.wl_shm, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
                 this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
 
@@ -130,6 +139,8 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
                 seat.wl_seat.userdata = seat;
                 seat.wl_seat.on_event = Seat.onSeatCallback;
                 this.seats.appendAssumeCapacity(seat);
+            } else {
+                std.log.debug("unknown wayland global object: {}@{?s} version {}", .{ global.name, global.interface, global.version });
             }
         },
         .global_remove => {},
@@ -179,12 +190,6 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
     window.xdg_toplevel.userdata = window;
     window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
     window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
-
-    // Queue up an initial frame of rendering. We use a sync callback because surfaces will not give
-    // frame callbacks until they have bound a buffer and committed at least once.
-    // const sync_callback = try this.connection.sync();
-    // sync_callback.on_event = Window.onFrameCallback;
-    // sync_callback.userdata = window;
 
     this.windows.putAssumeCapacity(window.wl_surface.id, window);
 
@@ -292,7 +297,14 @@ const Buffer = struct {
     }
 };
 
-fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.CreateOptions) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
+fn _isCreateBufferFromDMA_BUF_Supported(this: *@This()) bool {
+    return this.globals.zwp_linux_dmabuf_v1 != null;
+}
+fn _isCreateBufferFromOpaqueFdSupported(this: *@This()) bool {
+    return this.globals.wl_shm != null;
+}
+
+fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.CreateOptionsDMA_BUF) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
     const wl_dmabuf_buffer_params = try this.globals.zwp_linux_dmabuf_v1.?.create_params();
     defer wl_dmabuf_buffer_params.destroy() catch {};
 
@@ -313,6 +325,35 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
         @intFromEnum(options.format.fourcc),
         .{ .y_invert = false, .interlaced = false, .bottom_first = false },
     );
+    const buffer = try this.allocator.create(Buffer);
+    buffer.* = .{
+        .allocator = this.allocator,
+        .size = options.size,
+        .wl_buffer = wl_buffer,
+        .userdata = options.userdata,
+        .on_release = options.on_release,
+    };
+
+    wl_buffer.userdata = buffer;
+    wl_buffer.on_delete = Buffer.onWlBufferDelete;
+    wl_buffer.on_event = Buffer.onWlBufferEvent;
+
+    return @ptrCast(buffer);
+}
+
+fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.CreateOptionsOpaqueFd) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
+    std.log.debug("creating opaque fd display buffer", .{});
+    const size: i32 = @intCast(options.pool_size);
+    const wl_shm_pool = try this.globals.wl_shm.?.create_pool(@enumFromInt(options.fd), size);
+
+    const wl_buffer = try wl_shm_pool.create_buffer(
+        @intCast(options.offset),
+        @intCast(options.size[0]),
+        @intCast(options.size[1]),
+        @intCast(options.stride),
+        @enumFromInt(@intFromEnum(options.format)),
+    );
+
     const buffer = try this.allocator.create(Buffer);
     buffer.* = .{
         .allocator = this.allocator,
@@ -514,7 +555,7 @@ const Seat = struct {
                     this.keymap = null;
                 }
                 this.keymap = new_keymap;
-                std.debug.print("keymap =\n```\n{s}\n```\n", .{new_keymap});
+                // std.debug.print("keymap =\n```\n{s}\n```\n", .{new_keymap});
             },
             .repeat_info => |repeat_info| {
                 this.keyboard_repeat_rate = @intCast(repeat_info.rate);
@@ -600,8 +641,8 @@ const Seat = struct {
                     .horizontal_scroll => this.scroll_vector[0] += axis.value.toFloat(f32),
                     .vertical_scroll => this.scroll_vector[1] += axis.value.toFloat(f32),
                 }
-            },
-            .frame => {
+                // },
+                // .frame => {
                 if (this.focused_window) |window| {
                     if (window.on_event) |on_event| {
                         on_event(@ptrCast(window), seizer.Display.Window.Event{ .input = .{ .scroll = .{
@@ -616,7 +657,7 @@ const Seat = struct {
                 }
                 this.scroll_vector = .{ 0, 0 };
             },
-            else => {},
+            // else => {},
         }
     }
 };

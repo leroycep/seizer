@@ -35,6 +35,20 @@ pub fn main() !void {
     try interface_locations.putNoClobber("wl_seat", "wayland.wayland.wl_seat");
     try interface_locations.putNoClobber("wl_output", "wayland.wayland.wl_output");
 
+    var target_interface_versions = std.StringHashMap(u16).init(gpa.allocator());
+    defer target_interface_versions.deinit();
+    if (args.len > 3) {
+        for (args[3..]) |interface_version_str| {
+            var iter = std.mem.split(u8, interface_version_str, "@");
+            const interface_str = iter.next() orelse return error.InvalidCommandLineOption;
+            const version_str = iter.next() orelse return error.InvalidCommandLineOption;
+
+            const version = try std.fmt.parseInt(u16, version_str, 10);
+
+            try target_interface_versions.put(interface_str, version);
+        }
+    }
+
     var interfaces = std.ArrayList(Interface).init(gpa.allocator());
     defer interfaces.deinit();
 
@@ -48,9 +62,12 @@ pub fn main() !void {
         const child_tag = child_element.tag_name.slice();
 
         if (std.mem.eql(u8, child_tag, "interface")) {
+            const name = child_element.attr("name") orelse return error.InvalidFormat;
+            const target_interface_version_opt = target_interface_versions.get(name);
+
             var interface = Interface{
                 .name = child_element.attr("name") orelse return error.InvalidFormat,
-                .version = try std.fmt.parseInt(u32, child_element.attr("version") orelse return error.InvalidFormat, 10),
+                .version = if (target_interface_version_opt) |target_ver| target_ver else @min(try std.fmt.parseInt(u16, child_element.attr("version") orelse return error.InvalidFormat, 10), target_version orelse 0),
                 .description = std.ArrayList([]const u8).init(arena.allocator()),
                 .enums = std.ArrayList(Interface.Enum).init(arena.allocator()),
                 .requests = std.ArrayList(Interface.Request).init(arena.allocator()),
@@ -129,7 +146,7 @@ pub fn main() !void {
         );
 
         try writer.print("    .name = \"{}\",\n", .{std.zig.fmtEscapes(interface.name)});
-        try writer.print("    .version = {},\n", .{if (target_version) |tv| @min(tv, interface.version) else interface.version});
+        try writer.print("    .version = {},\n", .{interface.version});
         try writer.writeAll(
             \\        .delete = delete,
             \\
@@ -186,7 +203,7 @@ pub fn main() !void {
                 var bits = std.bit_set.IntegerBitSet(32).initEmpty();
                 for (e.entries.items) |entry| {
                     errdefer std.log.debug("entry name = {s}.{s}", .{ e.name, entry.name });
-                    if (target_version != null and target_version.? < entry.since) continue;
+                    if (interface.version < entry.since) continue;
                     if (entry.value == 0) continue;
                     if (@popCount(entry.value) > 1) {
                         std.log.warn("skipping bitfield value that sets multiple bits: {s}.{s}", .{ e.name, entry.name });
@@ -557,7 +574,7 @@ pub const Type = struct {
 
 const Interface = struct {
     name: []const u8,
-    version: u32,
+    version: u16,
     description: std.ArrayList([]const u8),
     enums: std.ArrayList(Enum),
     requests: std.ArrayList(Request),

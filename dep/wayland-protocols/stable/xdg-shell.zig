@@ -38,7 +38,7 @@ pub const xdg_wm_base = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_wm_base",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = event_received,
     });
@@ -219,7 +219,7 @@ pub const xdg_positioner = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_positioner",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = null,
     });
@@ -511,7 +511,7 @@ pub const xdg_surface = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_surface",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = event_received,
     });
@@ -786,7 +786,7 @@ pub const xdg_toplevel = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_toplevel",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = event_received,
     });
@@ -1416,7 +1416,7 @@ pub const xdg_popup = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "xdg_popup",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = event_received,
     });

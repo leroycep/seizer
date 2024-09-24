@@ -323,7 +323,7 @@ pub const wl_compositor = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_compositor",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = null,
     });
@@ -521,7 +521,7 @@ pub const wl_shm = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_shm",
-        .version = 2,
+        .version = 1,
         .delete = delete,
         .event_received = event_received,
     });
@@ -2236,7 +2236,7 @@ pub const wl_surface = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_surface",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = event_received,
     });
@@ -2309,10 +2309,6 @@ pub const wl_surface = struct {
             y: i32,
             width: i32,
             height: i32,
-        },
-        offset: struct {
-            x: i32,
-            y: i32,
         },
     };
 
@@ -2716,33 +2712,6 @@ pub const wl_surface = struct {
         );
     }
 
-    /// The x and y arguments specify the location of the new pending
-    /// buffer's upper left corner, relative to the current buffer's upper
-    /// left corner, in surface-local coordinates. In other words, the
-    /// x and y, combined with the new surface size define in which
-    /// directions the surface's size changes.
-    ///
-    /// Surface location offset is double-buffered state, see
-    /// wl_surface.commit.
-    ///
-    /// This request is semantically equivalent to and the replaces the x and y
-    /// arguments in the wl_surface.attach request in wl_surface versions prior
-    /// to 5. See wl_surface.attach for details.
-    pub fn offset(
-        this: @This(),
-        x: i32,
-        y: i32,
-    ) !void {
-        try this.conn.send(
-            Request,
-            this.id,
-            .{ .offset = .{
-                .x = x,
-                .y = y,
-            } },
-        );
-    }
-
     pub const Event = union(enum) {
         /// This is emitted whenever a surface's creation, movement, or resizing
         /// results in some part of it being within the scanout region of an
@@ -2781,7 +2750,7 @@ pub const wl_seat = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_seat",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = event_received,
     });
@@ -2832,7 +2801,6 @@ pub const wl_seat = struct {
         get_touch: struct {
             id: u32,
         },
-        release: struct {},
     };
 
     /// The ID provided will be initialized to the wl_pointer interface
@@ -2899,18 +2867,6 @@ pub const wl_seat = struct {
             } },
         );
         return new_object;
-    }
-
-    /// Using this request a client can tell the server that it is not going to
-    /// use the seat object anymore.
-    pub fn release(
-        this: @This(),
-    ) !void {
-        try this.conn.send(
-            Request,
-            this.id,
-            .{ .release = .{} },
-        );
     }
 
     pub const Event = union(enum) {
@@ -2981,7 +2937,7 @@ pub const wl_pointer = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_pointer",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = event_received,
     });
@@ -3196,124 +3152,6 @@ pub const wl_pointer = struct {
             axis: Axis,
             value: wayland.fixed,
         },
-
-        /// Indicates the end of a set of events that logically belong together.
-        /// A client is expected to accumulate the data in all events within the
-        /// frame before proceeding.
-        ///
-        /// All wl_pointer events before a wl_pointer.frame event belong
-        /// logically together. For example, in a diagonal scroll motion the
-        /// compositor will send an optional wl_pointer.axis_source event, two
-        /// wl_pointer.axis events (horizontal and vertical) and finally a
-        /// wl_pointer.frame event. The client may use this information to
-        /// calculate a diagonal vector for scrolling.
-        ///
-        /// When multiple wl_pointer.axis events occur within the same frame,
-        /// the motion vector is the combined motion of all events.
-        /// When a wl_pointer.axis and a wl_pointer.axis_stop event occur within
-        /// the same frame, this indicates that axis movement in one axis has
-        /// stopped but continues in the other axis.
-        /// When multiple wl_pointer.axis_stop events occur within the same
-        /// frame, this indicates that these axes stopped in the same instance.
-        ///
-        /// A wl_pointer.frame event is sent for every logical event group,
-        /// even if the group only contains a single wl_pointer event.
-        /// Specifically, a client may get a sequence: motion, frame, button,
-        /// frame, axis, frame, axis_stop, frame.
-        ///
-        /// The wl_pointer.enter and wl_pointer.leave events are logical events
-        /// generated by the compositor and not the hardware. These events are
-        /// also grouped by a wl_pointer.frame. When a pointer moves from one
-        /// surface to another, a compositor should group the
-        /// wl_pointer.leave event within the same wl_pointer.frame.
-        /// However, a client must not rely on wl_pointer.leave and
-        /// wl_pointer.enter being in the same wl_pointer.frame.
-        /// Compositor-specific policies may require the wl_pointer.leave and
-        /// wl_pointer.enter event being split across multiple wl_pointer.frame
-        /// groups.
-        frame,
-        /// Source information for scroll and other axes.
-        ///
-        /// This event does not occur on its own. It is sent before a
-        /// wl_pointer.frame event and carries the source information for
-        /// all events within that frame.
-        ///
-        /// The source specifies how this event was generated. If the source is
-        /// wl_pointer.axis_source.finger, a wl_pointer.axis_stop event will be
-        /// sent when the user lifts the finger off the device.
-        ///
-        /// If the source is wl_pointer.axis_source.wheel,
-        /// wl_pointer.axis_source.wheel_tilt or
-        /// wl_pointer.axis_source.continuous, a wl_pointer.axis_stop event may
-        /// or may not be sent. Whether a compositor sends an axis_stop event
-        /// for these sources is hardware-specific and implementation-dependent;
-        /// clients must not rely on receiving an axis_stop event for these
-        /// scroll sources and should treat scroll sequences from these scroll
-        /// sources as unterminated by default.
-        ///
-        /// This event is optional. If the source is unknown for a particular
-        /// axis event sequence, no event is sent.
-        /// Only one wl_pointer.axis_source event is permitted per frame.
-        ///
-        /// The order of wl_pointer.axis_discrete and wl_pointer.axis_source is
-        /// not guaranteed.
-        axis_source: struct {
-            axis_source: Axis_source,
-        },
-
-        /// Stop notification for scroll and other axes.
-        ///
-        /// For some wl_pointer.axis_source types, a wl_pointer.axis_stop event
-        /// is sent to notify a client that the axis sequence has terminated.
-        /// This enables the client to implement kinetic scrolling.
-        /// See the wl_pointer.axis_source documentation for information on when
-        /// this event may be generated.
-        ///
-        /// Any wl_pointer.axis events with the same axis_source after this
-        /// event should be considered as the start of a new axis motion.
-        ///
-        /// The timestamp is to be interpreted identical to the timestamp in the
-        /// wl_pointer.axis event. The timestamp value may be the same as a
-        /// preceding wl_pointer.axis event.
-        axis_stop: struct {
-            time: u32,
-            axis: Axis,
-        },
-
-        /// Discrete step information for scroll and other axes.
-        ///
-        /// This event carries the axis value of the wl_pointer.axis event in
-        /// discrete steps (e.g. mouse wheel clicks).
-        ///
-        /// This event is deprecated with wl_pointer version 8 - this event is not
-        /// sent to clients supporting version 8 or later.
-        ///
-        /// This event does not occur on its own, it is coupled with a
-        /// wl_pointer.axis event that represents this axis value on a
-        /// continuous scale. The protocol guarantees that each axis_discrete
-        /// event is always followed by exactly one axis event with the same
-        /// axis number within the same wl_pointer.frame. Note that the protocol
-        /// allows for other events to occur between the axis_discrete and
-        /// its coupled axis event, including other axis_discrete or axis
-        /// events. A wl_pointer.frame must not contain more than one axis_discrete
-        /// event per axis type.
-        ///
-        /// This event is optional; continuous scrolling devices
-        /// like two-finger scrolling on touchpads do not have discrete
-        /// steps and do not generate this event.
-        ///
-        /// The discrete value carries the directional information. e.g. a value
-        /// of -2 is two steps towards the negative direction of this axis.
-        ///
-        /// The axis number is identical to the axis number in the associated
-        /// axis event.
-        ///
-        /// The order of wl_pointer.axis_discrete and wl_pointer.axis_source is
-        /// not guaranteed.
-        axis_discrete: struct {
-            axis: Axis,
-            discrete: i32,
-        },
     };
 };
 
@@ -3328,7 +3166,7 @@ pub const wl_keyboard = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_keyboard",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = event_received,
     });
@@ -3494,7 +3332,7 @@ pub const wl_touch = struct {
 
     pub const INTERFACE = wayland.Object.Interface.fromStruct(@This(), .{
         .name = "wl_touch",
-        .version = 5,
+        .version = 4,
         .delete = delete,
         .event_received = event_received,
     });

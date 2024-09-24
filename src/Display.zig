@@ -24,7 +24,12 @@ pub const Interface = struct {
     windowGetSize: *const fn (?*anyopaque, *Window) [2]u32,
     windowPresentBuffer: *const fn (?*anyopaque, *Window, *Buffer) void,
 
-    createBufferFromDMA_BUF: *const fn (?*anyopaque, Buffer.CreateOptions) Buffer.CreateError!*Buffer,
+    isCreateBufferFromDMA_BUF_Supported: *const fn (?*anyopaque) bool,
+    isCreateBufferFromOpaqueFdSupported: *const fn (?*anyopaque) bool,
+
+    createBufferFromDMA_BUF: *const fn (?*anyopaque, Buffer.CreateOptionsDMA_BUF) Buffer.CreateError!*Buffer,
+    createBufferFromOpaqueFd: *const fn (?*anyopaque, Buffer.CreateOptionsOpaqueFd) Buffer.CreateError!*Buffer,
+
     destroyBuffer: *const fn (?*anyopaque, *Buffer) void,
 };
 
@@ -48,6 +53,8 @@ pub const Window = opaque {
         should_close,
         input: seizer.input.Event,
     };
+
+    pub const TextInputOptions = struct {};
 };
 
 pub fn create(allocator: std.mem.Allocator, loop: *xev.Loop, options: CreateOptions) CreateError!Display {
@@ -62,58 +69,69 @@ pub fn create(allocator: std.mem.Allocator, loop: *xev.Loop, options: CreateOpti
     return error.NoSupportedBackend;
 }
 
-pub inline fn destroy(this: @This()) void {
+pub fn destroy(this: @This()) void {
     return this.interface.destroy(this.pointer);
 }
 
-pub inline fn createWindow(this: @This(), options: Window.CreateOptions) Window.CreateError!*Window {
+pub fn createWindow(this: @This(), options: Window.CreateOptions) Window.CreateError!*Window {
     return this.interface.createWindow(this.pointer, options);
 }
 
-pub inline fn destroyWindow(this: @This(), window: *Window) void {
+pub fn destroyWindow(this: @This(), window: *Window) void {
     return this.interface.destroyWindow(this.pointer, window);
 }
 
-pub inline fn windowGetSize(this: @This(), window: *Window) [2]u32 {
+pub fn windowGetSize(this: @This(), window: *Window) [2]u32 {
     return this.interface.windowGetSize(this.pointer, window);
 }
 
-pub inline fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) void {
+pub fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) void {
     return this.interface.windowPresentBuffer(this.pointer, window, buffer);
 }
 
-pub inline fn windowSetUserdata(this: @This(), window: *Window, userdata: ?*anyopaque) void {
+pub fn windowSetUserdata(this: @This(), window: *Window, userdata: ?*anyopaque) void {
     return this.interface.windowSetUserdata(this.pointer, window, userdata);
 }
 
-pub inline fn windowGetUserdata(this: @This(), window: *Window) ?*anyopaque {
+pub fn windowGetUserdata(this: @This(), window: *Window) ?*anyopaque {
     return this.interface.windowGetUserdata(this.pointer, window);
 }
 
 // -- Display Buffers --
 pub const Buffer = opaque {
-    pub const CreateOptions = struct {
+    pub const CreateOptionsDMA_BUF = struct {
         size: [2]u32,
         format: DmaBufFormat,
         planes: []const DmaBufPlane,
         userdata: ?*anyopaque,
         on_release: *const fn (?*anyopaque, *Buffer) void,
     };
-    pub const CreateError = error{ OutOfMemory, ConnectionLost };
+    pub const CreateOptionsOpaqueFd = struct {
+        fd: std.posix.fd_t,
+        offset: u32,
+        pool_size: u32,
+        size: [2]u32,
+        stride: u32,
+        format: FourCC,
+
+        userdata: ?*anyopaque,
+        on_release: *const fn (?*anyopaque, *Buffer) void,
+    };
+    pub const CreateError = error{ OutOfMemory, ConnectionLost, UnsupportedFormat };
 
     pub const DmaBufFormat = struct {
         fourcc: FourCC,
         plane_count: u32,
         modifiers: u64,
+    };
 
-        pub const FourCC = enum(u32) {
-            ARGB8888 = 'A' | 'R' << 8 | '2' << 16 | '4' << 24,
-            XRGB8888 = 'X' | 'R' << 8 | '2' << 16 | '4' << 24,
-            ABGR8888 = 'A' | 'B' << 8 | '2' << 16 | '4' << 24,
-            BGRX8888 = 'B' | 'X' << 8 | '2' << 16 | '4' << 24,
-            XBGR8888 = 'X' | 'B' << 8 | '2' << 16 | '4' << 24,
-            _,
-        };
+    pub const FourCC = enum(u32) {
+        ARGB8888 = 'A' | 'R' << 8 | '2' << 16 | '4' << 24,
+        XRGB8888 = 'X' | 'R' << 8 | '2' << 16 | '4' << 24,
+        ABGR8888 = 'A' | 'B' << 8 | '2' << 16 | '4' << 24,
+        BGRX8888 = 'B' | 'X' << 8 | '2' << 16 | '4' << 24,
+        XBGR8888 = 'X' | 'B' << 8 | '2' << 16 | '4' << 24,
+        _,
     };
 
     pub const DmaBufPlane = struct {
@@ -122,13 +140,30 @@ pub const Buffer = opaque {
         offset: u32,
         stride: u32,
     };
+
+    pub const Type = enum {
+        opaque_fd,
+        dma_buf,
+    };
 };
 
-pub inline fn createBufferFromDMA_BUF(this: @This(), options: Buffer.CreateOptions) Buffer.CreateError!*Buffer {
+pub fn isCreateBufferFromDMA_BUF_Supported(this: @This()) bool {
+    return this.interface.isCreateBufferFromDMA_BUF_Supported(this.pointer);
+}
+
+pub fn isCreateBufferFromOpaqueFdSupported(this: @This()) bool {
+    return this.interface.isCreateBufferFromOpaqueFdSupported(this.pointer);
+}
+
+pub fn createBufferFromDMA_BUF(this: @This(), options: Buffer.CreateOptionsDMA_BUF) Buffer.CreateError!*Buffer {
     return this.interface.createBufferFromDMA_BUF(this.pointer, options);
 }
 
-pub inline fn destroyBuffer(this: @This(), buffer: *Buffer) void {
+pub fn createBufferFromOpaqueFd(this: @This(), options: Buffer.CreateOptionsOpaqueFd) Buffer.CreateError!*Buffer {
+    return this.interface.createBufferFromOpaqueFd(this.pointer, options);
+}
+
+pub fn destroyBuffer(this: @This(), buffer: *Buffer) void {
     return this.interface.destroyBuffer(this.pointer, buffer);
 }
 
