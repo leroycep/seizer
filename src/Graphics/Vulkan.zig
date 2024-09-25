@@ -1277,7 +1277,7 @@ fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window
         },
     }, render_buffer.vk_fence_finished) catch unreachable;
 
-    display.windowPresentBuffer(window, render_buffer.display_buffer);
+    try display.windowPresentBuffer(window, render_buffer.display_buffer);
 
     if (this.renderdoc.api) |renderdoc_api| {
         if (renderdoc_api.IsFrameCapturing(null, null) == 1) {

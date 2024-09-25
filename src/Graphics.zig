@@ -270,7 +270,7 @@ pub const Swapchain = opaque {
     pub const GetRenderBufferError = error{ OutOfMemory, OutOfDeviceMemory, OutOfRenderBuffers, DeviceLost };
     pub const GetRenderBufferOptions = struct {};
 
-    pub const PresentRenderBufferError = error{};
+    pub const PresentRenderBufferError = error{ OutOfMemory, ConnectionLost };
 };
 
 pub inline fn createSwapchain(gfx: Graphics, display: seizer.Display, window: *seizer.Display.Window, options: Swapchain.CreateOptions) Swapchain.CreateError!*Swapchain {

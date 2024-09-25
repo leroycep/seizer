@@ -22,7 +22,7 @@ pub const Interface = struct {
     windowSetUserdata: *const fn (?*anyopaque, *Window, ?*anyopaque) void,
     windowGetUserdata: *const fn (?*anyopaque, *Window) ?*anyopaque,
     windowGetSize: *const fn (?*anyopaque, *Window) [2]u32,
-    windowPresentBuffer: *const fn (?*anyopaque, *Window, *Buffer) void,
+    windowPresentBuffer: *const fn (?*anyopaque, *Window, *Buffer) Window.PresentError!void,
 
     isCreateBufferFromDMA_BUF_Supported: *const fn (?*anyopaque) bool,
     isCreateBufferFromOpaqueFdSupported: *const fn (?*anyopaque) bool,
@@ -54,7 +54,7 @@ pub const Window = opaque {
         input: seizer.input.Event,
     };
 
-    pub const TextInputOptions = struct {};
+    pub const PresentError = error{ OutOfMemory, ConnectionLost };
 };
 
 pub fn create(allocator: std.mem.Allocator, loop: *xev.Loop, options: CreateOptions) CreateError!Display {
@@ -85,7 +85,7 @@ pub fn windowGetSize(this: @This(), window: *Window) [2]u32 {
     return this.interface.windowGetSize(this.pointer, window);
 }
 
-pub fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) void {
+pub fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) Window.PresentError!void {
     return this.interface.windowPresentBuffer(this.pointer, window, buffer);
 }
 

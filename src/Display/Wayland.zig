@@ -261,16 +261,16 @@ fn _windowGetUserdata(this: *@This(), window_opaque: *seizer.Display.Window) ?*a
     return window.userdata;
 }
 
-fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, buffer_opaque: *seizer.Display.Buffer) void {
+fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, buffer_opaque: *seizer.Display.Buffer) !void {
     _ = this;
     const window: *Window = @ptrCast(@alignCast(window_opaque));
     const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
 
-    window.setupFrameCallback() catch unreachable;
+    try window.setupFrameCallback();
 
-    window.wl_surface.attach(buffer.wl_buffer, 0, 0) catch unreachable;
-    window.wl_surface.damage_buffer(0, 0, @intCast(buffer.size[0]), @intCast(buffer.size[1])) catch unreachable;
-    window.wl_surface.commit() catch unreachable;
+    try window.wl_surface.attach(buffer.wl_buffer, 0, 0);
+    try window.wl_surface.damage_buffer(0, 0, @intCast(buffer.size[0]), @intCast(buffer.size[1]));
+    try window.wl_surface.commit();
 }
 
 const Buffer = struct {
