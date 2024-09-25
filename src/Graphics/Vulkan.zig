@@ -905,6 +905,7 @@ const Swapchain = struct {
     const Element = struct {
         free: bool,
         vk_image: vk.Image,
+        memory_offset: u64,
         vk_image_view: vk.ImageView,
         vk_fence_finished: vk.Fence,
 
@@ -936,6 +937,11 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     else
         seizer.Display.Buffer.Type.opaque_fd;
 
+    const handle_type_flags: vk.ExternalMemoryHandleTypeFlags = switch (display_buffer_type) {
+        .dma_buf => vk.ExternalMemoryHandleTypeFlags{ .dma_buf_bit_ext = true },
+        .opaque_fd => vk.ExternalMemoryHandleTypeFlags{ .opaque_fd_bit = true },
+    };
+
     var elements = std.MultiArrayList(Swapchain.Element){};
     errdefer {
         var slice = elements.slice();
@@ -957,10 +963,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     for (elements_slice.items(.vk_image)) |*vk_image| {
         vk_image.* = this.vk_device.createImage(&vk.ImageCreateInfo{
             .p_next = &vk.ExternalMemoryImageCreateInfo{
-                .handle_types = switch (display_buffer_type) {
-                    .opaque_fd => .{ .opaque_fd_bit = true },
-                    .dma_buf => .{ .dma_buf_bit_ext = true },
-                },
+                .handle_types = handle_type_flags,
             },
             .image_type = .@"2d",
             .format = this.image_format,
@@ -993,7 +996,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
 
     const vk_device_memory = this.vk_device.allocateMemory(&vk.MemoryAllocateInfo{
         .p_next = &vk.ExportMemoryAllocateInfo{
-            .handle_types = .{ .dma_buf_bit_ext = true },
+            .handle_types = handle_type_flags,
         },
         .allocation_size = total_memory_requirements.size,
         .memory_type_index = memory_type_index,
@@ -1001,12 +1004,14 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     errdefer this.vk_device.freeMemory(vk_device_memory, null);
 
     var offset: u64 = 0;
-    for (elements.items(.vk_image)) |vk_image| {
-        this.vk_device.bindImageMemory(vk_image, vk_device_memory, offset) catch unreachable;
-
+    for (elements.items(.vk_image), elements.items(.memory_offset)) |vk_image, *memory_offset| {
         const image_memory_requirements = this.vk_device.getImageMemoryRequirements(vk_image);
+        offset = std.mem.alignForward(u64, offset, image_memory_requirements.alignment);
 
-        offset = std.mem.alignForward(u64, offset + image_memory_requirements.size, image_memory_requirements.alignment);
+        this.vk_device.bindImageMemory(vk_image, vk_device_memory, offset) catch unreachable;
+        memory_offset.* = offset;
+
+        offset += image_memory_requirements.size;
     }
 
     // create image views
@@ -1070,9 +1075,15 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
         .display_buffer_type = display_buffer_type,
     };
 
+    const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
+        .memory = vk_device_memory,
+        .handle_type = handle_type_flags,
+    }) catch unreachable; // TODO
+    defer std.posix.close(memory_fd);
+
     // create display buffer handles from image views
     switch (display_buffer_type) {
-        .dma_buf => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image)) |*display_buffer, vk_image| {
+        .dma_buf => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image), elements_slice.items(.memory_offset)) |*display_buffer, vk_image, memory_offset| {
             const dmabuf_format = seizer.Display.Buffer.DmaBufFormat{
                 .fourcc = switch (this.image_format) {
                     .r8g8b8a8_unorm => .ABGR8888,
@@ -1081,11 +1092,6 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
                 .plane_count = 1,
                 .modifiers = 0,
             };
-
-            const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
-                .memory = vk_device_memory,
-                .handle_type = .{ .dma_buf_bit_ext = true },
-            }) catch unreachable; // TODO
 
             var dma_buf_planes: [1]seizer.Display.Buffer.DmaBufPlane = undefined;
 
@@ -1103,7 +1109,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
             dma_buf_planes[0] = .{
                 .fd = memory_fd,
                 .index = @intCast(0),
-                .offset = @intCast(plane_layout.offset),
+                .offset = @intCast(memory_offset + plane_layout.offset),
                 .stride = @intCast(plane_layout.row_pitch),
             };
 
@@ -1118,12 +1124,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
                 else => |e| return e,
             };
         },
-        .opaque_fd => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image)) |*display_buffer, vk_image| {
-            const memory_fd = this.vk_device.getMemoryFdKHR(&vk.MemoryGetFdInfoKHR{
-                .memory = vk_device_memory,
-                .handle_type = .{ .opaque_fd_bit = true },
-            }) catch unreachable; // TODO
-
+        .opaque_fd => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image), elements_slice.items(.memory_offset)) |*display_buffer, vk_image, memory_offset| {
             const layout = this.vk_device.getImageSubresourceLayout(vk_image, &vk.ImageSubresource{
                 .aspect_mask = .{
                     .color_bit = true,
@@ -1134,7 +1135,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
 
             display_buffer.* = display.createBufferFromOpaqueFd(.{
                 .fd = memory_fd,
-                .offset = @intCast(layout.offset),
+                .offset = @intCast(memory_offset + layout.offset),
                 .pool_size = @intCast(layout.size),
                 .size = options.size,
                 .stride = @intCast(layout.row_pitch),
@@ -1527,7 +1528,7 @@ fn _setScissor(this: *@This(), render_buffer_opaque: *seizer.Graphics.RenderBuff
     });
 }
 
-const RenderBuffer = struct {
+pub const RenderBuffer = struct {
     element_index: u32,
     size: [2]u32,
     vk_image_view: vk.ImageView,
