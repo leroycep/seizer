@@ -593,8 +593,8 @@ pub const xdg_surface = struct {
     /// xdg_toplevel is and how it is used.
     pub fn get_toplevel(
         this: @This(),
-    ) !*xdg_toplevel {
-        const new_object = try this.conn.createObject(xdg_toplevel);
+    ) !*wayland_protocols.stable.@"xdg-shell".xdg_toplevel {
+        const new_object = try this.conn.createObject(wayland_protocols.stable.@"xdg-shell".xdg_toplevel);
         try this.conn.send(
             Request,
             this.id,
@@ -929,7 +929,7 @@ pub const xdg_toplevel = struct {
     /// otherwise the invalid_parent protocol error is raised.
     pub fn set_parent(
         this: @This(),
-        parent: ?*xdg_toplevel,
+        parent: ?*wayland_protocols.stable.@"xdg-shell".xdg_toplevel,
     ) !void {
         try this.conn.send(
             Request,
@@ -1550,4 +1550,5 @@ pub const xdg_popup = struct {
 };
 
 const wayland = @import("wayland");
+const wayland_protocols = @import("../protocols.zig");
 const std = @import("std");

@@ -112,6 +112,7 @@ pub fn build(b: *Builder) !void {
 
             write_wayland_protocols.addBytesToSource(
                 \\pub const stable = @import("./stable/protocols.zig");
+                \\pub const unstable = @import("./unstable/protocols.zig");
                 \\
             ,
                 "dep/wayland-protocols/protocols.zig",
@@ -123,6 +124,13 @@ pub fn build(b: *Builder) !void {
                 \\
             ,
                 "dep/wayland-protocols/stable/protocols.zig",
+            );
+
+            write_wayland_protocols.addBytesToSource(
+                \\pub const @"xdg-decoration-unstable-v1" = @import("./xdg-decoration-unstable-v1.zig");
+                \\
+            ,
+                "dep/wayland-protocols/unstable/protocols.zig",
             );
 
             // generate wayland core protocol
@@ -144,10 +152,17 @@ pub fn build(b: *Builder) !void {
             generate_protocol_linux_dmabuf_v1.addArg("4");
             write_wayland_protocols.addCopyFileToSource(generate_protocol_linux_dmabuf_v1.captureStdOut(), "dep/wayland-protocols/stable/linux-dmabuf-v1.zig");
 
+            // generate xdg-decoration protocol
+            const generate_protocol_xdg_decoration = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_xdg_decoration.addFileArg(b.path("dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.xml"));
+            generate_protocol_xdg_decoration.addArg("1");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_decoration.captureStdOut(), "dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.zig");
+
             const fmt_protocol_files = b.addFmt(.{ .paths = &.{
                 "dep/wayland/src/wayland.zig",
                 "dep/wayland-protocols/stable/xdg-shell.zig",
                 "dep/wayland-protocols/stable/linux-dmabuf-v1.zig",
+                "dep/wayland-protocols/unstable/xdg-decoration.zig",
             } });
             fmt_protocol_files.step.dependOn(&write_wayland_protocols.step);
 

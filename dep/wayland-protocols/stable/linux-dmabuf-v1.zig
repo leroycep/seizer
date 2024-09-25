@@ -763,4 +763,5 @@ pub const zwp_linux_dmabuf_feedback_v1 = struct {
 };
 
 const wayland = @import("wayland");
+const wayland_protocols = @import("../protocols.zig");
 const std = @import("std");

@@ -34,6 +34,7 @@ pub fn main() !void {
     try interface_locations.putNoClobber("wl_buffer", "wayland.wayland.wl_buffer");
     try interface_locations.putNoClobber("wl_seat", "wayland.wayland.wl_seat");
     try interface_locations.putNoClobber("wl_output", "wayland.wayland.wl_output");
+    try interface_locations.putNoClobber("xdg_toplevel", "wayland_protocols.stable.@\"xdg-shell\".xdg_toplevel");
 
     var target_interface_versions = std.StringHashMap(u16).init(gpa.allocator());
     defer target_interface_versions.deinit();
@@ -435,6 +436,7 @@ pub fn main() !void {
     } else {
         try writer.writeAll(
             \\const wayland = @import("wayland");
+            \\const wayland_protocols = @import("../protocols.zig");
             \\const std = @import("std");
             \\
         );

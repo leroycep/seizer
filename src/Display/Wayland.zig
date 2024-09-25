@@ -108,6 +108,7 @@ const Globals = struct {
     xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
     zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
     wl_shm: ?*wayland.wayland.wl_shm = null,
+    xdg_decoration_manager: ?*xdg_decoration.zxdg_decoration_manager_v1 = null,
 };
 
 fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
@@ -123,6 +124,8 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
                 this.globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_shm.INTERFACE.name) and global.version >= wayland.wayland.wl_shm.INTERFACE.version) {
                 this.globals.wl_shm = registry.bind(wayland.wayland.wl_shm, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.name) and global.version >= xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.version) {
+                this.globals.xdg_decoration_manager = registry.bind(xdg_decoration.zxdg_decoration_manager_v1, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
                 this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
 
@@ -166,6 +169,10 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
     const wl_surface = try this.globals.wl_compositor.?.create_surface();
     const xdg_surface = try this.globals.xdg_wm_base.?.get_xdg_surface(wl_surface);
     const xdg_toplevel = try xdg_surface.get_toplevel();
+    const xdg_toplevel_decoration: ?*xdg_decoration.zxdg_toplevel_decoration_v1 = if (this.globals.xdg_decoration_manager) |deco_man|
+        try deco_man.get_toplevel_decoration(xdg_toplevel)
+    else
+        null;
     try wl_surface.commit();
 
     const window = try this.allocator.create(Window);
@@ -177,19 +184,31 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
         .wl_surface = wl_surface,
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
+        .xdg_toplevel_decoration = xdg_toplevel_decoration,
 
         .on_event = options.on_event,
         .on_render = options.on_render,
         .on_destroy = options.on_destroy,
 
-        .new_window_size = size,
-        .window_size = size,
+        .current_configuration = .{
+            .window_size = .{ 0, 0 },
+            .decoration_mode = .client_side,
+        },
+        .new_configuration = .{
+            .window_size = size,
+            .decoration_mode = .client_side,
+        },
     };
 
     window.xdg_surface.userdata = window;
     window.xdg_toplevel.userdata = window;
     window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
     window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
+
+    if (window.xdg_toplevel_decoration) |decoration| {
+        decoration.userdata = window;
+        decoration.on_event = Window.onXdgToplevelDecorationEvent;
+    }
 
     this.windows.putAssumeCapacity(window.wl_surface.id, window);
 
@@ -208,6 +227,7 @@ fn _destroyWindow(this: *@This(), window_opaque: *seizer.Display.Window) void {
     window.wl_surface.commit() catch {};
 
     // destroy surfaces
+    if (window.xdg_toplevel_decoration) |decoration| decoration.destroy() catch {};
     window.xdg_toplevel.destroy() catch {};
     window.xdg_surface.destroy() catch {};
     window.wl_surface.destroy() catch {};
@@ -242,8 +262,8 @@ fn _windowGetSize(this: *@This(), window_opaque: *seizer.Display.Window) [2]u32 
     _ = this;
 
     return [2]u32{
-        @intCast(window.window_size[0]),
-        @intCast(window.window_size[1]),
+        @intCast(window.current_configuration.window_size[0]),
+        @intCast(window.current_configuration.window_size[1]),
     };
 }
 
@@ -391,6 +411,7 @@ const Window = struct {
     wl_surface: *wayland.wayland.wl_surface,
     xdg_surface: *xdg_shell.xdg_surface,
     xdg_toplevel: *xdg_shell.xdg_toplevel,
+    xdg_toplevel_decoration: ?*xdg_decoration.zxdg_toplevel_decoration_v1,
 
     on_event: ?*const fn (*seizer.Display.Window, seizer.Display.Window.Event) anyerror!void,
     on_render: *const fn (*seizer.Display.Window) anyerror!void,
@@ -398,15 +419,20 @@ const Window = struct {
 
     frame_callback: ?*wayland.wayland.wl_callback = null,
 
-    new_window_size: [2]c_int,
-    window_size: [2]c_int,
+    new_configuration: Configuration,
+    current_configuration: Configuration,
 
     userdata: ?*anyopaque = null,
+
+    const Configuration = struct {
+        window_size: [2]c_int,
+        decoration_mode: xdg_decoration.zxdg_toplevel_decoration_v1.Mode,
+    };
 
     pub fn getSize(userdata: ?*anyopaque) [2]u32 {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
 
-        return .{ @intCast(this.window_size[0]), @intCast(this.window_size[1]) };
+        return .{ @intCast(this.current_configuration.window_size[0]), @intCast(this.current_configuration.window_size[1]) };
     }
 
     pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
@@ -418,23 +444,32 @@ const Window = struct {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .configure => |conf| {
+                if (this.xdg_toplevel_decoration) |decoration| {
+                    if (this.current_configuration.decoration_mode != this.new_configuration.decoration_mode) {
+                        decoration.set_mode(this.new_configuration.decoration_mode) catch {};
+                        this.current_configuration.decoration_mode = this.new_configuration.decoration_mode;
+                    }
+                }
+
+                if (!std.mem.eql(c_int, &this.current_configuration.window_size, &this.new_configuration.window_size)) {
+                    this.current_configuration.window_size = this.new_configuration.window_size;
+                    if (this.on_event) |on_event| {
+                        on_event(@ptrCast(this), .{ .resize = [2]u32{
+                            @intCast(this.current_configuration.window_size[0]),
+                            @intCast(this.current_configuration.window_size[1]),
+                        } }) catch |err| {
+                            std.debug.print("error returned from window event: {}\n", .{err});
+                            if (@errorReturnTrace()) |err_ret_trace| {
+                                std.debug.dumpStackTrace(err_ret_trace.*);
+                            }
+                        };
+                    }
+                }
+
                 xdg_surface.ack_configure(conf.serial) catch |e| {
                     std.log.warn("Failed to ack configure: {}", .{e});
                     return;
                 };
-
-                this.window_size = this.new_window_size;
-                if (this.on_event) |on_event| {
-                    on_event(@ptrCast(this), .{ .resize = [2]u32{
-                        @intCast(this.window_size[0]),
-                        @intCast(this.window_size[1]),
-                    } }) catch |err| {
-                        std.debug.print("error returned from window event: {}\n", .{err});
-                        if (@errorReturnTrace()) |err_ret_trace| {
-                            std.debug.dumpStackTrace(err_ret_trace.*);
-                        }
-                    };
-                }
 
                 if (this.frame_callback == null) {
                     const sync_callback = this.wayland.connection.sync() catch unreachable;
@@ -459,8 +494,20 @@ const Window = struct {
             },
             .configure => |cfg| {
                 if (cfg.width > 0 and cfg.height > 0) {
-                    this.new_window_size[0] = cfg.width;
-                    this.new_window_size[1] = cfg.height;
+                    this.new_configuration.window_size[0] = cfg.width;
+                    this.new_configuration.window_size[1] = cfg.height;
+                }
+            },
+        }
+    }
+
+    fn onXdgToplevelDecorationEvent(xdg_toplevel_decoration: *xdg_decoration.zxdg_toplevel_decoration_v1, userdata: ?*anyopaque, event: xdg_decoration.zxdg_toplevel_decoration_v1.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        _ = xdg_toplevel_decoration;
+        switch (event) {
+            .configure => |cfg| {
+                if (cfg.mode == .server_side) {
+                    this.new_configuration.decoration_mode = .server_side;
                 }
             },
         }
@@ -667,6 +714,7 @@ const Seat = struct {
 
 const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
 const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";
+const xdg_decoration = @import("wayland-protocols").unstable.@"xdg-decoration-unstable-v1";
 const wayland = @import("wayland");
 
 const builtin = @import("builtin");
