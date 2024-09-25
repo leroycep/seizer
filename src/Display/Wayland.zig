@@ -18,6 +18,7 @@ pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Di
     .destroyWindow = _destroyWindow,
 
     .windowGetSize = _windowGetSize,
+    .windowGetScale = _windowGetScale,
     .windowPresentBuffer = _windowPresentBuffer,
     .windowSetUserdata = _windowSetUserdata,
     .windowGetUserdata = _windowGetUserdata,
@@ -109,6 +110,9 @@ const Globals = struct {
     zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
     wl_shm: ?*wayland.wayland.wl_shm = null,
     xdg_decoration_manager: ?*xdg_decoration.zxdg_decoration_manager_v1 = null,
+
+    wp_viewporter: ?*viewporter.wp_viewporter = null,
+    wp_fractional_scale_manager_v1: ?*fractional_scale_v1.wp_fractional_scale_manager_v1 = null,
 };
 
 fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
@@ -126,6 +130,10 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
                 this.globals.wl_shm = registry.bind(wayland.wayland.wl_shm, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.name) and global.version >= xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.version) {
                 this.globals.xdg_decoration_manager = registry.bind(xdg_decoration.zxdg_decoration_manager_v1, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, viewporter.wp_viewporter.INTERFACE.name) and global.version >= viewporter.wp_viewporter.INTERFACE.version) {
+                this.globals.wp_viewporter = registry.bind(viewporter.wp_viewporter, global.name) catch return;
+            } else if (std.mem.eql(u8, global_interface, fractional_scale_v1.wp_fractional_scale_manager_v1.INTERFACE.name) and global.version >= fractional_scale_v1.wp_fractional_scale_manager_v1.INTERFACE.version) {
+                this.globals.wp_fractional_scale_manager_v1 = registry.bind(fractional_scale_v1.wp_fractional_scale_manager_v1, global.name) catch return;
             } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
                 this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
 
@@ -173,6 +181,17 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
         try deco_man.get_toplevel_decoration(xdg_toplevel)
     else
         null;
+
+    const wp_viewport: ?*viewporter.wp_viewport = if (this.globals.wp_viewporter) |wp_viewporter|
+        try wp_viewporter.get_viewport(wl_surface)
+    else
+        null;
+
+    const wp_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1 = if (this.globals.wp_fractional_scale_manager_v1) |scale_man|
+        try scale_man.get_fractional_scale(wl_surface)
+    else
+        null;
+
     try wl_surface.commit();
 
     const window = try this.allocator.create(Window);
@@ -185,6 +204,8 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
         .xdg_surface = xdg_surface,
         .xdg_toplevel = xdg_toplevel,
         .xdg_toplevel_decoration = xdg_toplevel_decoration,
+        .wp_viewport = wp_viewport,
+        .wp_fractional_scale = wp_fractional_scale,
 
         .on_event = options.on_event,
         .on_render = options.on_render,
@@ -208,6 +229,10 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
     if (window.xdg_toplevel_decoration) |decoration| {
         decoration.userdata = window;
         decoration.on_event = Window.onXdgToplevelDecorationEvent;
+    }
+    if (window.wp_fractional_scale) |frac_scale| {
+        frac_scale.userdata = window;
+        frac_scale.on_event = Window.onWpFractionalScale;
     }
 
     this.windows.putAssumeCapacity(window.wl_surface.id, window);
@@ -257,14 +282,21 @@ fn _destroyWindow(this: *@This(), window_opaque: *seizer.Display.Window) void {
     this.allocator.destroy(window);
 }
 
-fn _windowGetSize(this: *@This(), window_opaque: *seizer.Display.Window) [2]u32 {
+fn _windowGetSize(this: *@This(), window_opaque: *seizer.Display.Window) [2]f32 {
     const window: *Window = @ptrCast(@alignCast(window_opaque));
     _ = this;
 
-    return [2]u32{
-        @intCast(window.current_configuration.window_size[0]),
-        @intCast(window.current_configuration.window_size[1]),
+    return [2]f32{
+        @floatFromInt(window.current_configuration.window_size[0]),
+        @floatFromInt(window.current_configuration.window_size[1]),
     };
+}
+
+fn _windowGetScale(this: *@This(), window_opaque: *seizer.Display.Window) f32 {
+    const window: *Window = @ptrCast(@alignCast(window_opaque));
+    _ = this;
+
+    return @as(f32, @floatFromInt(window.preferred_scale)) / 120.0;
 }
 
 fn _windowSetUserdata(this: *@This(), window_opaque: *seizer.Display.Window, userdata: ?*anyopaque) void {
@@ -290,12 +322,25 @@ fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, b
 
     try window.wl_surface.attach(buffer.wl_buffer, 0, 0);
     try window.wl_surface.damage_buffer(0, 0, @intCast(buffer.size[0]), @intCast(buffer.size[1]));
+    if (window.wp_viewport) |viewport| {
+        try viewport.set_source(
+            wayland.fixed.fromFloat(f32, 0),
+            wayland.fixed.fromFloat(f32, 0),
+            wayland.fixed.fromInt(@intCast(buffer.size[0]), 0),
+            wayland.fixed.fromInt(@intCast(buffer.size[1]), 0),
+        );
+        try viewport.set_destination(
+            @intFromFloat(@as(f32, @floatFromInt(buffer.size[0])) * buffer.scale),
+            @intFromFloat(@as(f32, @floatFromInt(buffer.size[1])) * buffer.scale),
+        );
+    }
     try window.wl_surface.commit();
 }
 
 const Buffer = struct {
     allocator: std.mem.Allocator,
     size: [2]u32,
+    scale: f32,
     wl_buffer: *wayland.wayland.wl_buffer,
     userdata: ?*anyopaque,
     on_release: ?*const fn (?*anyopaque, *seizer.Display.Buffer) void,
@@ -349,6 +394,7 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
     buffer.* = .{
         .allocator = this.allocator,
         .size = options.size,
+        .scale = options.scale,
         .wl_buffer = wl_buffer,
         .userdata = options.userdata,
         .on_release = options.on_release,
@@ -381,6 +427,7 @@ fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.Crea
     buffer.* = .{
         .allocator = this.allocator,
         .size = options.size,
+        .scale = options.scale,
         .wl_buffer = wl_buffer,
         .userdata = options.userdata,
         .on_release = options.on_release,
@@ -412,6 +459,8 @@ const Window = struct {
     xdg_surface: *xdg_shell.xdg_surface,
     xdg_toplevel: *xdg_shell.xdg_toplevel,
     xdg_toplevel_decoration: ?*xdg_decoration.zxdg_toplevel_decoration_v1,
+    wp_viewport: ?*viewporter.wp_viewport,
+    wp_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1,
 
     on_event: ?*const fn (*seizer.Display.Window, seizer.Display.Window.Event) anyerror!void,
     on_render: *const fn (*seizer.Display.Window) anyerror!void,
@@ -422,18 +471,14 @@ const Window = struct {
     new_configuration: Configuration,
     current_configuration: Configuration,
 
+    preferred_scale: u32 = 120,
+
     userdata: ?*anyopaque = null,
 
     const Configuration = struct {
         window_size: [2]c_int,
         decoration_mode: xdg_decoration.zxdg_toplevel_decoration_v1.Mode,
     };
-
-    pub fn getSize(userdata: ?*anyopaque) [2]u32 {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
-
-        return .{ @intCast(this.current_configuration.window_size[0]), @intCast(this.current_configuration.window_size[1]) };
-    }
 
     pub fn setShouldClose(userdata: ?*anyopaque, should_close: bool) void {
         const this: *@This() = @ptrCast(@alignCast(userdata.?));
@@ -454,9 +499,9 @@ const Window = struct {
                 if (!std.mem.eql(c_int, &this.current_configuration.window_size, &this.new_configuration.window_size)) {
                     this.current_configuration.window_size = this.new_configuration.window_size;
                     if (this.on_event) |on_event| {
-                        on_event(@ptrCast(this), .{ .resize = [2]u32{
-                            @intCast(this.current_configuration.window_size[0]),
-                            @intCast(this.current_configuration.window_size[1]),
+                        on_event(@ptrCast(this), .{ .resize = [2]f32{
+                            @floatFromInt(this.current_configuration.window_size[0]),
+                            @floatFromInt(this.current_configuration.window_size[1]),
                         } }) catch |err| {
                             std.debug.print("error returned from window event: {}\n", .{err});
                             if (@errorReturnTrace()) |err_ret_trace| {
@@ -508,6 +553,24 @@ const Window = struct {
             .configure => |cfg| {
                 if (cfg.mode == .server_side) {
                     this.new_configuration.decoration_mode = .server_side;
+                }
+            },
+        }
+    }
+
+    fn onWpFractionalScale(wp_fractional_scale: *fractional_scale_v1.wp_fractional_scale_v1, userdata: ?*anyopaque, event: fractional_scale_v1.wp_fractional_scale_v1.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        _ = wp_fractional_scale;
+        switch (event) {
+            .preferred_scale => |preferred| {
+                this.preferred_scale = preferred.scale;
+                if (this.on_event) |on_event| {
+                    on_event(@ptrCast(this), .{ .rescale = @as(f32, @floatFromInt(this.preferred_scale)) / 120.0 }) catch |err| {
+                        std.debug.print("error returned from window event: {}\n", .{err});
+                        if (@errorReturnTrace()) |err_ret_trace| {
+                            std.debug.dumpStackTrace(err_ret_trace.*);
+                        }
+                    };
                 }
             },
         }
@@ -712,6 +775,8 @@ const Seat = struct {
     }
 };
 
+const fractional_scale_v1 = @import("wayland-protocols").staging.@"fractional-scale-v1";
+const viewporter = @import("wayland-protocols").stable.viewporter;
 const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
 const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";
 const xdg_decoration = @import("wayland-protocols").unstable.@"xdg-decoration-unstable-v1";

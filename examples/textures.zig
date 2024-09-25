@@ -185,7 +185,7 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
     _ = window;
     switch (event) {
         .should_close => seizer.platform.setShouldExit(true),
-        .resize => if (swapchain_opt) |swapchain| {
+        .resize, .rescale => if (swapchain_opt) |swapchain| {
             gfx.destroySwapchain(swapchain);
             swapchain_opt = null;
         },
@@ -195,20 +195,21 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
 
 fn render(window: *seizer.Display.Window) !void {
     const window_size = display.windowGetSize(window);
+    const window_scale = display.windowGetScale(window);
 
     const swapchain = swapchain_opt orelse create_swapchain: {
-        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size, .scale = window_scale });
         swapchain_opt = new_swapchain;
         break :create_swapchain new_swapchain;
     };
 
     const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
 
-    gfx.interface.setViewport(gfx.pointer, render_buffer, .{
+    gfx.setViewport(render_buffer, .{
         .pos = .{ 0, 0 },
-        .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
+        .size = [2]f32{ window_size[0] * window_scale, window_size[1] * window_scale },
     });
-    gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
+    gfx.setScissor(render_buffer, .{ 0, 0 }, .{ @intFromFloat(window_size[0] * window_scale), @intFromFloat(window_size[1] * window_scale) });
 
     const descriptor_set = gfx.interface.uploadDescriptors(gfx.pointer, render_buffer, pipeline, .{
         .writes = &.{

@@ -113,6 +113,7 @@ pub fn build(b: *Builder) !void {
             write_wayland_protocols.addBytesToSource(
                 \\pub const stable = @import("./stable/protocols.zig");
                 \\pub const unstable = @import("./unstable/protocols.zig");
+                \\pub const staging = @import("./staging/protocols.zig");
                 \\
             ,
                 "dep/wayland-protocols/protocols.zig",
@@ -121,6 +122,7 @@ pub fn build(b: *Builder) !void {
             write_wayland_protocols.addBytesToSource(
                 \\pub const @"xdg-shell" = @import("./xdg-shell.zig");
                 \\pub const @"linux-dmabuf-v1" = @import("./linux-dmabuf-v1.zig");
+                \\pub const @"viewporter" = @import("./viewporter.zig");
                 \\
             ,
                 "dep/wayland-protocols/stable/protocols.zig",
@@ -131,6 +133,13 @@ pub fn build(b: *Builder) !void {
                 \\
             ,
                 "dep/wayland-protocols/unstable/protocols.zig",
+            );
+
+            write_wayland_protocols.addBytesToSource(
+                \\pub const @"fractional-scale-v1" = @import("./fractional-scale-v1.zig");
+                \\
+            ,
+                "dep/wayland-protocols/staging/protocols.zig",
             );
 
             // generate wayland core protocol
@@ -152,17 +161,30 @@ pub fn build(b: *Builder) !void {
             generate_protocol_linux_dmabuf_v1.addArg("4");
             write_wayland_protocols.addCopyFileToSource(generate_protocol_linux_dmabuf_v1.captureStdOut(), "dep/wayland-protocols/stable/linux-dmabuf-v1.zig");
 
+            // generate viewporter protocol
+            const generate_protocol_viewporter = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_viewporter.addFileArg(b.path("dep/wayland-protocols/stable/viewporter.xml"));
+            generate_protocol_viewporter.addArg("4");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_viewporter.captureStdOut(), "dep/wayland-protocols/stable/viewporter.zig");
+
             // generate xdg-decoration protocol
             const generate_protocol_xdg_decoration = b.addRunArtifact(generate_wayland_exe);
             generate_protocol_xdg_decoration.addFileArg(b.path("dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.xml"));
             generate_protocol_xdg_decoration.addArg("1");
             write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_decoration.captureStdOut(), "dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.zig");
 
+            const generate_protocol_fractional_scale_v1 = b.addRunArtifact(generate_wayland_exe);
+            generate_protocol_fractional_scale_v1.addFileArg(b.path("dep/wayland-protocols/staging/fractional-scale-v1.xml"));
+            generate_protocol_fractional_scale_v1.addArg("1");
+            write_wayland_protocols.addCopyFileToSource(generate_protocol_fractional_scale_v1.captureStdOut(), "dep/wayland-protocols/staging/fractional-scale-v1.zig");
+
             const fmt_protocol_files = b.addFmt(.{ .paths = &.{
                 "dep/wayland/src/wayland.zig",
                 "dep/wayland-protocols/stable/xdg-shell.zig",
                 "dep/wayland-protocols/stable/linux-dmabuf-v1.zig",
+                "dep/wayland-protocols/stable/viewporter.zig",
                 "dep/wayland-protocols/unstable/xdg-decoration.zig",
+                "dep/wayland-protocols/staging/viewporter.zig",
             } });
             fmt_protocol_files.step.dependOn(&write_wayland_protocols.step);
 

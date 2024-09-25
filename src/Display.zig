@@ -21,7 +21,8 @@ pub const Interface = struct {
 
     windowSetUserdata: *const fn (?*anyopaque, *Window, ?*anyopaque) void,
     windowGetUserdata: *const fn (?*anyopaque, *Window) ?*anyopaque,
-    windowGetSize: *const fn (?*anyopaque, *Window) [2]u32,
+    windowGetSize: *const fn (?*anyopaque, *Window) [2]f32,
+    windowGetScale: *const fn (?*anyopaque, *Window) f32,
     windowPresentBuffer: *const fn (?*anyopaque, *Window, *Buffer) Window.PresentError!void,
 
     isCreateBufferFromDMA_BUF_Supported: *const fn (?*anyopaque) bool,
@@ -49,7 +50,8 @@ pub const Window = opaque {
     pub const CreateError = error{ OutOfMemory, ConnectionLost };
 
     pub const Event = union(enum) {
-        resize: [2]u32,
+        resize: [2]f32,
+        rescale: f32,
         should_close,
         input: seizer.input.Event,
     };
@@ -81,8 +83,12 @@ pub fn destroyWindow(this: @This(), window: *Window) void {
     return this.interface.destroyWindow(this.pointer, window);
 }
 
-pub fn windowGetSize(this: @This(), window: *Window) [2]u32 {
+pub fn windowGetSize(this: @This(), window: *Window) [2]f32 {
     return this.interface.windowGetSize(this.pointer, window);
+}
+
+pub fn windowGetScale(this: @This(), window: *Window) f32 {
+    return this.interface.windowGetScale(this.pointer, window);
 }
 
 pub fn windowPresentBuffer(this: @This(), window: *Window, buffer: *Buffer) Window.PresentError!void {
@@ -101,6 +107,7 @@ pub fn windowGetUserdata(this: @This(), window: *Window) ?*anyopaque {
 pub const Buffer = opaque {
     pub const CreateOptionsDMA_BUF = struct {
         size: [2]u32,
+        scale: f32,
         format: DmaBufFormat,
         planes: []const DmaBufPlane,
         userdata: ?*anyopaque,
@@ -111,6 +118,7 @@ pub const Buffer = opaque {
         offset: u32,
         pool_size: u32,
         size: [2]u32,
+        scale: f32,
         stride: u32,
         format: FourCC,
 

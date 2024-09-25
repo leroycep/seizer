@@ -33,12 +33,9 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
     _ = window;
     switch (event) {
         .should_close => seizer.platform.setShouldExit(true),
-        .resize => |r| {
-            std.log.info("resize window = {}x{}", .{ r[0], r[1] });
-            if (swapchain_opt) |swapchain| {
-                gfx.destroySwapchain(swapchain);
-                swapchain_opt = null;
-            }
+        .resize, .rescale => if (swapchain_opt) |swapchain| {
+            gfx.destroySwapchain(swapchain);
+            swapchain_opt = null;
         },
         .input => |_| {},
     }
@@ -46,9 +43,10 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
 
 fn render(window: *seizer.Display.Window) !void {
     const window_size = display.windowGetSize(window);
+    const window_scale = display.windowGetScale(window);
 
     const swapchain = swapchain_opt orelse create_swapchain: {
-        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size, .scale = window_scale });
         swapchain_opt = new_swapchain;
         break :create_swapchain new_swapchain;
     };

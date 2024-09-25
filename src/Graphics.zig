@@ -264,7 +264,8 @@ pub const Swapchain = opaque {
     pub const CreateError = error{ OutOfMemory, OutOfDeviceMemory, InUseOnOtherThread, UnsupportedFormat, DisplayConnectionLost };
     pub const CreateOptions = struct {
         num_frames: u32 = 3,
-        size: [2]u32,
+        size: [2]f32,
+        scale: f32,
     };
 
     pub const GetRenderBufferError = error{ OutOfMemory, OutOfDeviceMemory, OutOfRenderBuffers, DeviceLost };
@@ -345,6 +346,10 @@ pub inline fn drawPrimitives(gfx: Graphics, render_buffer: *RenderBuffer, vertex
 
 pub inline fn setScissor(gfx: Graphics, render_buffer: *RenderBuffer, position: [2]i32, size: [2]u32) void {
     return gfx.interface.setScissor(gfx.pointer, render_buffer, position, size);
+}
+
+pub inline fn setViewport(gfx: Graphics, render_buffer: *RenderBuffer, options: RenderBuffer.SetViewportOptions) void {
+    return gfx.interface.setViewport(gfx.pointer, render_buffer, options);
 }
 
 pub inline fn pushConstants(gfx: Graphics, render_buffer: *RenderBuffer, pipeline: *Pipeline, stages: Pipeline.Stages, data: []const u8, offset: u32) void {

@@ -10,6 +10,22 @@ pub const fixed = packed struct(u32) {
     fraction: u8,
     integer: i24,
 
+    pub fn fromInt(integer: i24, fraction: u8) @This() {
+        return .{
+            .integer = integer,
+            .fraction = fraction,
+        };
+    }
+
+    pub fn fromFloat(comptime T: type, float: T) @This() {
+        const denominator_t: T = @floatFromInt(std.math.maxInt(u8));
+
+        return .{
+            .integer = @intFromFloat(float),
+            .fraction = @intFromFloat((float - @floor(float)) * denominator_t),
+        };
+    }
+
     pub fn toFloat(this: @This(), comptime T: type) T {
         const fraction_t: T = @floatFromInt(this.fraction);
         const denominator_t: T = @floatFromInt(std.math.maxInt(u8));

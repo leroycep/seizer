@@ -969,7 +969,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
             },
             .image_type = .@"2d",
             .format = this.image_format,
-            .extent = .{ .width = options.size[0], .height = options.size[1], .depth = 1 },
+            .extent = .{ .width = @intFromFloat(options.size[0] * options.scale), .height = @intFromFloat(options.size[1] * options.scale), .depth = 1 },
             .mip_levels = 1,
             .array_layers = 1,
             .samples = .{ .@"1_bit" = true },
@@ -1068,7 +1068,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     swapchain.* = .{
         .vk_device = this.vk_device,
         .display = display,
-        .size = options.size,
+        .size = .{ @intFromFloat(options.size[0] * options.scale), @intFromFloat(options.size[1] * options.scale) },
         .image_format = this.image_format,
         .vk_device_memory = vk_device_memory,
 
@@ -1119,7 +1119,8 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
             };
 
             display_buffer.* = display.createBufferFromDMA_BUF(.{
-                .size = options.size,
+                .size = .{ @intFromFloat(options.size[0] * options.scale), @intFromFloat(options.size[1] * options.scale) },
+                .scale = 1.0 / options.scale,
                 .format = dmabuf_format,
                 .planes = &dma_buf_planes,
                 .userdata = swapchain,
@@ -1142,7 +1143,8 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
                 .fd = memory_fd,
                 .offset = @intCast(memory_offset + layout.offset),
                 .pool_size = @intCast(total_memory_requirements.size),
-                .size = options.size,
+                .size = .{ @intFromFloat(options.size[0] * options.scale), @intFromFloat(options.size[1] * options.scale) },
+                .scale = 1.0 / options.scale,
                 .stride = @intCast(layout.row_pitch),
                 .format = fourcc_format,
                 .userdata = swapchain,
@@ -1169,7 +1171,6 @@ fn _destroySwapchain(this: *@This(), swapchain_opaque: *seizer.Graphics.Swapchai
         swapchain.display.destroyBuffer(display_buffer);
     }
 
-    _ = this.vk_device.waitForFences(@intCast(elements_slice.items(.vk_fence_finished).len), elements_slice.items(.vk_fence_finished).ptr, vk.TRUE, std.math.maxInt(u64)) catch unreachable;
     for (elements_slice.items(.vk_image_view), elements_slice.items(.vk_image), elements_slice.items(.vk_fence_finished), elements_slice.items(.vk_descriptor_pool)) |vk_image_view, vk_image, vk_fence_finished, vk_descriptor_pool| {
         this.vk_device.destroyImageView(vk_image_view, null);
         this.vk_device.destroyImage(vk_image, null);

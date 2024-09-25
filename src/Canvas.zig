@@ -14,7 +14,6 @@ texture_ids: std.AutoArrayHashMapUnmanaged(*seizer.Graphics.Texture, u32),
 next_texture_id: u32 = 0,
 
 window_size: [2]f32 = .{ 1, 1 },
-framebuffer_size: [2]f32 = .{ 1, 1 },
 
 blank_texture: *seizer.Graphics.Texture,
 font: Font,
@@ -259,21 +258,15 @@ pub fn deinit(this: *@This()) void {
 }
 
 pub const BeginOptions = struct {
-    window_size: [2]u32,
+    window_size: [2]f32,
+    window_scale: f32,
     invert_y: bool = false,
     scissor: ?struct { [2]i32, [2]u32 } = null,
     clear_color: [4]f32,
 };
 
 pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, options: BeginOptions) Transformed {
-    this.window_size = [2]f32{
-        @floatFromInt(options.window_size[0]),
-        @floatFromInt(options.window_size[1]),
-    };
-    this.framebuffer_size = [2]f32{
-        @floatFromInt(options.window_size[0]),
-        @floatFromInt(options.window_size[1]),
-    };
+    this.window_size = options.window_size;
 
     _ = this.frame_arena.reset(.retain_capacity);
     this.batches.shrinkRetainingCapacity(0);
@@ -282,7 +275,7 @@ pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, optio
         .gles3v0 => geometry.mat4.orthographic(f32, 0, this.window_size[0], if (options.invert_y) 0 else this.window_size[1], if (options.invert_y) this.window_size[1] else 0, 0, 1),
         .vulkan => geometry.mat4.mulAll(f32, &.{
             geometry.mat4.translate(f32, .{ -1.0, -1.0, 0.0 }),
-            geometry.mat4.scale(f32, .{ 2.0 / this.window_size[0], 2.0 / this.window_size[1], 0.0 }),
+            geometry.mat4.scale(f32, .{ 2.0 / (options.window_size[0] * options.window_scale), 2.0 / (options.window_size[1] * options.window_scale), 0.0 }),
         }),
         else => |driver| std.debug.panic("Canvas does not support {} driver", .{driver}),
     };
@@ -296,9 +289,13 @@ pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, optio
         .extra_uniform_buffers = null,
         .vertex_offset = 0,
         .vertex_count = undefined,
-        .scissor = .{ .pos = .{ 0, 0 }, .size = options.window_size },
+        .scissor = .{ .pos = .{ 0, 0 }, .size = .{ @intFromFloat(options.window_size[0] * options.window_scale), @intFromFloat(options.window_size[1] * options.window_scale) } },
         .uniforms = .{
-            .transform = geometry.mat4.identity(f32),
+            .transform = geometry.mat4.scale(f32, .{
+                options.window_scale,
+                options.window_scale,
+                1.0,
+            }),
             .texture_id = 0,
         },
     };
@@ -306,6 +303,11 @@ pub fn begin(this: *@This(), render_buffer: *seizer.Graphics.RenderBuffer, optio
     this.texture_ids.shrinkRetainingCapacity(0);
     this.texture_ids.putAssumeCapacityNoClobber(this.blank_texture, 0);
     this.next_texture_id = 1;
+
+    this.graphics.setViewport(render_buffer, .{
+        .pos = .{ 0, 0 },
+        .size = [2]f32{ options.window_size[0] * options.window_scale, options.window_size[1] * options.window_scale },
+    });
 
     return Transformed{
         .canvas = this,

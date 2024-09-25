@@ -61,7 +61,7 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
     const window_data: *WindowData = @ptrCast(@alignCast(display.windowGetUserdata(window)));
     switch (event) {
         .should_close => display.destroyWindow(window),
-        .resize => {
+        .resize, .rescale => {
             if (window_data.swapchain_opt) |swapchain| {
                 gfx.destroySwapchain(swapchain);
                 window_data.swapchain_opt = null;
@@ -97,38 +97,32 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
 }
 
 fn render(window: *seizer.Display.Window) !void {
-    const window_size = display.windowGetSize(window);
     const window_data: *WindowData = @ptrCast(@alignCast(display.windowGetUserdata(window)));
+    const window_size = display.windowGetSize(window);
+    const window_scale = display.windowGetScale(window);
 
     const swapchain = window_data.swapchain_opt orelse create_swapchain: {
-        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size });
+        const new_swapchain = try gfx.createSwapchain(display, window, .{ .size = window_size, .scale = window_scale });
         window_data.swapchain_opt = new_swapchain;
         break :create_swapchain new_swapchain;
     };
 
     const render_buffer = try gfx.swapchainGetRenderBuffer(swapchain, .{});
 
-    gfx.interface.setViewport(gfx.pointer, render_buffer, .{
-        .pos = .{ 0, 0 },
-        .size = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) },
-    });
-    gfx.interface.setScissor(gfx.pointer, render_buffer, .{ 0, 0 }, window_size);
-
     const c = canvas.begin(render_buffer, .{
         .window_size = window_size,
+        .window_scale = window_scale,
         .clear_color = .{ 0.7, 0.5, 0.5, 1.0 },
     });
 
-    const window_sizef = [2]f32{ @floatFromInt(window_size[0]), @floatFromInt(window_size[1]) };
-
     if (window_data.title) |title| {
-        _ = c.writeText(.{ window_sizef[0] / 2, window_sizef[1] / 2 }, title, .{
+        _ = c.writeText(.{ window_size[0] / 2, window_size[1] / 2 }, title, .{
             .scale = 3,
             .@"align" = .center,
             .baseline = .middle,
         });
     } else {
-        _ = c.writeText(.{ window_sizef[0] / 2, window_sizef[1] / 2 }, "Press N to spawn new window", .{
+        _ = c.writeText(.{ window_size[0] / 2, window_size[1] / 2 }, "Press N to spawn new window", .{
             .scale = 3,
             .@"align" = .center,
             .baseline = .middle,
