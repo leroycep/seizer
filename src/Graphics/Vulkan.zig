@@ -19,7 +19,7 @@ renderdoc: @import("renderdoc"),
 
 const VulkanImpl = @This();
 
-const DEFAULT_IMAGE_FORMAT = .r8g8b8a8_unorm;
+const DEFAULT_IMAGE_FORMAT = .b8g8r8a8_unorm;
 
 pub const GRAPHICS_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Graphics.Interface, @This(), .{
     .driver = .vulkan,
@@ -209,6 +209,9 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
     var extension_properties = std.ArrayList(vk.ExtensionProperties).init(allocator);
     defer extension_properties.deinit();
 
+    var enabled_extensions = std.ArrayList([*:0]const u8).init(allocator);
+    defer enabled_extensions.deinit();
+
     var queue_families = std.ArrayList(vk.QueueFamilyProperties).init(allocator);
     defer queue_families.deinit();
 
@@ -220,7 +223,7 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         .p_queue_priorities = &.{1},
     };
     for (physical_devices) |device| {
-        const device_score: u32 = 1;
+        var device_score: u32 = 1;
 
         var extension_property_count: u32 = undefined;
         _ = try vk_instance.enumerateDeviceExtensionProperties(device, null, &extension_property_count, null);
@@ -254,15 +257,19 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
             }
         }
 
+        if (has_vk_ext_external_memory_dma_buf) device_score += 5;
+
         if (has_vk_khr_external_memory_fd and
-            has_vk_ext_external_memory_dma_buf and
-            // has_vk_ext_image_drm_format_modifier and
             graphics_queue != null and
             device_score > current_device_score)
         {
             physical_device = device;
             device_queue_create_info.queue_family_index = @intCast(graphics_queue.?);
             current_device_score = device_score;
+
+            enabled_extensions.shrinkRetainingCapacity(0);
+            try enabled_extensions.append(vk.extensions.khr_external_memory_fd.name);
+            if (has_vk_ext_external_memory_dma_buf) try enabled_extensions.append(vk.extensions.ext_external_memory_dma_buf.name);
         }
     }
 
@@ -273,11 +280,6 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         std.log.debug("selected gpu = {s}", .{name});
     }
 
-    var enabled_device_extensions = [_][*:0]const u8{
-        vk.extensions.khr_external_memory_fd.name,
-        vk.extensions.ext_external_memory_dma_buf.name,
-        // vk.extensions.ext_image_drm_format_modifier.name,
-    };
     var descriptor_indexing_features = vk.PhysicalDeviceDescriptorIndexingFeatures{
         .descriptor_binding_partially_bound = vk.TRUE,
         .runtime_descriptor_array = vk.TRUE,
@@ -292,8 +294,8 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         .p_next = &dynamic_rendering_features,
         .queue_create_info_count = 1,
         .p_queue_create_infos = &.{device_queue_create_info},
-        .enabled_extension_count = enabled_device_extensions.len,
-        .pp_enabled_extension_names = &enabled_device_extensions,
+        .enabled_extension_count = @intCast(enabled_extensions.items.len),
+        .pp_enabled_extension_names = enabled_extensions.items.ptr,
     };
 
     const vk_device_ptr = try vk_instance.createDevice(
@@ -1081,14 +1083,17 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
     }) catch unreachable; // TODO
     defer std.posix.close(memory_fd);
 
+    const fourcc_format: seizer.Display.Buffer.FourCC = switch (this.image_format) {
+        .r8g8b8a8_unorm => .ABGR8888,
+        .b8g8r8a8_unorm => .ARGB8888,
+        else => return error.UnsupportedFormat,
+    };
+
     // create display buffer handles from image views
     switch (display_buffer_type) {
         .dma_buf => for (elements_slice.items(.display_buffer), elements_slice.items(.vk_image), elements_slice.items(.memory_offset)) |*display_buffer, vk_image, memory_offset| {
             const dmabuf_format = seizer.Display.Buffer.DmaBufFormat{
-                .fourcc = switch (this.image_format) {
-                    .r8g8b8a8_unorm => .ABGR8888,
-                    else => unreachable,
-                },
+                .fourcc = fourcc_format,
                 .plane_count = 1,
                 .modifiers = 0,
             };
@@ -1139,10 +1144,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
                 .pool_size = @intCast(layout.size),
                 .size = options.size,
                 .stride = @intCast(layout.row_pitch),
-                .format = switch (this.image_format) {
-                    .r8g8b8a8_unorm => .ABGR8888,
-                    else => return error.UnsupportedFormat,
-                },
+                .format = fourcc_format,
                 .userdata = swapchain,
                 .on_release = Swapchain.onDisplayBufferReleased,
             }) catch |err| switch (err) {

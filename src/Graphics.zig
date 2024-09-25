@@ -82,6 +82,7 @@ pub fn create(allocator: std.mem.Allocator, options: CreateOptions) !Graphics {
             return graphics_backend;
         } else |err| {
             std.log.scoped(.seizer).warn("Failed to create {} graphics context: {}", .{ backend_interface.driver, err });
+            if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
         }
     }
 
