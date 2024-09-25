@@ -351,7 +351,10 @@ fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.Crea
         @intCast(options.size[0]),
         @intCast(options.size[1]),
         @intCast(options.stride),
-        @enumFromInt(@intFromEnum(options.format)),
+        switch (options.format) {
+            .ARGB8888 => .argb8888,
+            else => @enumFromInt(@intFromEnum(options.format)),
+        },
     );
 
     const buffer = try this.allocator.create(Buffer);
