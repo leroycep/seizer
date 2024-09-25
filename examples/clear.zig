@@ -14,6 +14,7 @@ pub fn init() !void {
 
     window_global = try display.createWindow(.{
         .title = "Clear - Seizer Example",
+        .app_name = "xyz.geemili.seizer.examples.clear",
         .on_event = onWindowEvent,
         .on_render = render,
         .size = .{ 640, 480 },

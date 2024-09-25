@@ -235,6 +235,11 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
         frac_scale.on_event = Window.onWpFractionalScale;
     }
 
+    try window.xdg_toplevel.set_title(options.title);
+    if (options.app_name) |app_name| {
+        try window.xdg_toplevel.set_app_id(app_name);
+    }
+
     this.windows.putAssumeCapacity(window.wl_surface.id, window);
 
     return @ptrCast(window);
@@ -610,6 +615,12 @@ const Seat = struct {
     focused_window: ?*Window,
     pointer_pos: [2]f32 = .{ 0, 0 },
     scroll_vector: [2]f32 = .{ 0, 0 },
+    cursor_wl_surface: ?*wayland.wayland.wl_surface = null,
+    wp_viewport: ?*viewporter.wp_viewport = null,
+
+    pointer_serial: u32 = 0,
+    cursor_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1 = null,
+    pointer_scale: u32 = 120,
 
     keymap: ?[]align(std.mem.page_size) const u8 = null,
     keyboard_repeat_rate: u32 = 0,
@@ -639,10 +650,35 @@ const Seat = struct {
                         this.wl_pointer.?.userdata = this;
                         this.wl_pointer.?.on_event = onPointerCallback;
                     }
+                    if (this.cursor_wl_surface == null) {
+                        this.cursor_wl_surface = this.wayland_manager.globals.wl_compositor.?.create_surface() catch return;
+
+                        if (this.wayland_manager.globals.wp_viewporter) |wp_viewporter| {
+                            this.wp_viewport = wp_viewporter.get_viewport(this.cursor_wl_surface.?) catch return;
+                        }
+
+                        if (this.wayland_manager.globals.wp_fractional_scale_manager_v1) |scale_man| {
+                            this.cursor_fractional_scale = scale_man.get_fractional_scale(this.cursor_wl_surface.?) catch return;
+                            this.cursor_fractional_scale.?.userdata = this;
+                            this.cursor_fractional_scale.?.on_event = onCursorFractionalScaleEvent;
+                        }
+                    }
                 } else {
                     if (this.wl_pointer) |pointer| {
-                        pointer.release() catch return;
+                        pointer.release() catch {};
                         this.wl_pointer = null;
+                    }
+                    if (this.wp_viewport) |wp_viewport| {
+                        wp_viewport.destroy() catch {};
+                        this.wp_viewport = null;
+                    }
+                    if (this.cursor_fractional_scale) |frac_scale| {
+                        frac_scale.destroy() catch {};
+                        this.cursor_fractional_scale = null;
+                    }
+                    if (this.cursor_wl_surface) |surface| {
+                        surface.destroy() catch {};
+                        this.cursor_wl_surface = null;
                     }
                 }
             },
@@ -703,13 +739,14 @@ const Seat = struct {
         }
     }
 
-    fn onPointerCallback(seat: *wayland.wayland.wl_pointer, userdata: ?*anyopaque, event: wayland.wayland.wl_pointer.Event) void {
+    fn onPointerCallback(pointer: *wayland.wayland.wl_pointer, userdata: ?*anyopaque, event: wayland.wayland.wl_pointer.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata));
-        _ = seat;
+        _ = pointer;
         switch (event) {
             .enter => |enter| {
-                // TODO: set cursor image
                 this.focused_window = this.wayland_manager.windows.get(enter.surface);
+                this.pointer_serial = enter.serial;
+                this.updateCursorImage() catch {};
             },
             .leave => |leave| {
                 const left_window = this.wayland_manager.windows.get(leave.surface);
@@ -772,6 +809,71 @@ const Seat = struct {
             },
             // else => {},
         }
+    }
+
+    fn onCursorFractionalScaleEvent(wp_fractional_scale: *fractional_scale_v1.wp_fractional_scale_v1, userdata: ?*anyopaque, event: fractional_scale_v1.wp_fractional_scale_v1.Event) void {
+        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+        _ = wp_fractional_scale;
+        switch (event) {
+            .preferred_scale => |preferred| {
+                this.pointer_scale = preferred.scale;
+                this.updateCursorImage() catch {};
+            },
+        }
+    }
+
+    fn updateCursorImage(this: *@This()) !void {
+        if (!this.wayland_manager._isCreateBufferFromOpaqueFdSupported()) return;
+
+        const width_hint: seizer.tvg.rendering.SizeHint = if (this.wp_viewport != null) .{ .width = (32 * this.pointer_scale) / 120 } else .inherit;
+        // set cursor image
+        var default_cursor_image = try seizer.tvg.rendering.renderBuffer(
+            seizer.platform.allocator(),
+            seizer.platform.allocator(),
+            width_hint,
+            .x16,
+            @embedFile("./cursor_none.tvg"),
+        );
+        defer default_cursor_image.deinit(seizer.platform.allocator());
+
+        const pixel_bytes = std.mem.sliceAsBytes(default_cursor_image.pixels);
+
+        const default_cursor_image_fd = try std.posix.memfd_create("default_cursor", 0);
+        defer std.posix.close(default_cursor_image_fd);
+
+        try std.posix.ftruncate(default_cursor_image_fd, pixel_bytes.len);
+
+        const fd_bytes = std.posix.mmap(null, @intCast(pixel_bytes.len), std.posix.PROT.WRITE | std.posix.PROT.READ, .{ .TYPE = .SHARED }, default_cursor_image_fd, 0) catch @panic("could not mmap cursor fd");
+        defer std.posix.munmap(fd_bytes);
+
+        @memcpy(fd_bytes, pixel_bytes);
+
+        const wl_shm_pool = try this.wayland_manager.globals.wl_shm.?.create_pool(@enumFromInt(default_cursor_image_fd), @intCast(pixel_bytes.len));
+        defer wl_shm_pool.destroy() catch {};
+
+        const cursor_buffer = try wl_shm_pool.create_buffer(
+            0,
+            @intCast(default_cursor_image.width),
+            @intCast(default_cursor_image.height),
+            @intCast(default_cursor_image.width * @sizeOf(seizer.tvg.rendering.Color8)),
+            .argb8888,
+        );
+
+        const surface = this.cursor_wl_surface orelse return;
+
+        try surface.attach(cursor_buffer, 0, 0);
+        try surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+        if (this.wp_viewport) |viewport| {
+            try viewport.set_source(
+                wayland.fixed.fromInt(0, 0),
+                wayland.fixed.fromInt(0, 0),
+                wayland.fixed.fromInt(@intCast(default_cursor_image.width), 0),
+                wayland.fixed.fromInt(@intCast(default_cursor_image.height), 0),
+            );
+            try viewport.set_destination(32, 32);
+        }
+        try surface.commit();
+        try this.wl_pointer.?.set_cursor(this.pointer_serial, this.cursor_wl_surface, 9, 5);
     }
 };
 

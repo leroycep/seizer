@@ -37,11 +37,12 @@ pub const Interface = struct {
 pub const CreateOptions = struct {
     backends: []const *const Display.Interface = DEFAULT_BACKENDS,
 };
-pub const CreateError = error{ OutOfMemory, NoSupportedBackend, DisplayNotFound, ExtensionMissing };
+pub const CreateError = error{ OutOfMemory, NoSupportedBackend, DisplayNotFound, ExtensionMissing, ConnectionLost };
 
 pub const Window = opaque {
     pub const CreateOptions = struct {
         title: [:0]const u8,
+        app_name: ?[:0]const u8 = null,
         on_event: ?*const fn (*Window, Event) anyerror!void = null,
         on_render: *const fn (*Window) anyerror!void,
         on_destroy: ?*const fn (*Window) void = null,
