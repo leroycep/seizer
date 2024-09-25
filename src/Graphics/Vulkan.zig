@@ -1141,7 +1141,7 @@ fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Dis
             display_buffer.* = display.createBufferFromOpaqueFd(.{
                 .fd = memory_fd,
                 .offset = @intCast(memory_offset + layout.offset),
-                .pool_size = @intCast(layout.size),
+                .pool_size = @intCast(total_memory_requirements.size),
                 .size = options.size,
                 .stride = @intCast(layout.row_pitch),
                 .format = fourcc_format,
