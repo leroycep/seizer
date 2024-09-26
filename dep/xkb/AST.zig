@@ -8,55 +8,76 @@ pub fn deinit(this: *@This()) void {
     this.tokens.deinit(this.allocator);
 }
 
+pub fn tokenString(this: @This(), token_index: TokenIndex) []const u8 {
+    const source_index = this.tokens.items(.source_index)[@intFromEnum(token_index)];
+    return xkb.Token.string(this.source, source_index) catch unreachable;
+}
+
 pub const SourceIndex = xkb.Token.SourceIndex;
 pub const TokenIndex = enum(u32) { _ };
 pub const Scancode = enum(u32) { _ };
 
 pub const Keymap = struct {
-    xkb_keycodes: ?Keycodes,
-    xkb_types: ?Types,
-    xkb_compatibility: ?Compatibility,
-    xkb_symbols: ?Symbols,
+    keycodes: ?Keycodes,
+    types: ?Types,
+    compatibility: ?Compatibility,
+    symbols: ?Symbols,
 
     pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-        if (this.xkb_keycodes) |*keycodes| keycodes.deinit(allocator);
-        if (this.xkb_types) |*types| types.deinit(allocator);
-        if (this.xkb_compatibility) |*compatibility| compatibility.deinit(allocator);
-        if (this.xkb_symbols) |*syms| syms.deinit(allocator);
+        if (this.keycodes) |*keycodes| keycodes.deinit(allocator);
+        if (this.types) |*types| types.deinit(allocator);
+        if (this.compatibility) |*compatibility| compatibility.deinit(allocator);
+        if (this.symbols) |*syms| syms.deinit(allocator);
     }
 };
 
 pub const Keycodes = struct {
     name: TokenIndex,
-    keycodes: std.StringHashMapUnmanaged(Scancode) = .{},
+    keycodes: []const Keycode = &.{},
+    aliases: []const Alias = &.{},
+
+    pub const Keycode = struct {
+        keyname: TokenIndex,
+        scancode: Scancode,
+    };
+
+    pub const Alias = struct {
+        alias_keyname: TokenIndex,
+        base_keyname: TokenIndex,
+    };
 
     pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-        this.keycodes.deinit(allocator);
+        allocator.free(this.keycodes);
+        allocator.free(this.aliases);
     }
 };
 
 pub const Types = struct {
     name: TokenIndex,
-    types: std.StringHashMapUnmanaged(Type) = .{},
+    types: []const Type = &.{},
 
     pub const Type = struct {
         name: TokenIndex,
         modifiers: Modifiers = .{},
-        modifier_mappings: std.AutoHashMapUnmanaged(Modifiers, u32) = .{},
+        modifier_mappings: []const ModifierMapping = &.{},
         level_names: []const TokenIndex = &.{},
 
+        pub const ModifierMapping = struct {
+            modifiers: Modifiers,
+            level_index: u32,
+        };
+
         pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-            this.modifier_mappings.deinit(allocator);
+            allocator.free(this.modifier_mappings);
             allocator.free(this.level_names);
         }
     };
 
     pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-        var iter = this.types.iterator();
-        while (iter.next()) |entry| {
-            entry.value_ptr.deinit(allocator);
+        for (this.types) |*t| {
+            @constCast(t).deinit(allocator);
         }
-        this.types.deinit(allocator);
+        allocator.free(this.types);
     }
 };
 
@@ -115,9 +136,9 @@ pub const Modifiers = struct {
     };
 
     pub fn eql(a: @This(), b: @This()) bool {
-        const a_u32: u32 = @bitCast(a);
-        const b_u32: u32 = @bitCast(b);
-        return a_u32 == b_u32;
+        const a_real_u8: u8 = @bitCast(a.real);
+        const b_real_u8: u8 = @bitCast(b.real);
+        return a_real_u8 == b_real_u8 and a.virtual == b.virtual;
     }
 
     pub fn format(

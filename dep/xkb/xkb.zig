@@ -90,4 +90,10 @@ pub const Modifiers = packed struct(u32) {
     }
 };
 
+test {
+    _ = AST;
+    _ = Parser;
+    _ = Token;
+}
+
 const std = @import("std");

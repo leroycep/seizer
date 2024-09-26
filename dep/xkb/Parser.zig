@@ -118,7 +118,7 @@ pub fn addDebugInfo(this: *@This(), parent_info: ?*DebugInfo, token: TokenIndex)
 }
 
 fn parseXkbKeymap(this: *@This(), debug_info: ?*DebugInfo) !xkb.AST.Keymap {
-    var result = xkb.AST.Keymap{ .xkb_keycodes = null, .xkb_types = null, .xkb_compatibility = null, .xkb_symbols = null };
+    var result = xkb.AST.Keymap{ .keycodes = null, .types = null, .compatibility = null, .symbols = null };
     errdefer result.deinit(this.allocator);
 
     _ = try this.parseExpectToken(debug_info, .open_brace);
@@ -130,33 +130,33 @@ fn parseXkbKeymap(this: *@This(), debug_info: ?*DebugInfo) !xkb.AST.Keymap {
                 _ = try this.parseExpectToken(debug_info, .semicolon);
                 return result;
             },
-            .xkb_keycodes => if (result.xkb_keycodes) |_| {
+            .xkb_keycodes => if (result.keycodes) |_| {
                 this.addParseError(debug_info, "multiple xkb_keycodes blocks", this.pos);
                 return error.MultipleXkbKeycodesBlocks;
             } else {
                 var info = this.addDebugInfo(debug_info, this.incrementPos());
-                result.xkb_keycodes = try this.parseXkbKeycodes(&info);
+                result.keycodes = try this.parseXkbKeycodes(&info);
             },
-            .xkb_types => if (result.xkb_types) |_| {
+            .xkb_types => if (result.types) |_| {
                 this.addParseError(debug_info, "multiple xkb_types blocks", this.pos);
                 return error.MultipleXkbTypesBlocks;
             } else {
                 var info = this.addDebugInfo(debug_info, this.incrementPos());
-                result.xkb_types = try this.parseXkbTypes(&info);
+                result.types = try this.parseXkbTypes(&info);
             },
-            .xkb_compatibility_map => if (result.xkb_compatibility) |_| {
+            .xkb_compatibility_map => if (result.compatibility) |_| {
                 this.addParseError(debug_info, "multiple xkb_compatibility blocks", this.pos);
                 return error.MultipleXkbCompatibilityBlocks;
             } else {
                 var info = this.addDebugInfo(debug_info, this.incrementPos());
-                result.xkb_compatibility = try this.parseXkbCompatibility(&info);
+                result.compatibility = try this.parseXkbCompatibility(&info);
             },
-            .xkb_symbols => if (result.xkb_symbols) |_| {
+            .xkb_symbols => if (result.symbols) |_| {
                 this.addParseError(debug_info, "multiple xkb_symbols blocks", this.pos);
                 return error.MultipleXkbSymbolsBlocks;
             } else {
                 var info = this.addDebugInfo(debug_info, this.incrementPos());
-                result.xkb_symbols = try this.parseXkbSymbols(&info);
+                result.symbols = try this.parseXkbSymbols(&info);
             },
             else => {
                 this.addParseError(debug_info, "unexpected token", this.pos);
@@ -172,6 +172,12 @@ fn parseXkbKeycodes(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Key
     var result = xkb.AST.Keycodes{ .name = name_index };
     errdefer result.deinit(this.allocator);
 
+    var keycodes = std.ArrayList(xkb.AST.Keycodes.Keycode).init(this.allocator);
+    defer keycodes.deinit();
+
+    var aliases = std.ArrayList(xkb.AST.Keycodes.Alias).init(this.allocator);
+    defer aliases.deinit();
+
     var debug_info = this.addDebugInfo(parent_debug_info, result.name);
 
     _ = try this.parseExpectToken(parent_debug_info, .open_brace);
@@ -180,6 +186,10 @@ fn parseXkbKeycodes(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Key
             .close_brace => {
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
+
+                result.keycodes = try keycodes.toOwnedSlice();
+                result.aliases = try aliases.toOwnedSlice();
+
                 return result;
             },
             .keyname => {
@@ -190,10 +200,12 @@ fn parseXkbKeycodes(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Key
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
 
                 const integer_string = try xkb.Token.string(this.source, this.tokenSourceIndex(integer_token_index));
-                const keycode: xkb.AST.Scancode = @enumFromInt(try std.fmt.parseInt(u32, integer_string, 10));
+                const scancode: xkb.AST.Scancode = @enumFromInt(try std.fmt.parseInt(u32, integer_string, 10));
 
-                const keyname_string = try xkb.Token.string(this.source, this.tokenSourceIndex(keyname_token_pos));
-                try result.keycodes.put(this.allocator, keyname_string, keycode);
+                try keycodes.append(.{
+                    .keyname = keyname_token_pos,
+                    .scancode = scancode,
+                });
             },
             .alias => {
                 _ = this.incrementPos();
@@ -203,15 +215,10 @@ fn parseXkbKeycodes(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Key
                 const base_keyname_token_pos = try this.parseExpectToken(&debug_info, .keyname);
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                const base_keyname_string = try Parser.xkb.Token.string(this.source, this.tokenSourceIndex(base_keyname_token_pos));
-                const keyname_string = try Parser.xkb.Token.string(this.source, this.tokenSourceIndex(keyname_token_pos));
-
-                const base_scancode = result.keycodes.get(base_keyname_string) orelse {
-                    std.log.warn("Alias of not yet defined keyname, {s}", .{base_keyname_string});
-                    return error.UnknownKeyname;
-                };
-
-                try result.keycodes.put(this.allocator, keyname_string, base_scancode);
+                try aliases.append(.{
+                    .alias_keyname = keyname_token_pos,
+                    .base_keyname = base_keyname_token_pos,
+                });
             },
             .indicator => {
                 _ = this.incrementPos();
@@ -253,6 +260,9 @@ fn parseXkbTypes(this: *@This(), debug_info: ?*DebugInfo) !xkb.AST.Types {
     var virtual_modifiers = std.StringHashMapUnmanaged(u5){};
     defer virtual_modifiers.deinit(this.allocator);
 
+    var types = std.ArrayList(xkb.AST.Types.Type).init(this.allocator);
+    defer types.deinit();
+
     _ = try this.parseExpectToken(debug_info, .open_brace);
 
     while (true) {
@@ -260,6 +270,7 @@ fn parseXkbTypes(this: *@This(), debug_info: ?*DebugInfo) !xkb.AST.Types {
             .close_brace => {
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(debug_info, .semicolon);
+                result.types = try types.toOwnedSlice();
                 return result;
             },
             .virtual_modifiers => {
@@ -274,8 +285,7 @@ fn parseXkbTypes(this: *@This(), debug_info: ?*DebugInfo) !xkb.AST.Types {
                 _ = this.incrementPos();
 
                 const xkb_type = try this.parseXkbTypesType(virtual_modifiers, debug_info);
-                const xkb_type_name = try xkb.Token.string(this.source, this.tokenSourceIndex(xkb_type.name));
-                try result.types.put(this.allocator, xkb_type_name, xkb_type);
+                try types.append(xkb_type);
             },
             else => {
                 this.addParseError(debug_info, "unexpected token", this.pos);
@@ -293,6 +303,9 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
     var result = xkb.AST.Types.Type{ .name = xkb_types_type_name };
     errdefer result.deinit(this.allocator);
     var modifiers_already_parsed = false;
+
+    var modifier_mappings = std.ArrayList(xkb.AST.Types.Type.ModifierMapping).init(this.allocator);
+    defer modifier_mappings.deinit();
 
     var level_names = std.ArrayList(TokenIndex).init(this.allocator);
     defer level_names.deinit();
@@ -327,7 +340,6 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .open_bracket);
 
-                const modifier_tokens_start_pos = this.pos;
                 const modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
 
                 _ = try this.parseExpectToken(&debug_info, .close_bracket);
@@ -335,10 +347,7 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
                 const level_index = try this.parseLevel(&debug_info);
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                if (try result.modifier_mappings.fetchPut(this.allocator, modifiers, level_index)) |_| {
-                    this.addParseError(&debug_info, "type has multiple modifier mappings for a modifier mask", modifier_tokens_start_pos);
-                    return error.DuplicateModifierMapping;
-                }
+                try modifier_mappings.append(.{ .modifiers = modifiers, .level_index = level_index });
             },
             .level_name => {
                 _ = this.incrementPos();
@@ -1129,30 +1138,30 @@ test "tokenize" {
     );
 }
 
-fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
-    var parsed = try Parser.parse(std.testing.allocator, source, null);
-    defer parsed.deinit(std.testing.allocator);
+fn expectParse(expected_parse: xkb.AST.Keymap, source: []const u8) !void {
+    var parsed = try Parser.parse(std.testing.allocator, source);
+    defer parsed.deinit();
 
-    if (expected_parse.xkb_keycodes != null and parsed.xkb_keycodes == null) return error.TextExpectedEqual;
-    if (expected_parse.xkb_keycodes == null and parsed.xkb_keycodes != null) return error.TextExpectedEqual;
+    if (expected_parse.keycodes != null and parsed.keymap.keycodes == null) return error.TextExpectedEqual;
+    if (expected_parse.keycodes == null and parsed.keymap.keycodes != null) return error.TextExpectedEqual;
 
-    if (expected_parse.xkb_types != null and parsed.xkb_types == null) return error.TextExpectedEqual;
-    if (expected_parse.xkb_types == null and parsed.xkb_types != null) return error.TextExpectedEqual;
+    if (expected_parse.types != null and parsed.keymap.types == null) return error.TextExpectedEqual;
+    if (expected_parse.types == null and parsed.keymap.types != null) return error.TextExpectedEqual;
 
-    if (expected_parse.xkb_compatibility != null and parsed.xkb_compatibility == null) return error.TextExpectedEqual;
-    if (expected_parse.xkb_compatibility == null and parsed.xkb_compatibility != null) return error.TextExpectedEqual;
+    if (expected_parse.compatibility != null and parsed.keymap.compatibility == null) return error.TextExpectedEqual;
+    if (expected_parse.compatibility == null and parsed.keymap.compatibility != null) return error.TextExpectedEqual;
 
-    if (expected_parse.xkb_symbols != null and parsed.xkb_symbols == null) return error.TextExpectedEqual;
-    if (expected_parse.xkb_symbols == null and parsed.xkb_symbols != null) return error.TextExpectedEqual;
+    if (expected_parse.symbols != null and parsed.keymap.symbols == null) return error.TextExpectedEqual;
+    if (expected_parse.symbols == null and parsed.keymap.symbols != null) return error.TextExpectedEqual;
 
     var failed = false;
-    if (expected_parse.xkb_keycodes) |expected_xkb_keycodes| {
-        const actual_xkb_keycodes = parsed.xkb_keycodes.?;
+    if (expected_parse.keycodes) |expected_xkb_keycodes| {
+        const actual_xkb_keycodes = parsed.keymap.keycodes.?;
 
         if (actual_xkb_keycodes.name != expected_xkb_keycodes.name) {
-            const expected_name = try Parser.xkb.Token.string(source, expected_xkb_keycodes.name);
-            const actual_name = try Parser.xkb.Token.string(source, actual_xkb_keycodes.name);
-            std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
+            const expected_name = parsed.tokenString(expected_xkb_keycodes.name);
+            const actual_name = parsed.tokenString(actual_xkb_keycodes.name);
+            std.debug.print("expected token index {} (\"{}\"), instead found token index {} (\"{}\")\n", .{
                 expected_xkb_keycodes.name,
                 std.zig.fmtEscapes(expected_name),
                 actual_xkb_keycodes.name,
@@ -1161,43 +1170,16 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
             failed = true;
         }
 
-        if (expected_xkb_keycodes.keycodes.count() != actual_xkb_keycodes.keycodes.count()) {
-            var expected_keycode_iter = expected_xkb_keycodes.keycodes.iterator();
-            while (expected_keycode_iter.next()) |expected_entry| {
-                if (actual_xkb_keycodes.keycodes.get(expected_entry.key_ptr.*)) |_| {
-                    //
-                } else {
-                    std.debug.print("Expected {s} to equal keycode {}, instead it was not found\n", .{ expected_entry.key_ptr.*, expected_entry.value_ptr.* });
-                }
-            }
-            var actual_keycode_iter = actual_xkb_keycodes.keycodes.iterator();
-            while (actual_keycode_iter.next()) |actual_entry| {
-                if (expected_xkb_keycodes.keycodes.get(actual_entry.key_ptr.*)) |_| {
-                    //
-                } else {
-                    std.debug.print("Found unexpected keycode {s} = {}\n", .{ actual_entry.key_ptr.*, actual_entry.value_ptr.* });
-                }
-            }
-            return error.TestExpectedEqual;
-        }
-        var keycode_iter = expected_xkb_keycodes.keycodes.iterator();
-        while (keycode_iter.next()) |expected_entry| {
-            const actual_keycode = actual_xkb_keycodes.keycodes.get(expected_entry.key_ptr.*) orelse return error.TestExpectedEqual;
-
-            if (expected_entry.value_ptr.* != actual_keycode) {
-                std.debug.print("Expected {s} to equal keycode {}, instead found {}", .{ expected_entry.key_ptr.*, expected_entry.value_ptr.*, actual_keycode });
-                return error.TestExpectedEqual;
-            }
-        }
+        try std.testing.expectEqualSlices(xkb.AST.Keycodes.Keycode, expected_xkb_keycodes.keycodes, actual_xkb_keycodes.keycodes);
     }
 
-    if (expected_parse.xkb_types) |expected_xkb_types| {
-        const actual_xkb_types = parsed.xkb_types.?;
+    if (expected_parse.types) |expected_xkb_types| {
+        const actual_xkb_types = parsed.keymap.types.?;
 
         if (actual_xkb_types.name != expected_xkb_types.name) {
-            const expected_name = try Parser.xkb.Token.string(source, expected_xkb_types.name);
-            const actual_name = try Parser.xkb.Token.string(source, actual_xkb_types.name);
-            std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
+            const expected_name = parsed.tokenString(expected_xkb_types.name);
+            const actual_name = parsed.tokenString(actual_xkb_types.name);
+            std.debug.print("expected token index {} (\"{}\"), instead found token index {} (\"{}\")\n", .{
                 expected_xkb_types.name,
                 std.zig.fmtEscapes(expected_name),
                 actual_xkb_types.name,
@@ -1206,14 +1188,15 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
             failed = true;
         }
 
-        var expected_keycode_iter = expected_xkb_types.types.iterator();
-        while (expected_keycode_iter.next()) |expected_entry| {
-            if (actual_xkb_types.types.get(expected_entry.key_ptr.*)) |actual_type| {
-                if (actual_type.name != expected_entry.value_ptr.name) {
-                    const expected_name = try Parser.xkb.Token.string(source, expected_entry.value_ptr.name);
-                    const actual_name = try Parser.xkb.Token.string(source, actual_type.name);
-                    std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
-                        expected_entry.value_ptr.name,
+        if (actual_xkb_types.types.len != expected_xkb_types.types.len) {
+            // TODO
+        } else {
+            for (actual_xkb_types.types, expected_xkb_types.types) |actual_type, expected_type| {
+                if (actual_type.name != expected_type.name) {
+                    const expected_name = parsed.tokenString(expected_type.name);
+                    const actual_name = parsed.tokenString(actual_type.name);
+                    std.debug.print("expected {} (\"{}\"), instead found {} (\"{}\")\n", .{
+                        expected_type.name,
                         std.zig.fmtEscapes(expected_name),
                         actual_type.name,
                         std.zig.fmtEscapes(actual_name),
@@ -1221,19 +1204,19 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
                     failed = true;
                 }
 
-                if (!xkb.AST.Modifiers.eql(actual_type.modifiers, expected_entry.value_ptr.modifiers)) {
+                if (!xkb.AST.Modifiers.eql(actual_type.modifiers, expected_type.modifiers)) {
                     std.debug.print("expected {}, instead found {} \n", .{
-                        expected_entry.value_ptr.modifiers,
+                        expected_type.modifiers,
                         actual_type.modifiers,
                     });
                     failed = true;
                 }
 
-                const min_level_names_len = @min(expected_entry.value_ptr.level_names.len, actual_type.level_names.len);
-                for (expected_entry.value_ptr.level_names[0..min_level_names_len], actual_type.level_names[0..min_level_names_len]) |expected_source_index, actual_source_index| {
+                const min_level_names_len = @min(expected_type.level_names.len, actual_type.level_names.len);
+                for (expected_type.level_names[0..min_level_names_len], actual_type.level_names[0..min_level_names_len]) |expected_source_index, actual_source_index| {
                     if (actual_source_index != expected_source_index) {
-                        const expected_level_name = try Parser.xkb.Token.string(source, expected_source_index);
-                        const actual_level_name = try Parser.xkb.Token.string(source, actual_source_index);
+                        const expected_level_name = parsed.tokenString(expected_source_index);
+                        const actual_level_name = parsed.tokenString(actual_source_index);
                         std.debug.print("level_name: expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                             expected_source_index,
                             std.zig.fmtEscapes(expected_level_name),
@@ -1243,41 +1226,29 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
                         failed = true;
                     }
                 }
-                if (expected_entry.value_ptr.level_names.len > actual_type.level_names.len) {
-                    for (expected_entry.value_ptr.level_names[min_level_names_len..]) |source_index| {
-                        const level_name = try Parser.xkb.Token.string(source, source_index);
-                        std.debug.print("expected to find source index {} ({s}) as well\n", .{ source_index, level_name });
+                if (expected_type.level_names.len > actual_type.level_names.len) {
+                    for (expected_type.level_names[min_level_names_len..]) |token_index| {
+                        const level_name = parsed.tokenString(token_index);
+                        std.debug.print("expected to find {} ({s}) as well\n", .{ token_index, level_name });
                     }
                     failed = true;
-                } else if (expected_entry.value_ptr.level_names.len < actual_type.level_names.len) {
-                    for (actual_type.level_names[min_level_names_len..]) |source_index| {
-                        const level_name = try Parser.xkb.Token.string(source, source_index);
-                        std.debug.print("found unexpected source index {} ({s}) as well\n", .{ source_index, level_name });
+                } else if (expected_type.level_names.len < actual_type.level_names.len) {
+                    for (actual_type.level_names[min_level_names_len..]) |token_index| {
+                        const level_name = parsed.tokenString(token_index);
+                        std.debug.print("expected to find {} ({s}) as well\n", .{ token_index, level_name });
                     }
                     failed = true;
                 }
-            } else {
-                std.debug.print("Expected to find type {s}, instead it was not found\n", .{expected_entry.key_ptr.*});
-                failed = true;
-            }
-        }
-        var actual_keycode_iter = actual_xkb_types.types.iterator();
-        while (actual_keycode_iter.next()) |actual_entry| {
-            if (expected_xkb_types.types.get(actual_entry.key_ptr.*)) |_| {
-                //
-            } else {
-                std.debug.print("Found unexpected keycode {s}\n", .{actual_entry.key_ptr.*});
-                failed = true;
             }
         }
     }
 
-    if (expected_parse.xkb_compatibility) |expected_xkb_compatibility| {
-        const actual_xkb_compatibility = parsed.xkb_compatibility.?;
+    if (expected_parse.compatibility) |expected_xkb_compatibility| {
+        const actual_xkb_compatibility = parsed.keymap.compatibility.?;
 
         if (actual_xkb_compatibility.name != expected_xkb_compatibility.name) {
-            const expected_name = try Parser.xkb.Token.string(source, expected_xkb_compatibility.name);
-            const actual_name = try Parser.xkb.Token.string(source, actual_xkb_compatibility.name);
+            const expected_name = parsed.tokenString(expected_xkb_compatibility.name);
+            const actual_name = parsed.tokenString(actual_xkb_compatibility.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_compatibility.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1288,12 +1259,12 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         }
     }
 
-    if (expected_parse.xkb_symbols) |expected_xkb_symbols| {
-        const actual_xkb_symbols = parsed.xkb_symbols.?;
+    if (expected_parse.symbols) |expected_xkb_symbols| {
+        const actual_xkb_symbols = parsed.keymap.symbols.?;
 
         if (actual_xkb_symbols.name != expected_xkb_symbols.name) {
-            const expected_name = try Parser.xkb.Token.string(source, expected_xkb_symbols.name);
-            const actual_name = try Parser.xkb.Token.string(source, actual_xkb_symbols.name);
+            const expected_name = parsed.tokenString(expected_xkb_symbols.name);
+            const actual_name = parsed.tokenString(actual_xkb_symbols.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_symbols.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1308,13 +1279,13 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
 }
 
 test "parse empty keymap" {
-    try expectParse(.{ .xkb_keycodes = null, .xkb_types = null, .xkb_compatibility = null, .xkb_symbols = null }, "xkb_keymap { };");
+    try expectParse(.{ .keycodes = null, .types = null, .compatibility = null, .symbols = null }, "xkb_keymap { };");
 
     try expectParse(.{
-        .xkb_keycodes = .{ .name = @enumFromInt(30) },
-        .xkb_types = .{ .name = @enumFromInt(55) },
-        .xkb_compatibility = .{ .name = @enumFromInt(89) },
-        .xkb_symbols = .{ .name = @enumFromInt(125) },
+        .keycodes = .{ .name = @enumFromInt(3) },
+        .types = .{ .name = @enumFromInt(8) },
+        .compatibility = .{ .name = @enumFromInt(13) },
+        .symbols = .{ .name = @enumFromInt(18) },
     },
         \\xkb_keymap {
         \\    xkb_keycodes "KEYS" {};
@@ -1330,16 +1301,16 @@ test "parse keycodes" {
     defer test_data_arena.deinit();
 
     try expectParse(.{
-        .xkb_keycodes = .{
-            .name = @enumFromInt(30),
-            .keycodes = try hashmapFromEntries(std.StringHashMapUnmanaged(xkb.AST.Scancode), []const u8, xkb.AST.Scancode, test_data_arena.allocator(), &.{
-                .{ "<TLDE>", @enumFromInt(49) },
-                .{ "<AE01>", @enumFromInt(10) },
-            }),
+        .keycodes = .{
+            .name = @enumFromInt(3),
+            .keycodes = &.{
+                .{ .keyname = @enumFromInt(5), .scancode = @enumFromInt(49) }, // "<TLDE>"
+                .{ .keyname = @enumFromInt(9), .scancode = @enumFromInt(10) }, // "<AE01>"
+            },
         },
-        .xkb_types = null,
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .types = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_keycodes "KEYS" {
@@ -1350,16 +1321,18 @@ test "parse keycodes" {
     );
 
     try expectParse(.{
-        .xkb_keycodes = .{
-            .name = @enumFromInt(30),
-            .keycodes = try hashmapFromEntries(std.StringHashMapUnmanaged(xkb.AST.Scancode), []const u8, xkb.AST.Scancode, test_data_arena.allocator(), &.{
-                .{ "<COMP>", @enumFromInt(42) },
-                .{ "<MENU>", @enumFromInt(42) },
-            }),
+        .keycodes = .{
+            .name = @enumFromInt(3),
+            .keycodes = &.{
+                .{ .keyname = @enumFromInt(5), .scancode = @enumFromInt(42) }, // <COMP> = 42
+            },
+            .aliases = &.{
+                .{ .alias_keyname = @enumFromInt(10), .base_keyname = @enumFromInt(12) }, // <MENU> = <COMP>
+            },
         },
-        .xkb_types = null,
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .types = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_keycodes "KEYS" {
@@ -1371,12 +1344,12 @@ test "parse keycodes" {
 
     // we don't actually care about indicator LEDs for our use case, but we need to make sure that they don't cause a parse error.
     try expectParse(.{
-        .xkb_keycodes = .{
-            .name = @enumFromInt(30),
+        .keycodes = .{
+            .name = @enumFromInt(3),
         },
-        .xkb_types = null,
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .types = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_keycodes "KEYS" {
@@ -1393,15 +1366,15 @@ test "parse types" {
     defer test_data_arena.deinit();
 
     try expectParse(.{
-        .xkb_keycodes = null,
-        .xkb_types = .{
-            .name = @enumFromInt(27),
-            .types = try hashmapFromEntries(std.StringHashMapUnmanaged(Parser.xkb_types.Type), []const u8, Parser.xkb_types.Type, test_data_arena.allocator(), &.{
-                .{ "\"FOUR_LEVEL\"", .{ .name = @enumFromInt(49) } },
-            }),
+        .keycodes = null,
+        .types = .{
+            .name = @enumFromInt(3), // "TYPES"
+            .types = &.{
+                .{ .name = @enumFromInt(6) }, // "FOUR_LEVEL"
+            },
         },
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_types "TYPES" {
@@ -1411,15 +1384,18 @@ test "parse types" {
     );
 
     try expectParse(.{
-        .xkb_keycodes = null,
-        .xkb_types = .{
-            .name = @enumFromInt(27),
-            .types = try hashmapFromEntries(std.StringHashMapUnmanaged(Parser.xkb_types.Type), []const u8, Parser.xkb_types.Type, test_data_arena.allocator(), &.{
-                .{ "\"TYPE\"", .{ .name = @enumFromInt(86), .modifiers = .{ .shift = true, .lock = true, .virtual = 0b1 } } },
-            }),
+        .keycodes = null,
+        .types = .{
+            .name = @enumFromInt(3), // "TYPES"
+            .types = &.{
+                .{
+                    .name = @enumFromInt(9), // "TYPE"
+                    .modifiers = .{ .real = .{ .shift = true, .lock = true }, .virtual = 0b1 },
+                },
+            },
         },
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_types "TYPES" {
@@ -1432,12 +1408,12 @@ test "parse types" {
     );
 
     try expectParse(.{
-        .xkb_keycodes = null,
-        .xkb_types = .{
-            .name = @enumFromInt(27),
+        .keycodes = null,
+        .types = .{
+            .name = @enumFromInt(3), // "TYPES"
         },
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_types "TYPES" {
@@ -1447,30 +1423,28 @@ test "parse types" {
     );
 
     try expectParse(.{
-        .xkb_keycodes = null,
-        .xkb_types = .{
-            .name = @enumFromInt(27),
-            .types = try hashmapFromEntries(std.StringHashMapUnmanaged(Parser.xkb_types.Type), []const u8, Parser.xkb_types.Type, test_data_arena.allocator(), &.{
+        .keycodes = null,
+        .types = .{
+            .name = @enumFromInt(3), // "TYPES"
+            .types = &.{
                 .{
-                    "\"ALPHABETIC\"", .{
-                        .name = @enumFromInt(49),
-                        .modifiers = .{ .shift = true, .lock = true },
-                        .modifier_mappings = try hashmapFromEntries(std.AutoHashMapUnmanaged(xkb.AST.Modifiers, u32), xkb.AST.Modifiers, u32, test_data_arena.allocator(), &.{
-                            .{ .{}, 1 },
-                            .{ .{ .shift = true }, 2 },
-                            .{ .{ .lock = true }, 2 },
-                            .{ .{ .shift = true, .lock = true }, 2 },
-                        }),
-                        .level_names = &.{
-                            @enumFromInt(262), // "Base"
-                            @enumFromInt(302), // "Caps",
-                        },
+                    .name = @enumFromInt(6), // "ALPHABETIC"
+                    .modifiers = .{ .real = .{ .shift = true, .lock = true } },
+                    .modifier_mappings = &.{
+                        .{ .modifiers = .{ .real = .{} }, .level_index = 1 },
+                        .{ .modifiers = .{ .real = .{ .shift = true } }, .level_index = 2 },
+                        .{ .modifiers = .{ .real = .{ .lock = true } }, .level_index = 2 },
+                        .{ .modifiers = .{ .real = .{ .shift = true, .lock = true } }, .level_index = 2 },
+                    },
+                    .level_names = &.{
+                        @enumFromInt(49), // "Base"
+                        @enumFromInt(56), // "Caps",
                     },
                 },
-            }),
+            },
         },
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_types "TYPES" {
@@ -1489,20 +1463,18 @@ test "parse types" {
 
     // we are ignoring preserve modifiers at the moment, but need to be able to parse them
     try expectParse(.{
-        .xkb_keycodes = null,
-        .xkb_types = .{
-            .name = @enumFromInt(27),
-            .types = try hashmapFromEntries(std.StringHashMapUnmanaged(Parser.xkb_types.Type), []const u8, Parser.xkb_types.Type, test_data_arena.allocator(), &.{
+        .keycodes = null,
+        .types = .{
+            .name = @enumFromInt(3), // "TYPES"
+            .types = &.{
                 .{
-                    "\"PRESERVED\"", .{
-                        .name = @enumFromInt(49),
-                        .modifiers = .{ .control = true, .shift = true },
-                    },
+                    .name = @enumFromInt(6), // "PRESERVED"
+                    .modifiers = .{ .real = .{ .control = true, .shift = true } },
                 },
-            }),
+            },
         },
-        .xkb_compatibility = null,
-        .xkb_symbols = null,
+        .compatibility = null,
+        .symbols = null,
     },
         \\xkb_keymap {
         \\    xkb_types "TYPES" {
