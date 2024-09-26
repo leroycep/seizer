@@ -1297,9 +1297,6 @@ test "parse empty keymap" {
 }
 
 test "parse keycodes" {
-    var test_data_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer test_data_arena.deinit();
-
     try expectParse(.{
         .keycodes = .{
             .name = @enumFromInt(3),
@@ -1362,9 +1359,6 @@ test "parse keycodes" {
 }
 
 test "parse types" {
-    var test_data_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer test_data_arena.deinit();
-
     try expectParse(.{
         .keycodes = null,
         .types = .{
@@ -1485,15 +1479,6 @@ test "parse types" {
         \\   };
         \\};
     );
-}
-
-fn hashmapFromEntries(HashMap: type, Key: type, Value: type, arena: std.mem.Allocator, key_values: []const struct { Key, Value }) !HashMap {
-    var result = HashMap{};
-    try result.ensureTotalCapacity(arena, @intCast(key_values.len));
-    for (key_values) |kv| {
-        result.putAssumeCapacityNoClobber(kv[0], kv[1]);
-    }
-    return result;
 }
 
 const TokenIndex = xkb.AST.TokenIndex;
