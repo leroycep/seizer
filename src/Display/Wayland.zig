@@ -708,7 +708,7 @@ const Seat = struct {
                     if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
                     return;
                 };
-                defer parsed.deinit(this.wayland_manager.allocator);
+                defer parsed.deinit();
                 this.keymap = new_keymap;
             },
             .repeat_info => |repeat_info| {
