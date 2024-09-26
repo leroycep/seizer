@@ -96,347 +96,61 @@ pub const Modifiers = packed struct(u32) {
 pub const Scancode = enum(u32) { _ };
 
 pub const Parser = struct {
-    pub const SourceIndex = enum(u32) { _ };
+    allocator: std.mem.Allocator,
+    source: []const u8,
+    tokens: std.MultiArrayList(Token).Slice,
+    pos: TokenIndex,
 
-    pub const Token = struct {
-        source_index: SourceIndex,
-        type: Type,
+    pub const Token = @import("./Token.zig");
+    pub const SourceIndex = Token.SourceIndex;
 
-        pub const Type = enum {
-            end_of_file,
+    pub const TokenIndex = enum(u32) { _ };
 
-            // characters
-            plus,
-            open_brace,
-            close_brace,
-            open_paren,
-            close_paren,
-            open_bracket,
-            close_bracket,
-            dot,
-            comma,
-            semicolon,
-            equals,
+    pub fn parse(allocator: std.mem.Allocator, source: []const u8) !xkb_keymap {
+        var tokens = try tokenize(allocator, source);
+        defer tokens.deinit(allocator);
 
-            // types
-            string,
-            integer,
-            keyname,
-            identifier,
+        var result: ?xkb_keymap = null;
+        errdefer if (result) |*r| r.deinit(allocator);
 
-            // keywords
-            action,
-            alias,
-            alphanumeric_keys,
-            alternate_group,
-            alternate,
-            augment,
-            default,
-            function_keys,
-            group,
-            hidden,
-            include,
-            indicator,
-            interpret,
-            key,
-            keypad_keys,
-            keys,
-            logo,
-            level_name,
-            map,
-            modifiers,
-            modifier_map,
-            modifier_keys,
-            outline,
-            overlay,
-            override,
-            partial,
-            preserve,
-            replace,
-            row,
-            section,
-            shape,
-            solid,
-            text,
-            type,
-            virtual_modifiers,
-            xkb_compatibility_map,
-            xkb_geometry,
-            xkb_keycodes,
-            xkb_keymap,
-            xkb_layout,
-            xkb_semantics,
-            xkb_symbols,
-            xkb_types,
-
-            pub const KEYWORDS = [_]Token.Type{
-                .action,
-                .alias,
-                .alphanumeric_keys,
-                .alternate_group,
-                .alternate,
-                .augment,
-                .default,
-                .function_keys,
-                .group,
-                .hidden,
-                .include,
-                .indicator,
-                .interpret,
-                .key,
-                .keypad_keys,
-                .keys,
-                .level_name,
-                .logo,
-                .map,
-                .modifiers,
-                .modifier_map,
-                .modifier_keys,
-                .outline,
-                .overlay,
-                .override,
-                .partial,
-                .preserve,
-                .replace,
-                .row,
-                .section,
-                .shape,
-                .solid,
-                .text,
-                .type,
-                .virtual_modifiers,
-                .xkb_compatibility_map,
-                // TODO: legacy
-                .xkb_geometry,
-                .xkb_keycodes,
-                .xkb_keymap,
-                .xkb_layout,
-                .xkb_semantics,
-                .xkb_symbols,
-                .xkb_types,
-            };
-            const KeywordAlias = struct {
-                literal: [:0]const u8,
-                type: Type,
-            };
-            pub const KEYWORD_ALIASES = [_]KeywordAlias{
-                .{ .literal = "modmap", .type = .modifier_map },
-                .{ .literal = "mod_map", .type = .modifier_map },
-                .{ .literal = "xkb_compatibility", .type = .xkb_compatibility_map },
-                .{ .literal = "xkb_compat_map", .type = .xkb_compatibility_map },
-                .{ .literal = "xkb_compat", .type = .xkb_compatibility_map },
-            };
+        var parser = Parser{
+            .allocator = allocator,
+            .source = source,
+            .tokens = tokens.slice(),
+            .pos = @enumFromInt(0),
         };
-    };
 
-    pub fn tokenString(source: []const u8, source_index: SourceIndex) ![]const u8 {
-        var source_index_mut = @intFromEnum(source_index);
-        const token = try nextToken(source, &source_index_mut);
-        return source[@intFromEnum(token.source_index)..source_index_mut];
-    }
-
-    pub fn nextToken(source: []const u8, source_index: *u32) !Token {
         while (true) {
-            if (source_index.* >= source.len) {
-                return Token{
-                    .source_index = @enumFromInt(source_index.*),
-                    .type = .end_of_file,
-                };
-            }
-            const index_before_switch_case = source_index.*;
-            switch (source[source_index.*]) {
-                ' ', '\n', '\t' => {
-                    source_index.* += 1;
-                    continue;
-                },
-                '{' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .open_brace,
+            switch (parser.currentTokenType()) {
+                .end_of_file => break,
+                .xkb_keymap => if (result) |_| {
+                    std.log.warn("multiple xkb_keymap blocks", .{});
+                    return error.InvalidFormat;
+                } else {
+                    var info = DebugInfo{
+                        .parser = &parser,
+                        .parent_info = null,
+                        .token_context = parser.incrementPos(),
                     };
-                    source_index.* += 1;
-                    return token;
-                },
-                '}' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .close_brace,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '(' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .open_paren,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                ')' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .close_paren,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '[' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .open_bracket,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                ']' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .close_bracket,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                ',' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .comma,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                ';' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .semicolon,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '+' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .plus,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '.' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .dot,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '=' => {
-                    const token = Token{
-                        .source_index = @enumFromInt(source_index.*),
-                        .type = .equals,
-                    };
-                    source_index.* += 1;
-                    return token;
-                },
-                '0'...'9' => {
-                    const start_index = source_index.*;
 
-                    // TODO: handle floats and hexadecimal?
-                    const end_index = std.mem.indexOfNonePos(u8, source, source_index.*, "0123456789") orelse source.len;
-
-                    const token = Token{
-                        .source_index = @enumFromInt(start_index),
-                        .type = .integer,
-                    };
-                    source_index.* = @intCast(end_index);
-
-                    return token;
+                    result = try parser.parseXkbKeymap(&info);
                 },
-                '"' => {
-                    const start_index = source_index.*;
-
-                    var backslash_before = false;
-                    const end_index = for (source[source_index.* + 1 ..], source_index.* + 1..) |string_character, string_source_index| {
-                        if (backslash_before) {
-                            // TODO: octal number
-                            backslash_before = false;
-                        } else if (string_character == '\\') {
-                            backslash_before = true;
-                        } else if (string_character == '"') {
-                            break string_source_index;
-                        }
-                    } else return error.UnexpectedEOF;
-
-                    const token = Token{
-                        .source_index = @enumFromInt(start_index),
-                        .type = .string,
-                    };
-                    source_index.* = @intCast(end_index + 1);
-                    return token;
-                },
-                '<' => {
-                    const start_index = source_index.*;
-                    const end_index = std.mem.indexOfScalarPos(u8, source, source_index.*, '>') orelse return error.UnexpectedEOF;
-
-                    const token = Token{
-                        .source_index = @enumFromInt(start_index),
-                        .type = .keyname,
-                    };
-                    source_index.* = @intCast(end_index + 1);
-                    return token;
-                },
-                else => |character| {
-                    for (Token.Type.KEYWORDS) |keyword| {
-                        const literal = @tagName(keyword);
-                        // TODO: make sure it ends with a space or a bracket
-                        if (std.mem.startsWith(u8, source[source_index.*..], literal)) {
-                            const token = Token{
-                                .source_index = @enumFromInt(source_index.*),
-                                .type = keyword,
-                            };
-                            source_index.* += @intCast(literal.len);
-                            return token;
-                        }
-                    }
-                    for (Token.Type.KEYWORD_ALIASES) |alias| {
-                        const literal = alias.literal;
-                        // TODO: make sure it ends with a space or a bracket
-                        if (std.mem.startsWith(u8, source[source_index.*..], literal)) {
-                            const token = Token{
-                                .source_index = @enumFromInt(source_index.*),
-                                .type = alias.type,
-                            };
-                            source_index.* += @intCast(literal.len);
-                            return token;
-                        }
-                    }
-                    // only consider something an identifier after we've exhausted the other options
-                    switch (character) {
-                        'A'...'Z', 'a'...'z' => {
-                            const start_index = source_index.*;
-
-                            const end_index = for (source[source_index.* + 1 ..], source_index.* + 1..) |string_character, string_source_index| {
-                                switch (string_character) {
-                                    'A'...'Z', 'a'...'z', '0'...'9', '_' => {},
-                                    else => break string_source_index,
-                                }
-                            } else return error.UnexpectedEOF;
-
-                            const token = Token{
-                                .source_index = @enumFromInt(start_index),
-                                .type = .identifier,
-                            };
-                            source_index.* = @intCast(end_index);
-                            return token;
-                        },
-                        else => {},
-                    }
+                else => {
+                    parser.addParseError(null, "unexpected token", parser.pos);
+                    return error.UnexpectedToken;
                 },
             }
-            std.debug.panic("Unhandled case:\n    \"{}\"\n    \"{}\"\n", .{ std.zig.fmtEscapes(source[index_before_switch_case..]), std.zig.fmtEscapes(source[source_index.*..]) });
+        }
+
+        if (result) |r| {
+            return r;
+        } else {
+            std.log.warn("no xkb_keymap block in file", .{});
+            return error.InvalidFormat;
         }
     }
 
-    pub fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.MultiArrayList(Token) {
+    fn tokenize(allocator: std.mem.Allocator, source: []const u8) !std.MultiArrayList(Token) {
         std.debug.assert(source.len < std.math.maxInt(u32));
 
         var tokens = std.MultiArrayList(Token){};
@@ -444,12 +158,23 @@ pub const Parser = struct {
 
         var source_index: u32 = 0;
         while (true) {
-            const token = try nextToken(source, &source_index);
+            const token = try Token.next(source, &source_index);
             try tokens.append(allocator, token);
             if (token.type == .end_of_file) break;
         }
 
         return tokens;
+    }
+
+    pub fn addParseError(this: *@This(), debug_info: ?*DebugInfo, message: []const u8, token_index: TokenIndex) void {
+        const token = this.tokens.get(@intFromEnum(token_index));
+        const token_string = Token.string(this.source, token.source_index) catch unreachable;
+
+        const start_of_line = std.mem.lastIndexOfScalar(u8, this.source[0..@intFromEnum(token.source_index)], '\n') orelse 0;
+        const end_of_line = std.mem.indexOfScalarPos(u8, this.source, @intFromEnum(token.source_index), '\n') orelse this.source.len;
+        const line = this.source[start_of_line + 1 .. end_of_line];
+
+        std.log.warn("{s}; context = {?}; {s} {} \"{}\" \"{}\"", .{ message, debug_info, @tagName(token.type), token.source_index, std.zig.fmtEscapes(token_string), std.zig.fmtEscapes(line) });
     }
 
     pub const xkb_keymap = struct {
@@ -466,7 +191,7 @@ pub const Parser = struct {
         }
     };
     pub const xkb_keycodes = struct {
-        name: SourceIndex,
+        name: TokenIndex,
         keycodes: std.StringHashMapUnmanaged(Scancode) = .{},
 
         pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
@@ -474,14 +199,14 @@ pub const Parser = struct {
         }
     };
     pub const xkb_types = struct {
-        name: SourceIndex,
+        name: TokenIndex,
         types: std.StringHashMapUnmanaged(Type) = .{},
 
         pub const Type = struct {
-            name: SourceIndex,
+            name: TokenIndex,
             modifiers: Modifiers = .{},
             modifier_mappings: std.AutoHashMapUnmanaged(Modifiers, u32) = .{},
-            level_names: []const SourceIndex = &.{},
+            level_names: []const TokenIndex = &.{},
 
             pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
                 this.modifier_mappings.deinit(allocator);
@@ -498,7 +223,7 @@ pub const Parser = struct {
         }
     };
     pub const xkb_compatibility = struct {
-        name: SourceIndex,
+        name: TokenIndex,
 
         pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
             _ = this;
@@ -506,7 +231,7 @@ pub const Parser = struct {
         }
     };
     pub const xkb_symbols = struct {
-        name: SourceIndex,
+        name: TokenIndex,
 
         pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
             _ = this;
@@ -514,413 +239,361 @@ pub const Parser = struct {
         }
     };
 
-    pub fn parse(allocator: std.mem.Allocator, source: []const u8) !xkb_keymap {
-        var tokens = try tokenize(allocator, source);
-        defer tokens.deinit(allocator);
+    pub const DebugInfo = struct {
+        parser: *Parser,
+        parent_info: ?*DebugInfo = null,
+        token_context: ?TokenIndex = null,
 
-        var result: ?xkb_keymap = null;
-        errdefer if (result) |*r| r.deinit(allocator);
+        pub fn format(
+            this: @This(),
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            if (fmt.len == 0) {
+                if (this.parent_info) |parent| {
+                    try parent.format(fmt, options, writer);
+                    try writer.writeAll(" -> ");
+                }
+                if (this.token_context) |context_token| {
+                    const source_index = this.parser.tokens.items(.source_index)[@intFromEnum(context_token)];
+                    const source_string = Token.string(this.parser.source, source_index) catch unreachable;
 
-        var pos: u32 = 0;
-        while (true) {
-            switch (tokens.items(.type)[pos]) {
-                .end_of_file => break,
-                .xkb_keymap => if (result) |_| {
-                    std.log.warn("multiple xkb_keymap blocks", .{});
-                    return error.InvalidFormat;
-                } else {
-                    pos += 1;
-                    result = try parse_xkb_keymap(allocator, source, tokens.slice(), &pos);
-                },
-                else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos)});
-                    return error.InvalidFormat;
-                },
+                    try writer.writeAll(source_string);
+                }
+            } else {
+                @compileError("unknown format character: '" ++ fmt ++ "'");
             }
         }
+    };
 
-        if (result) |r| {
-            return r;
-        } else {
-            std.log.warn("no xkb_keymap block in file", .{});
-            return error.InvalidFormat;
-        }
+    pub fn addDebugInfo(this: *@This(), parent_info: ?*DebugInfo, token: TokenIndex) DebugInfo {
+        return .{
+            .parser = this,
+            .parent_info = parent_info,
+            .token_context = token,
+        };
     }
 
-    fn parse_xkb_keymap(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !xkb_keymap {
+    fn parseXkbKeymap(this: *@This(), debug_info: ?*DebugInfo) !xkb_keymap {
         var result = xkb_keymap{ .xkb_keycodes = null, .xkb_types = null, .xkb_compatibility = null, .xkb_symbols = null };
-        errdefer result.deinit(allocator);
+        errdefer result.deinit(this.allocator);
 
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_keymap: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
+        _ = try this.parseExpectToken(debug_info, .open_brace);
 
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(debug_info, .semicolon);
                     return result;
                 },
                 .xkb_keycodes => if (result.xkb_keycodes) |_| {
-                    std.log.warn("multiple xkb_keycodes blocks", .{});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "multiple xkb_keycodes blocks", this.pos);
+                    return error.MultipleXkbKeycodesBlocks;
                 } else {
-                    pos.* += 1;
-                    result.xkb_keycodes = try parse_xkb_keycodes(allocator, source, tokens, pos);
+                    var info = this.addDebugInfo(debug_info, this.incrementPos());
+                    result.xkb_keycodes = try this.parseXkbKeycodes(&info);
                 },
                 .xkb_types => if (result.xkb_types) |_| {
-                    std.log.warn("multiple xkb_types blocks", .{});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "multiple xkb_types blocks", this.pos);
+                    return error.MultipleXkbTypesBlocks;
                 } else {
-                    pos.* += 1;
-                    result.xkb_types = try parse_xkb_types(allocator, source, tokens, pos);
+                    var info = this.addDebugInfo(debug_info, this.incrementPos());
+                    result.xkb_types = try this.parseXkbTypes(&info);
                 },
                 .xkb_compatibility_map => if (result.xkb_compatibility) |_| {
-                    std.log.warn("multiple xkb_compatibility blocks", .{});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "multiple xkb_compatibility blocks", this.pos);
+                    return error.MultipleXkbCompatibilityBlocks;
                 } else {
-                    pos.* += 1;
-                    result.xkb_compatibility = try parse_xkb_compatibility(allocator, source, tokens, pos);
+                    var info = this.addDebugInfo(debug_info, this.incrementPos());
+                    result.xkb_compatibility = try this.parseXkbCompatibility(&info);
                 },
                 .xkb_symbols => if (result.xkb_symbols) |_| {
-                    std.log.warn("multiple xkb_symbols blocks", .{});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "multiple xkb_symbols blocks", this.pos);
+                    return error.MultipleXkbSymbolsBlocks;
                 } else {
-                    pos.* += 1;
-                    result.xkb_symbols = try parse_xkb_symbols(allocator, source, tokens, pos);
+                    var info = this.addDebugInfo(debug_info, this.incrementPos());
+                    result.xkb_symbols = try this.parseXkbSymbols(&info);
                 },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
                 },
             }
         }
     }
 
-    fn parse_xkb_keycodes(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !xkb_keycodes {
-        if (tokens.items(.type)[pos.*] != .string) {
-            std.log.warn("unexpected token in xkb_keycodes: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
+    fn parseXkbKeycodes(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb_keycodes {
+        const name_index = try this.parseExpectToken(parent_debug_info, .string);
 
-        var result = xkb_keycodes{ .name = tokens.items(.source_index)[pos.*] };
-        errdefer result.deinit(allocator);
+        var result = xkb_keycodes{ .name = name_index };
+        errdefer result.deinit(this.allocator);
 
-        pos.* += 1;
+        var debug_info = this.addDebugInfo(parent_debug_info, result.name);
 
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_keycodes: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
-
+        _ = try this.parseExpectToken(parent_debug_info, .open_brace);
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
                     return result;
                 },
                 .keyname => {
-                    const keyname_token_pos = pos.*;
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
+                    const keyname_token_pos = this.incrementPos();
 
-                    if (tokens.items(.type)[pos.*] != .integer) return error.InvalidFormat;
-                    const integer_string = try Parser.tokenString(source, tokens.items(.source_index)[pos.*]);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const integer_token_index = try this.parseExpectToken(&debug_info, .integer);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
+
+                    const integer_string = try Parser.Token.string(this.source, this.tokenSourceIndex(integer_token_index));
                     const keycode: Scancode = @enumFromInt(try std.fmt.parseInt(u32, integer_string, 10));
 
-                    const keyname_string = try Parser.tokenString(source, tokens.items(.source_index)[keyname_token_pos]);
-                    try result.keycodes.put(allocator, keyname_string, keycode);
-
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    const keyname_string = try Parser.Token.string(this.source, this.tokenSourceIndex(keyname_token_pos));
+                    try result.keycodes.put(this.allocator, keyname_string, keycode);
                 },
                 .alias => {
-                    pos.* += 1;
+                    _ = this.incrementPos();
 
-                    if (tokens.items(.type)[pos.*] != .keyname) return error.InvalidFormat;
-                    const keyname_token_pos = pos.*;
-                    pos.* += 1;
+                    const keyname_token_pos = try this.parseExpectToken(&debug_info, .keyname);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const base_keyname_token_pos = try this.parseExpectToken(&debug_info, .keyname);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .keyname) return error.InvalidFormat;
-                    const base_keyname_token_pos = pos.*;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    const base_keyname_string = try Parser.tokenString(source, tokens.items(.source_index)[base_keyname_token_pos]);
-                    const keyname_string = try Parser.tokenString(source, tokens.items(.source_index)[keyname_token_pos]);
+                    const base_keyname_string = try Parser.Token.string(this.source, this.tokenSourceIndex(base_keyname_token_pos));
+                    const keyname_string = try Parser.Token.string(this.source, this.tokenSourceIndex(keyname_token_pos));
 
                     const base_scancode = result.keycodes.get(base_keyname_string) orelse {
                         std.log.warn("Alias of not yet defined keyname, {s}", .{base_keyname_string});
                         return error.UnknownKeyname;
                     };
 
-                    try result.keycodes.put(allocator, keyname_string, base_scancode);
+                    try result.keycodes.put(this.allocator, keyname_string, base_scancode);
                 },
                 .indicator => {
-                    pos.* += 1;
+                    _ = this.incrementPos();
 
-                    if (tokens.items(.type)[pos.*] != .integer) return error.InvalidFormat;
-                    const indicator_index_token_pos = pos.*;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .string) return error.InvalidFormat;
-                    const indicator_name_token_pos = pos.*;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    const indicator_index_token_pos = try this.parseExpectToken(&debug_info, .integer);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const indicator_name_token_pos = try this.parseExpectToken(&debug_info, .string);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
                     // we aren't making use of these, so we just discard them
                     _ = indicator_index_token_pos;
                     _ = indicator_name_token_pos;
                 },
+                .identifier => {
+                    const identifier_token_pos: TokenIndex = this.incrementPos();
+
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const value_token_pos = try this.parseExpectOneOf(&debug_info, &.{ .string, .integer });
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
+
+                    // we aren't making use of these, so we just discard them
+                    _ = identifier_token_pos;
+                    _ = value_token_pos;
+                },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
+                    this.addParseError(&debug_info, "unexpected token", this.pos);
                     return error.InvalidFormat;
                 },
             }
         }
     }
 
-    fn parse_xkb_types(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !xkb_types {
-        if (tokens.items(.type)[pos.*] != .string) {
-            std.log.warn("unexpected token in xkb_types: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
+    fn parseXkbTypes(this: *@This(), debug_info: ?*DebugInfo) !xkb_types {
+        const xkb_types_name = try this.parseExpectToken(debug_info, .string);
 
-        var result = xkb_types{ .name = tokens.items(.source_index)[pos.*] };
-        errdefer result.deinit(allocator);
+        var result = xkb_types{ .name = xkb_types_name };
+        errdefer result.deinit(this.allocator);
 
         var virtual_modifiers = std.StringHashMapUnmanaged(u5){};
-        defer virtual_modifiers.deinit(allocator);
+        defer virtual_modifiers.deinit(this.allocator);
 
-        pos.* += 1;
-
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_types: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
+        _ = try this.parseExpectToken(debug_info, .open_brace);
 
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(debug_info, .semicolon);
                     return result;
                 },
                 .virtual_modifiers => {
                     if (virtual_modifiers.count() > 0) {
-                        std.log.warn("multiple virtual modifiers declarations: {}", .{tokens.get(pos.*)});
+                        this.addParseError(debug_info, "multiple virtual modifiers declarations", this.pos);
                         return error.MultipleVirutualModifiersDeclarations;
                     }
-                    pos.* += 1;
-                    virtual_modifiers = try parseVirtualModifiersDeclaration(allocator, source, tokens, pos);
+                    _ = this.incrementPos();
+                    virtual_modifiers = try this.parseVirtualModifiersDeclaration(debug_info);
                 },
                 .type => {
-                    pos.* += 1;
-                    const xkb_type = try parse_xkb_types_type(allocator, source, tokens, pos, virtual_modifiers);
-                    const xkb_type_name = try tokenString(source, xkb_type.name);
-                    try result.types.put(allocator, xkb_type_name, xkb_type);
+                    _ = this.incrementPos();
+
+                    const xkb_type = try this.parseXkbTypesType(virtual_modifiers, debug_info);
+                    const xkb_type_name = try Token.string(this.source, this.tokenSourceIndex(xkb_type.name));
+                    try result.types.put(this.allocator, xkb_type_name, xkb_type);
                 },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
                 },
             }
         }
     }
 
-    fn parse_xkb_types_type(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32, virtual_modifiers: std.StringHashMapUnmanaged(u5)) !xkb_types.Type {
-        if (tokens.items(.type)[pos.*] != .string) {
-            std.log.warn("unexpected token in xkb_types: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
+    fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanaged(u5), parent_debug_info: ?*DebugInfo) !xkb_types.Type {
+        const xkb_types_type_name = try this.parseExpectToken(parent_debug_info, .string);
 
-        var result = xkb_types.Type{ .name = tokens.items(.source_index)[pos.*] };
-        errdefer result.deinit(allocator);
+        var debug_info = this.addDebugInfo(parent_debug_info, xkb_types_type_name);
+
+        var result = xkb_types.Type{ .name = xkb_types_type_name };
+        errdefer result.deinit(this.allocator);
         var modifiers_already_parsed = false;
 
-        var level_names = std.ArrayList(SourceIndex).init(allocator);
+        var level_names = std.ArrayList(TokenIndex).init(this.allocator);
         defer level_names.deinit();
 
-        pos.* += 1;
-
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_types: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
-
+        _ = try this.parseExpectToken(&debug_info, .open_brace);
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
                     result.level_names = try level_names.toOwnedSlice();
                     return result;
                 },
                 .modifiers => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+
+                    _ = try this.parseExpectToken(&debug_info, .equals);
 
                     if (modifiers_already_parsed) {
-                        std.log.warn("modifiers for type {s} declared multiple times!", .{try tokenString(source, result.name)});
+                        std.log.warn("modifiers for type {s} declared multiple times!", .{try Token.string(this.source, this.tokenSourceIndex(result.name))});
                         return error.MultipleModifierDeclarations;
                     }
 
-                    result.modifiers = try parseModifiers(source, tokens, pos, virtual_modifiers);
+                    result.modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
                     modifiers_already_parsed = true;
 
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
                 },
                 .map => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .open_bracket) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .open_bracket);
 
-                    const modifier_tokens_start_pos = pos.*;
-                    const modifiers = try parseModifiers(source, tokens, pos, virtual_modifiers);
-                    const modifier_tokens_end_pos = pos.*;
+                    const modifier_tokens_start_pos = this.pos;
+                    const modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
 
-                    // const modifiers_token_types_slice = tokens.items(.types)[modifier_tokens_start_pos..modifier_tokens_end_pos];
-                    const modifiers_token_source_index_slice = tokens.items(.source_index)[modifier_tokens_start_pos..modifier_tokens_end_pos];
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const level_index = try this.parseLevel(&debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                    if (tokens.items(.type)[pos.*] != .close_bracket) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    const level_index = try parseLevel(source, tokens, pos);
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (try result.modifier_mappings.fetchPut(allocator, modifiers, level_index)) |_| {
-                        std.log.warn("type {s} has multiple modifier mappings for {}", .{ try tokenString(source, result.name), modifiers });
-                        for (modifiers_token_source_index_slice, 0..) |idx, i| {
-                            std.log.warn("token[{}] = {s}", .{ i, try tokenString(source, idx) });
-                        }
+                    if (try result.modifier_mappings.fetchPut(this.allocator, modifiers, level_index)) |_| {
+                        this.addParseError(&debug_info, "type has multiple modifier mappings for a modifier mask", modifier_tokens_start_pos);
                         return error.DuplicateModifierMapping;
                     }
                 },
                 .level_name => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .open_bracket) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    const level_index = try parseLevel(source, tokens, pos);
-
-                    if (tokens.items(.type)[pos.*] != .close_bracket) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .string) return error.InvalidFormat;
-                    const level_name_token_index = pos.*;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .open_bracket);
+                    const level_index = try this.parseLevel(&debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const level_name_token_index = try this.parseExpectToken(&debug_info, .string);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
                     try level_names.resize(level_index);
-                    level_names.items[level_index - 1] = tokens.items(.source_index)[level_name_token_index];
+                    level_names.items[level_index - 1] = level_name_token_index;
                 },
                 .preserve => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .open_bracket) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    const modifier_combo = try parseModifiers(source, tokens, pos, virtual_modifiers);
-
-                    if (tokens.items(.type)[pos.*] != .close_bracket) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    if (tokens.items(.type)[pos.*] != .equals) return error.InvalidFormat;
-                    pos.* += 1;
-
-                    const preserved_modifiers = try parseModifiers(source, tokens, pos, virtual_modifiers);
-
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .open_bracket);
+                    const modifier_combo = try this.parseModifiers(virtual_modifiers, &debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    const preserved_modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
 
                     // for now, we ignore the preserve statements and just move on
                     _ = modifier_combo;
                     _ = preserved_modifiers;
                 },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
+                    this.addParseError(&debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
                 },
             }
         }
     }
 
-    fn parseModifiers(source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32, virtual_modifiers: std.StringHashMapUnmanaged(u5)) !Modifiers {
-        const start_pos = pos.*;
-
+    fn parseModifiers(this: *@This(), virtual_modifiers: std.StringHashMapUnmanaged(u5), debug_info: ?*DebugInfo) !Modifiers {
         var modifiers = Modifiers{};
 
         var next_should_be_flag = true;
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .semicolon, .close_bracket => {
                     if (next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
                     }
                     return modifiers;
                 },
                 .identifier => {
-                    const identifier_token_index = pos.*;
-                    pos.* += 1;
                     if (!next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
                     }
 
-                    const string = try tokenString(source, tokens.items(.source_index)[identifier_token_index]);
-                    if (std.mem.eql(u8, string, "Shift")) {
+                    const identifier_token_index = this.incrementPos();
+
+                    const string = try Token.string(this.source, this.tokenSourceIndex(identifier_token_index));
+                    if (std.ascii.eqlIgnoreCase(string, "shift")) {
                         if (modifiers.shift) {
-                            std.log.warn("modifier \"{}\" declared more than once", .{std.zig.fmtEscapes(string)});
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
                         }
                         modifiers.shift = true;
-                    } else if (std.mem.eql(u8, string, "Lock")) {
+                    } else if (std.ascii.eqlIgnoreCase(string, "lock")) {
                         if (modifiers.lock) {
-                            std.log.warn("modifier \"{}\" declared more than once", .{std.zig.fmtEscapes(string)});
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
                         }
                         modifiers.lock = true;
-                    } else if (std.mem.eql(u8, string, "Control")) {
+                    } else if (std.ascii.eqlIgnoreCase(string, "control")) {
                         if (modifiers.control) {
-                            std.log.warn("modifier \"{}\" declared more than once", .{std.zig.fmtEscapes(string)});
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
                         }
                         modifiers.control = true;
-                    } else if (std.mem.eql(u8, string, "None")) {
+                    } else if (std.ascii.eqlIgnoreCase(string, "mod1")) {
+                        if (modifiers.mod1) {
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
+                        }
+                        modifiers.mod1 = true;
+                    } else if (std.ascii.eqlIgnoreCase(string, "mod2")) {
+                        if (modifiers.mod2) {
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
+                        }
+                        modifiers.mod2 = true;
+                    } else if (std.ascii.eqlIgnoreCase(string, "mod3")) {
+                        if (modifiers.mod3) {
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
+                        }
+                        modifiers.mod3 = true;
+                    } else if (std.ascii.eqlIgnoreCase(string, "mod4")) {
+                        if (modifiers.mod4) {
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
+                        }
+                        modifiers.mod4 = true;
+                    } else if (std.ascii.eqlIgnoreCase(string, "mod5")) {
+                        if (modifiers.mod5) {
+                            this.addParseError(debug_info, "modifier declared more than once", identifier_token_index);
+                        }
+                        modifiers.mod5 = true;
+                    } else if (std.ascii.eqlIgnoreCase(string, "None")) {
                         //
                     } else if (virtual_modifiers.get(string)) |virtual_modifier_index| {
                         const bit_shift = virtual_modifier_index - 8;
@@ -930,161 +603,585 @@ pub const Parser = struct {
                         }
                         modifiers.virtual |= (@as(u24, 1) << bit_shift);
                     } else {
-                        std.log.warn("unknown modifier \"{}\"", .{std.zig.fmtEscapes(string)});
+                        this.addParseError(debug_info, "unknown modifier", identifier_token_index);
                         return error.UnknownModifier;
                     }
 
                     next_should_be_flag = false;
                 },
                 .plus => {
-                    pos.* += 1;
                     if (next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
                     }
+                    _ = this.incrementPos();
                     next_should_be_flag = true;
                 },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
                 },
             }
         }
     }
 
-    fn parse_xkb_compatibility(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !xkb_compatibility {
-        _ = source;
-        if (tokens.items(.type)[pos.*] != .string) {
-            std.log.warn("unexpected token in xkb_compatibility: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
+    fn parseXkbCompatibility(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb_compatibility {
+        const xkb_compatibility_name = try this.parseExpectToken(parent_debug_info, .string);
 
-        var result = xkb_compatibility{ .name = tokens.items(.source_index)[pos.*] };
-        errdefer result.deinit(allocator);
+        var result = xkb_compatibility{ .name = xkb_compatibility_name };
+        errdefer result.deinit(this.allocator);
 
-        pos.* += 1;
-
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_compatibility: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
-
-        while (true) {
-            switch (tokens.items(.type)[pos.*]) {
-                .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
-                    return result;
-                },
-                else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
-                },
-            }
-        }
-    }
-
-    fn parse_xkb_symbols(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !xkb_symbols {
-        _ = source;
-        if (tokens.items(.type)[pos.*] != .string) {
-            std.log.warn("unexpected token in xkb_symbols: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-
-        var result = xkb_symbols{ .name = tokens.items(.source_index)[pos.*] };
-        errdefer result.deinit(allocator);
-
-        pos.* += 1;
-
-        if (tokens.items(.type)[pos.*] != .open_brace) {
-            std.log.warn("unexpected token in xkb_symbols: {}", .{tokens.get(pos.*)});
-            return error.InvalidFormat;
-        }
-        pos.* += 1;
-
-        while (true) {
-            switch (tokens.items(.type)[pos.*]) {
-                .close_brace => {
-                    pos.* += 1;
-                    if (tokens.items(.type)[pos.*] != .semicolon) return error.InvalidFormat;
-                    pos.* += 1;
-                    return result;
-                },
-                else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
-                },
-            }
-        }
-    }
-
-    fn parseVirtualModifiersDeclaration(allocator: std.mem.Allocator, source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !std.StringHashMapUnmanaged(u5) {
-        const start_pos = pos.*;
+        var debug_info = this.addDebugInfo(parent_debug_info, result.name);
 
         var virtual_modifiers = std.StringHashMapUnmanaged(u5){};
-        errdefer virtual_modifiers.deinit(allocator);
+        defer virtual_modifiers.deinit(this.allocator);
+
+        _ = try this.parseExpectToken(&debug_info, .open_brace);
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
+                    return result;
+                },
+                .virtual_modifiers => {
+                    if (virtual_modifiers.count() > 0) {
+                        this.addParseError(&debug_info, "multiple virtual modifiers declarations", this.pos);
+                        return error.MultipleVirutualModifiersDeclarations;
+                    }
+                    _ = this.incrementPos();
+                    virtual_modifiers = try this.parseVirtualModifiersDeclaration(&debug_info);
+                },
+                .interpret => {
+                    var interpret_debug_info = this.addDebugInfo(&debug_info, this.incrementPos());
+
+                    if (this.currentTokenType() == .dot) {
+                        _ = this.incrementPos();
+                        _ = try this.parseExpectToken(&interpret_debug_info, .identifier);
+                        _ = try this.parseExpectToken(&interpret_debug_info, .equals);
+                        _ = try this.parseExpectToken(&interpret_debug_info, .identifier);
+                        _ = try this.parseExpectToken(&interpret_debug_info, .semicolon);
+                    } else {
+                        try this.parseInterpretStatement(&interpret_debug_info);
+                    }
+                },
+                .indicator => {
+                    var indicator_debug_info = this.addDebugInfo(&debug_info, this.incrementPos());
+                    _ = try this.parseCompatIndicatorBlock(virtual_modifiers, &indicator_debug_info);
+                },
+                else => {
+                    this.addParseError(&debug_info, "unexpected token", this.pos);
+                    return error.InvalidFormat;
+                },
+            }
+        }
+    }
+
+    fn parseInterpretStatement(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+        const condition = try this.parseInterpretCondition(parent_debug_info);
+        _ = condition;
+
+        _ = try this.parseExpectToken(parent_debug_info, .open_brace);
+
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                    return;
+                },
+                .identifier => {
+                    const identifier_token_pos = this.incrementPos();
+
+                    _ = try this.parseExpectToken(parent_debug_info, .equals);
+                    const value_token_pos = try this.parseExpectOneOf(parent_debug_info, &.{ .string, .integer, .identifier });
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+
+                    // we aren't making use of these, so we just discard them
+                    _ = identifier_token_pos;
+                    _ = value_token_pos;
+                },
+                .action => {
+                    _ = this.incrementPos();
+
+                    _ = try this.parseExpectToken(parent_debug_info, .equals);
+                    const action = try this.parseExpectOneOf(parent_debug_info, &.{
+                        .NoAction,
+                        .SetMods,
+                        .LatchMods,
+                        .LockMods,
+                        .SetGroup,
+                        .LatchGroup,
+                        .LockGroup,
+                        .MovePointer,
+                        .PointerButton,
+                        .LockPointerButton,
+                        .SetPointerDefault,
+                        .SetControls,
+                        .LockControls,
+                        .TerminateServer,
+                        .SwitchScreen,
+                        .Private,
+                    });
+
+                    _ = try this.parseActionParams(parent_debug_info);
+
+                    // we aren't making use of these, so we just discard them
+                    _ = action;
+                },
+                else => {
+                    this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    fn parseCompatIndicatorBlock(this: *@This(), virtual_modifiers: std.StringHashMapUnmanaged(u5), parent_debug_info: ?*DebugInfo) !void {
+        const indicator_name = try this.parseExpectToken(parent_debug_info, .string);
+        _ = try this.parseExpectToken(parent_debug_info, .open_brace);
+
+        _ = indicator_name;
+
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                    return;
+                },
+                .identifier => {
+                    const identifier_token_pos = this.incrementPos();
+
+                    _ = try this.parseExpectToken(parent_debug_info, .equals);
+                    const value_token_pos = try this.parseExpectOneOf(parent_debug_info, &.{ .string, .integer, .hexadecimal_integer, .identifier });
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+
+                    // we aren't making use of these, so we just discard them
+                    _ = identifier_token_pos;
+                    _ = value_token_pos;
+                },
+                .modifiers => {
+                    const identifier_token_pos = this.incrementPos();
+
+                    _ = try this.parseExpectToken(parent_debug_info, .equals);
+                    const modifiers = try this.parseModifiers(virtual_modifiers, parent_debug_info);
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+
+                    // we aren't making use of these, so we just discard them
+                    _ = identifier_token_pos;
+                    _ = modifiers;
+                },
+                else => {
+                    this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    fn parseInterpretCondition(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+        const State = enum {
+            default,
+            identifier,
+            match_operator,
+            paren,
+            paren_identifier,
+        };
+        var state = State.default;
+        while (true) {
+            switch (state) {
+                .default => switch (this.currentTokenType()) {
+                    .open_brace => return,
+                    .identifier => {
+                        _ = this.incrementPos();
+                        state = .identifier;
+                    },
+                    .AnyOfOrNone,
+                    .AnyOf,
+                    .NoneOf,
+                    .AllOf,
+                    .Exactly,
+                    => {
+                        _ = this.incrementPos();
+                        state = .match_operator;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .identifier => switch (this.currentTokenType()) {
+                    .plus => {
+                        _ = this.incrementPos();
+                        state = .default;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .match_operator => switch (this.currentTokenType()) {
+                    .open_paren => {
+                        _ = this.incrementPos();
+                        state = .paren;
+                    },
+                    .plus => {
+                        _ = this.incrementPos();
+                        state = .default;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .paren => switch (this.currentTokenType()) {
+                    .identifier => {
+                        _ = this.incrementPos();
+                        state = .paren_identifier;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .paren_identifier => switch (this.currentTokenType()) {
+                    .close_paren => {
+                        _ = this.incrementPos();
+                        return;
+                    },
+                    .plus => {
+                        _ = this.incrementPos();
+                        state = .paren;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+            }
+        }
+    }
+
+    fn parseActionParams(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+        _ = try this.parseExpectToken(parent_debug_info, .open_paren);
+
+        const State = enum {
+            default,
+            key,
+            key_equals,
+            kv,
+        };
+
+        var state = State.default;
+
+        while (true) {
+            switch (state) {
+                .default => switch (this.currentTokenType()) {
+                    .close_paren => {
+                        _ = this.incrementPos();
+                        _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                        return;
+                    },
+                    .identifier, .modifiers, .group, .type => {
+                        _ = this.incrementPos();
+                        state = .key;
+                    },
+                    .exclaim => {
+                        _ = this.incrementPos();
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .key => switch (this.currentTokenType()) {
+                    .close_paren => {
+                        _ = this.incrementPos();
+                        _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                        return;
+                    },
+                    .equals => {
+                        _ = this.incrementPos();
+                        state = .key_equals;
+                    },
+                    .comma => {
+                        _ = this.incrementPos();
+                        state = .default;
+                    },
+                    .open_bracket => {
+                        _ = this.incrementPos();
+                        _ = try this.parseExpectOneOf(parent_debug_info, &.{ .integer, .hexadecimal_integer });
+                        _ = try this.parseExpectToken(parent_debug_info, .close_bracket);
+                        _ = try this.parseExpectToken(parent_debug_info, .equals);
+                        state = .key_equals;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .key_equals => switch (this.currentTokenType()) {
+                    .identifier, .integer, .default, .hexadecimal_integer => {
+                        _ = this.incrementPos();
+                        state = .kv;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+                .kv => switch (this.currentTokenType()) {
+                    .comma => {
+                        _ = this.incrementPos();
+                        state = .default;
+                    },
+                    .close_paren => {
+                        _ = this.incrementPos();
+                        _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                        return;
+                    },
+                    else => {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    },
+                },
+            }
+        }
+    }
+
+    fn parseXkbSymbols(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb_symbols {
+        const xkb_symbols_name = try this.parseExpectToken(parent_debug_info, .string);
+
+        var result = xkb_symbols{ .name = xkb_symbols_name };
+        errdefer result.deinit(this.allocator);
+
+        _ = try this.parseExpectToken(parent_debug_info, .open_brace);
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+                    return result;
+                },
+                .identifier => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(parent_debug_info, .open_bracket);
+                    const group_index = try this.parseGroupIndex(parent_debug_info);
+                    _ = try this.parseExpectToken(parent_debug_info, .close_bracket);
+                    _ = try this.parseExpectToken(parent_debug_info, .equals);
+                    const name_string_token_index = try this.parseExpectToken(parent_debug_info, .string);
+                    _ = try this.parseExpectToken(parent_debug_info, .semicolon);
+
+                    _ = group_index;
+                    _ = name_string_token_index;
+                },
+                .key => {
+                    _ = this.incrementPos();
+                    _ = try this.parseXkbSymbolsKeyBlock(parent_debug_info);
+                },
+                .modifier_map => {
+                    _ = this.incrementPos();
+                    _ = try this.parseXkbSymbolsModifierMapBlock(parent_debug_info);
+                },
+                else => {
+                    this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    const XkbSymbolsKeyBlock = struct {
+        keyname: TokenIndex,
+
+        fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
+            _ = this;
+            _ = allocator;
+        }
+    };
+
+    fn parseXkbSymbolsKeyBlock(this: *@This(), parent_debug_info: ?*DebugInfo) !XkbSymbolsKeyBlock {
+        const keyname_token_index = try this.parseExpectToken(parent_debug_info, .keyname);
+
+        var result = XkbSymbolsKeyBlock{ .keyname = keyname_token_index };
+        errdefer result.deinit(this.allocator);
+
+        var debug_info = this.addDebugInfo(parent_debug_info, result.keyname);
+
+        _ = try this.parseExpectToken(&debug_info, .open_brace);
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
+                    return result;
+                },
+                .open_bracket => {
+                    _ = this.incrementPos();
+                    _ = try this.parseSymbolList(&debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+                },
+                .type => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    _ = try this.parseExpectToken(&debug_info, .string);
+                    _ = try this.parseExpectToken(&debug_info, .comma);
+                },
+                .symbols => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .open_bracket);
+                    const group_index = try this.parseGroupIndex(parent_debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+                    _ = try this.parseExpectToken(&debug_info, .equals);
+                    _ = try this.parseExpectToken(&debug_info, .open_bracket);
+                    _ = try this.parseSymbolList(&debug_info);
+                    _ = try this.parseExpectToken(&debug_info, .close_bracket);
+
+                    _ = group_index;
+                },
+                else => {
+                    this.addParseError(&debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    fn parseXkbSymbolsModifierMapBlock(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+        const identifier_token_index = try this.parseExpectToken(parent_debug_info, .identifier);
+
+        // var result = XkbSymbolsKeyBlock{ .keyname = keyname_token_index };
+        // errdefer result.deinit(this.allocator);
+
+        var debug_info = this.addDebugInfo(parent_debug_info, identifier_token_index);
+
+        _ = try this.parseExpectToken(&debug_info, .open_brace);
+        var next_should_be_identifier = true;
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_brace => {
+                    _ = this.incrementPos();
+                    _ = try this.parseExpectToken(&debug_info, .semicolon);
+                    // return result;
+                    return;
+                },
+                .identifier, .keyname => {
+                    if (!next_should_be_identifier) {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    }
+                    _ = this.incrementPos();
+                    next_should_be_identifier = false;
+                },
+                .comma => {
+                    if (next_should_be_identifier) {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    }
+                    _ = this.incrementPos();
+                    next_should_be_identifier = true;
+                },
+                else => {
+                    this.addParseError(&debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    fn parseSymbolList(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+        var next_should_be_symbol = true;
+        while (true) {
+            switch (this.currentTokenType()) {
+                .close_bracket => {
+                    return;
+                },
+                .identifier, .integer => {
+                    if (!next_should_be_symbol) {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    }
+                    _ = this.incrementPos();
+                    next_should_be_symbol = false;
+                },
+                .comma => {
+                    if (next_should_be_symbol) {
+                        this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    }
+                    _ = this.incrementPos();
+                    next_should_be_symbol = true;
+                },
+                else => {
+                    this.addParseError(parent_debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
+                },
+            }
+        }
+    }
+
+    fn parseVirtualModifiersDeclaration(this: *@This(), debug_info: ?*DebugInfo) !std.StringHashMapUnmanaged(u5) {
+        var virtual_modifiers = std.StringHashMapUnmanaged(u5){};
+        errdefer virtual_modifiers.deinit(this.allocator);
 
         var current_virtual_modifier: u5 = 7;
 
         var next_should_be_flag = true;
         while (true) {
-            switch (tokens.items(.type)[pos.*]) {
+            switch (this.currentTokenType()) {
                 .semicolon => {
-                    pos.* += 1;
                     if (next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
                     }
+                    _ = this.incrementPos();
                     return virtual_modifiers;
                 },
                 .identifier => {
-                    const identifier_token_index = pos.*;
-                    pos.* += 1;
                     if (!next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
+                    }
+                    const identifier_token_index = this.incrementPos();
+
+                    const string = try Token.string(this.source, this.tokenSourceIndex(identifier_token_index));
+                    if (std.ascii.eqlIgnoreCase(string, "shift") or std.ascii.eqlIgnoreCase(string, "lock")) {
+                        this.addParseError(debug_info, "real modifier declared as virtual modifier", identifier_token_index);
+                        return error.RealModifierDeclaredVirtual;
                     }
 
-                    const string = try tokenString(source, tokens.items(.source_index)[identifier_token_index]);
-                    if (std.mem.eql(u8, string, "Shift") or std.mem.eql(u8, string, "Lock")) {
-                        std.log.warn("real modifier \"{}\" declared as virtual modifier", .{std.zig.fmtEscapes(string)});
-                        return error.InvalidFormat;
-                    }
-
-                    const gop = try virtual_modifiers.getOrPut(allocator, string);
+                    const gop = try virtual_modifiers.getOrPut(this.allocator, string);
                     if (gop.found_existing) {
-                        std.log.warn("modifier \"{}\" declared more than once", .{std.zig.fmtEscapes(string)});
+                        this.addParseError(debug_info, "virtual modifier declared more than once", identifier_token_index);
                     } else {
                         current_virtual_modifier = try std.math.add(u5, current_virtual_modifier, 1);
                         gop.value_ptr.* = current_virtual_modifier;
                     }
                     next_should_be_flag = false;
                 },
-                .plus => {
-                    pos.* += 1;
+                .comma => {
                     if (next_should_be_flag) {
-                        std.log.warn("invalid modifiers tokens: {any}", .{tokens.items(.type)[start_pos..pos.*]});
-                        return error.InvalidFormat;
+                        this.addParseError(debug_info, "unexpected token", this.pos);
+                        return error.UnexpectedToken;
                     }
+                    _ = this.incrementPos();
                     next_should_be_flag = true;
                 },
                 else => {
-                    std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                    return error.InvalidFormat;
+                    this.addParseError(debug_info, "unexpected token", this.pos);
+                    return error.UnexpectedToken;
                 },
             }
         }
     }
 
-    fn parseLevel(source: []const u8, tokens: std.MultiArrayList(Token).Slice, pos: *u32) !u32 {
-        switch (tokens.items(.type)[pos.*]) {
+    fn parseLevel(this: *@This(), debug_info: ?*DebugInfo) !u32 {
+        switch (this.currentTokenType()) {
             .identifier => {
-                const identifier_token_index = pos.*;
-                pos.* += 1;
+                const identifier_token_index = this.incrementPos();
 
-                const string = try tokenString(source, tokens.items(.source_index)[identifier_token_index]);
+                const string = try Token.string(this.source, this.tokenSourceIndex(identifier_token_index));
                 const LEVEL_STR = "level";
                 if (!std.ascii.startsWithIgnoreCase(string, LEVEL_STR)) {
                     std.log.warn("invalid level index: \"{}\"", .{std.zig.fmtEscapes(string)});
@@ -1095,17 +1192,82 @@ pub const Parser = struct {
                 return try std.fmt.parseInt(u32, index_str, 10);
             },
             .integer => {
-                const integer_token_index = pos.*;
-                pos.* += 1;
+                const integer_token_index = this.incrementPos();
 
-                const index_str = try tokenString(source, tokens.items(.source_index)[integer_token_index]);
+                const index_str = try Token.string(this.source, this.tokenSourceIndex(integer_token_index));
                 return try std.fmt.parseInt(u32, index_str, 10);
             },
             else => {
-                std.log.warn("unexpected token: {}", .{tokens.get(pos.*)});
-                return error.InvalidFormat;
+                this.addParseError(debug_info, "unexpected token", this.pos);
+                return error.UnexpectedToken;
             },
         }
+    }
+
+    fn parseGroupIndex(this: *@This(), debug_info: ?*DebugInfo) !u32 {
+        switch (this.currentTokenType()) {
+            .identifier => {
+                const identifier_token_index = this.incrementPos();
+
+                const string = try Token.string(this.source, this.tokenSourceIndex(identifier_token_index));
+                const GROUP_STR = "group";
+                if (!std.ascii.startsWithIgnoreCase(string, GROUP_STR)) {
+                    std.log.warn("invalid level index: \"{}\"", .{std.zig.fmtEscapes(string)});
+                    return error.InvalidFormat;
+                }
+
+                const index_str = string[GROUP_STR.len..];
+                return try std.fmt.parseInt(u32, index_str, 10);
+            },
+            .integer => {
+                const integer_token_index = this.incrementPos();
+
+                const index_str = try Token.string(this.source, this.tokenSourceIndex(integer_token_index));
+                return try std.fmt.parseInt(u32, index_str, 10);
+            },
+            else => {
+                this.addParseError(debug_info, "unexpected token", this.pos);
+                return error.UnexpectedToken;
+            },
+        }
+    }
+
+    fn parseExpectToken(this: *@This(), debug_info: ?*DebugInfo, expected: Token.Type) !TokenIndex {
+        const actual_type = this.currentTokenType();
+        if (actual_type != expected) {
+            this.addParseError(debug_info, "unexpected token", this.pos);
+            return error.UnexpectedToken;
+        }
+        return this.incrementPos();
+    }
+
+    fn parseExpectOneOf(this: *@This(), debug_info: ?*DebugInfo, expected_list: []const Token.Type) !TokenIndex {
+        const actual_type = this.currentTokenType();
+        for (expected_list) |expected| {
+            if (actual_type == expected) {
+                return this.incrementPos();
+            }
+        }
+        this.addParseError(debug_info, "unexpected token", this.pos);
+        return error.UnexpectedToken;
+    }
+
+    fn currentTokenType(this: @This()) Token.Type {
+        return this.tokens.items(.type)[@intFromEnum(this.pos)];
+    }
+
+    fn incrementPos(this: *@This()) TokenIndex {
+        const index: TokenIndex = this.pos;
+        this.pos = @enumFromInt(@as(u32, @intFromEnum(this.pos)) + 1);
+        return index;
+    }
+
+    fn tokenType(this: @This(), index: TokenIndex) Token.Type {
+        return this.tokens.items(.type)[@intFromEnum(index)];
+    }
+
+    fn tokenSourceIndex(this: @This(), index: TokenIndex) SourceIndex {
+        return this.tokens.items(.source_index)[@intFromEnum(index)];
     }
 };
 
@@ -1127,7 +1289,7 @@ test "tokenize" {
 }
 
 fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
-    var parsed = try Parser.parse(std.testing.allocator, source);
+    var parsed = try Parser.parse(std.testing.allocator, source, null);
     defer parsed.deinit(std.testing.allocator);
 
     if (expected_parse.xkb_keycodes != null and parsed.xkb_keycodes == null) return error.TextExpectedEqual;
@@ -1147,8 +1309,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         const actual_xkb_keycodes = parsed.xkb_keycodes.?;
 
         if (actual_xkb_keycodes.name != expected_xkb_keycodes.name) {
-            const expected_name = try Parser.tokenString(source, expected_xkb_keycodes.name);
-            const actual_name = try Parser.tokenString(source, actual_xkb_keycodes.name);
+            const expected_name = try Parser.Token.string(source, expected_xkb_keycodes.name);
+            const actual_name = try Parser.Token.string(source, actual_xkb_keycodes.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_keycodes.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1192,8 +1354,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         const actual_xkb_types = parsed.xkb_types.?;
 
         if (actual_xkb_types.name != expected_xkb_types.name) {
-            const expected_name = try Parser.tokenString(source, expected_xkb_types.name);
-            const actual_name = try Parser.tokenString(source, actual_xkb_types.name);
+            const expected_name = try Parser.Token.string(source, expected_xkb_types.name);
+            const actual_name = try Parser.Token.string(source, actual_xkb_types.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_types.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1207,8 +1369,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         while (expected_keycode_iter.next()) |expected_entry| {
             if (actual_xkb_types.types.get(expected_entry.key_ptr.*)) |actual_type| {
                 if (actual_type.name != expected_entry.value_ptr.name) {
-                    const expected_name = try Parser.tokenString(source, expected_entry.value_ptr.name);
-                    const actual_name = try Parser.tokenString(source, actual_type.name);
+                    const expected_name = try Parser.Token.string(source, expected_entry.value_ptr.name);
+                    const actual_name = try Parser.Token.string(source, actual_type.name);
                     std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                         expected_entry.value_ptr.name,
                         std.zig.fmtEscapes(expected_name),
@@ -1229,8 +1391,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
                 const min_level_names_len = @min(expected_entry.value_ptr.level_names.len, actual_type.level_names.len);
                 for (expected_entry.value_ptr.level_names[0..min_level_names_len], actual_type.level_names[0..min_level_names_len]) |expected_source_index, actual_source_index| {
                     if (actual_source_index != expected_source_index) {
-                        const expected_level_name = try Parser.tokenString(source, expected_source_index);
-                        const actual_level_name = try Parser.tokenString(source, actual_source_index);
+                        const expected_level_name = try Parser.Token.string(source, expected_source_index);
+                        const actual_level_name = try Parser.Token.string(source, actual_source_index);
                         std.debug.print("level_name: expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                             expected_source_index,
                             std.zig.fmtEscapes(expected_level_name),
@@ -1242,13 +1404,13 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
                 }
                 if (expected_entry.value_ptr.level_names.len > actual_type.level_names.len) {
                     for (expected_entry.value_ptr.level_names[min_level_names_len..]) |source_index| {
-                        const level_name = try Parser.tokenString(source, source_index);
+                        const level_name = try Parser.Token.string(source, source_index);
                         std.debug.print("expected to find source index {} ({s}) as well\n", .{ source_index, level_name });
                     }
                     failed = true;
                 } else if (expected_entry.value_ptr.level_names.len < actual_type.level_names.len) {
                     for (actual_type.level_names[min_level_names_len..]) |source_index| {
-                        const level_name = try Parser.tokenString(source, source_index);
+                        const level_name = try Parser.Token.string(source, source_index);
                         std.debug.print("found unexpected source index {} ({s}) as well\n", .{ source_index, level_name });
                     }
                     failed = true;
@@ -1273,8 +1435,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         const actual_xkb_compatibility = parsed.xkb_compatibility.?;
 
         if (actual_xkb_compatibility.name != expected_xkb_compatibility.name) {
-            const expected_name = try Parser.tokenString(source, expected_xkb_compatibility.name);
-            const actual_name = try Parser.tokenString(source, actual_xkb_compatibility.name);
+            const expected_name = try Parser.Token.string(source, expected_xkb_compatibility.name);
+            const actual_name = try Parser.Token.string(source, actual_xkb_compatibility.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_compatibility.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1289,8 +1451,8 @@ fn expectParse(expected_parse: Parser.xkb_keymap, source: []const u8) !void {
         const actual_xkb_symbols = parsed.xkb_symbols.?;
 
         if (actual_xkb_symbols.name != expected_xkb_symbols.name) {
-            const expected_name = try Parser.tokenString(source, expected_xkb_symbols.name);
-            const actual_name = try Parser.tokenString(source, actual_xkb_symbols.name);
+            const expected_name = try Parser.Token.string(source, expected_xkb_symbols.name);
+            const actual_name = try Parser.Token.string(source, actual_xkb_symbols.name);
             std.debug.print("expected source index {} (\"{}\"), instead found source index {} (\"{}\")\n", .{
                 expected_xkb_symbols.name,
                 std.zig.fmtEscapes(expected_name),
@@ -1424,6 +1586,21 @@ test "parse types" {
         \\       type "TYPE" {
         \\           modifiers = Shift+Lock+LevelThree;
         \\       };
+        \\   };
+        \\};
+    );
+
+    try expectParse(.{
+        .xkb_keycodes = null,
+        .xkb_types = .{
+            .name = @enumFromInt(27),
+        },
+        .xkb_compatibility = null,
+        .xkb_symbols = null,
+    },
+        \\xkb_keymap {
+        \\    xkb_types "TYPES" {
+        \\       virtual_modifiers NumLock,Alt,LevelThree,LevelFive,Meta,Super,Hyper,ScrollLock;
         \\   };
         \\};
     );

@@ -703,8 +703,13 @@ const Seat = struct {
                     std.posix.munmap(old_keymap);
                     this.keymap = null;
                 }
+                var parsed = xkb.Parser.parse(this.wayland_manager.allocator, new_keymap) catch |err| {
+                    std.log.warn("failed to parse keymap: {}", .{err});
+                    if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
+                    return;
+                };
+                defer parsed.deinit(this.wayland_manager.allocator);
                 this.keymap = new_keymap;
-                // std.debug.print("keymap =\n```\n{s}\n```\n", .{new_keymap});
             },
             .repeat_info => |repeat_info| {
                 this.keyboard_repeat_rate = @intCast(repeat_info.rate);
@@ -885,6 +890,7 @@ const xdg_decoration = @import("wayland-protocols").unstable.@"xdg-decoration-un
 const wayland = @import("wayland");
 
 const builtin = @import("builtin");
+const xkb = @import("xkb");
 const xev = @import("xev");
 const seizer = @import("../seizer.zig");
 const std = @import("std");
