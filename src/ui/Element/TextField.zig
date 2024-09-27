@@ -180,11 +180,13 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                 .unicode => |character| switch (character) {
                     // backspace unicode character
                     0x0008 => if (key.action == .press or key.action == .repeat) {
+                        // TODO: ctrl+backspace = delete previous word
                         this.backspace();
                         return this.element();
                     },
                     // delete unicode character
                     0x007F => if (key.action == .press or key.action == .repeat) {
+                        // TODO: ctrl+delete = delete next word
                         const src_pos = if (this.selection_start == this.cursor_pos)
                             nextRight(this.text.items, this.cursor_pos)
                         else
@@ -206,9 +208,40 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                         }
                         return this.element();
                     },
-                    else => {},
+                    else => if (key.action == .press or key.action == .repeat) {
+                        // control + a = select all
+                        if (key.mods.control and character == 'a') {
+                            this.selection_start = 0;
+                            this.cursor_pos = this.text.items.len;
+                            return this.element();
+                        }
+                        // TODO: control + c = copy
+                        // TODO: control + x = cut
+                        // TODO: control + v = paste
+                        // TODO: control + z = undo
+                        // TODO: control + y = redo
+
+                        // Delete any text that is currently selected
+                        const src_pos = @max(this.selection_start, this.cursor_pos);
+                        const overwrite_pos = @min(this.selection_start, this.cursor_pos);
+
+                        const bytes_removed = src_pos - overwrite_pos;
+                        std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+                        this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+                        this.cursor_pos = overwrite_pos;
+
+                        // Append new text
+                        const new_slice = this.text.addManyAt(this.stage.gpa, this.cursor_pos, std.unicode.utf8CodepointSequenceLength(character) catch unreachable) catch @panic("OOM");
+                        _ = std.unicode.utf8Encode(character, new_slice) catch unreachable;
+                        this.cursor_pos += new_slice.len;
+                        this.selection_start = this.cursor_pos;
+
+                        return this.element();
+                    },
                 },
                 .arrow_left => if (key.action == .press or key.action == .repeat) {
+                    // TODO: ctrl+left = move to beginning of previous word
                     this.cursor_pos = if (key.mods.control)
                         0
                     else
@@ -219,6 +252,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     return this.element();
                 },
                 .arrow_right => if (key.action == .press or key.action == .repeat) {
+                    // TODO: ctrl+right = move to beginning of next word
                     this.cursor_pos = if (key.mods.control)
                         this.text.items.len
                     else
@@ -254,26 +288,6 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                 },
                 else => {},
             }
-            return this.element();
-        },
-        .text => |text| {
-            if (!std.ascii.isPrint(text.text.slice()[0])) return this.element();
-
-            // Delete any text that is currently selected
-            const src_pos = @max(this.selection_start, this.cursor_pos);
-            const overwrite_pos = @min(this.selection_start, this.cursor_pos);
-
-            const bytes_removed = src_pos - overwrite_pos;
-            std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-            this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-            this.cursor_pos = overwrite_pos;
-
-            // Append new text
-            this.text.insertSlice(this.stage.gpa, this.cursor_pos, text.text.slice()) catch @panic("OOM");
-            this.cursor_pos += text.text.len;
-            this.selection_start = this.cursor_pos;
-
             return this.element();
         },
         else => {},
