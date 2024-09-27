@@ -138,7 +138,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
         },
         .key => |key| {
             switch (key.key) {
-                .space, .enter => if (key.action == .press) {
+                .unicode => |c| if ((c == ' ' or c == '\n') and key.action == .press) {
                     this.stage.capturePointer(this.element());
                     if (this.on_click) |on_click| {
                         on_click.call(.{this});

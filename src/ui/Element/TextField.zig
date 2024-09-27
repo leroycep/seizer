@@ -177,7 +177,38 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                 return null;
             }
             switch (key.key) {
-                .left => if (key.action == .press or key.action == .repeat) {
+                .unicode => |character| switch (character) {
+                    // backspace unicode character
+                    0x0008 => if (key.action == .press or key.action == .repeat) {
+                        this.backspace();
+                        return this.element();
+                    },
+                    // delete unicode character
+                    0x007F => if (key.action == .press or key.action == .repeat) {
+                        const src_pos = if (this.selection_start == this.cursor_pos)
+                            nextRight(this.text.items, this.cursor_pos)
+                        else
+                            @max(this.selection_start, this.cursor_pos);
+                        const overwrite_pos = @min(this.selection_start, this.cursor_pos);
+
+                        const bytes_removed = src_pos - overwrite_pos;
+                        std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+                        this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+                        this.cursor_pos = overwrite_pos;
+                        this.selection_start = overwrite_pos;
+                        return this.element();
+                    },
+                    '\n', '\r' => if (key.action == .press or key.action == .repeat) {
+                        this.stage.setFocusedElement(null);
+                        if (this.on_enter) |on_enter| {
+                            on_enter.call(.{this});
+                        }
+                        return this.element();
+                    },
+                    else => {},
+                },
+                .arrow_left => if (key.action == .press or key.action == .repeat) {
                     this.cursor_pos = if (key.mods.control)
                         0
                     else
@@ -187,7 +218,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     }
                     return this.element();
                 },
-                .right => if (key.action == .press or key.action == .repeat) {
+                .arrow_right => if (key.action == .press or key.action == .repeat) {
                     this.cursor_pos = if (key.mods.control)
                         this.text.items.len
                     else
@@ -197,43 +228,35 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     }
                     return this.element();
                 },
-                .backspace => if (key.action == .press or key.action == .repeat) {
-                    this.backspace();
+                .home => if (key.action == .press or key.action == .repeat) {
+                    this.cursor_pos = 0;
+                    if (!key.mods.shift) {
+                        this.selection_start = this.cursor_pos;
+                    }
                     return this.element();
                 },
-                .delete => if (key.action == .press or key.action == .repeat) {
-                    const src_pos = if (this.selection_start == this.cursor_pos)
-                        nextRight(this.text.items, this.cursor_pos)
-                    else
-                        @max(this.selection_start, this.cursor_pos);
-                    const overwrite_pos = @min(this.selection_start, this.cursor_pos);
-
-                    const bytes_removed = src_pos - overwrite_pos;
-                    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-                    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-                    this.cursor_pos = overwrite_pos;
-                    this.selection_start = overwrite_pos;
+                .end => if (key.action == .press or key.action == .repeat) {
+                    this.cursor_pos = this.text.items.len;
+                    if (!key.mods.shift) {
+                        this.selection_start = this.cursor_pos;
+                    }
                     return this.element();
                 },
                 .enter => if (key.action == .press or key.action == .repeat) {
+                    this.stage.setFocusedElement(null);
                     if (this.on_enter) |on_enter| {
                         on_enter.call(.{this});
                     }
                     return this.element();
                 },
-                .esc => if (key.action == .press or key.action == .repeat) {
-                    this.stage.focused_element = null;
+                .escape => if (key.action == .press or key.action == .repeat) {
+                    this.stage.setFocusedElement(null);
                 },
                 else => {},
             }
             return this.element();
         },
         .text => |text| {
-            if (text.text.slice()[0] == 0x08) {
-                this.backspace();
-                return this.element();
-            }
             if (!std.ascii.isPrint(text.text.slice()[0])) return this.element();
 
             // Delete any text that is currently selected
@@ -308,18 +331,20 @@ fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
     const pre_selection_size = style.text_font.textSize(this.text.items[0..selection_start], style.text_scale);
     const selection_size = style.text_font.textSize(this.text.items[selection_start..selection_end], style.text_scale);
 
-    const canvas = parent_canvas.scissored(.{ .pos = .{
-        rect.pos[0] + MARGIN[0],
-        rect.pos[1] + MARGIN[1],
-    }, .size = .{
-        rect.size[0] - 2 * MARGIN[0],
-        style.text_font.lineHeight * style.text_scale + style.padding.size()[1],
-    } });
+    const text_rect = seizer.geometry.Rect(f32){
+        .pos = .{
+            rect.pos[0] + MARGIN[0] + style.padding.min[0],
+            rect.pos[1] + MARGIN[1] + style.padding.min[1],
+        },
+        .size = .{
+            rect.size[0] - 2 * MARGIN[0] - style.padding.min[0] - style.padding.max[0],
+            rect.size[1] - 2 * MARGIN[1] - style.padding.min[1] - style.padding.max[1],
+        },
+    };
 
-    _ = canvas.writeText(.{
-        rect.pos[0] + MARGIN[0] + style.padding.min[0],
-        rect.pos[1] + MARGIN[1] + style.padding.min[1],
-    }, this.text.items, .{
+    const canvas = parent_canvas.scissored(text_rect);
+
+    _ = canvas.writeText(text_rect.pos, this.text.items, .{
         .font = style.text_font,
         .scale = style.text_scale,
         .color = style.text_color,
@@ -360,7 +385,7 @@ fn nextRight(text: []const u8, pos: usize) usize {
     return new_pos;
 }
 
-fn backspace(this: *@This()) void {
+pub fn backspace(this: *@This()) void {
     const src_pos = @max(this.selection_start, this.cursor_pos);
     const overwrite_pos = if (this.selection_start == this.cursor_pos)
         nextLeft(this.text.items, this.cursor_pos)

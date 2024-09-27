@@ -49,11 +49,11 @@ pub const Up = .{ .code = 0xff52 };
 pub const Right = .{ .code = 0xff53 };
 pub const Down = .{ .code = 0xff54 };
 pub const Prior = .{ .code = 0xff55 };
-
+// pub const Page_Up = @compileError("Deprecated alias for Prior");
 pub const Next = .{ .code = 0xff56 };
-
-pub const End = .{ .code = 0xff57 };
-pub const Begin = .{ .code = 0xff58 };
+// pub const Page_Down = @compileError("Deprecated alias for Next");
+pub const End = .{ .code = 0xff57 }; // End Of Line
+pub const Begin = .{ .code = 0xff58 }; // Begin of Line
 
 pub const Select = .{ .code = 0xff60 };
 pub const Print = .{ .code = 0xff61 };
@@ -119,53 +119,29 @@ pub const F8 = .{ .code = 0xffc5 };
 pub const F9 = .{ .code = 0xffc6 };
 pub const F10 = .{ .code = 0xffc7 };
 pub const F11 = .{ .code = 0xffc8 };
-
 pub const F12 = .{ .code = 0xffc9 };
-
 pub const F13 = .{ .code = 0xffca };
-
 pub const F14 = .{ .code = 0xffcb };
-
 pub const F15 = .{ .code = 0xffcc };
-
 pub const F16 = .{ .code = 0xffcd };
-
 pub const F17 = .{ .code = 0xffce };
-
 pub const F18 = .{ .code = 0xffcf };
-
 pub const F19 = .{ .code = 0xffd0 };
-
 pub const F20 = .{ .code = 0xffd1 };
-
 pub const F21 = .{ .code = 0xffd2 };
-
 pub const F22 = .{ .code = 0xffd3 };
-
 pub const F23 = .{ .code = 0xffd4 };
-
 pub const F24 = .{ .code = 0xffd5 };
-
 pub const F25 = .{ .code = 0xffd6 };
-
 pub const F26 = .{ .code = 0xffd7 };
-
 pub const F27 = .{ .code = 0xffd8 };
-
 pub const F28 = .{ .code = 0xffd9 };
-
 pub const F29 = .{ .code = 0xffda };
-
 pub const F30 = .{ .code = 0xffdb };
-
 pub const F31 = .{ .code = 0xffdc };
-
 pub const F32 = .{ .code = 0xffdd };
-
 pub const F33 = .{ .code = 0xffde };
-
 pub const F34 = .{ .code = 0xffdf };
-
 pub const F35 = .{ .code = 0xffe0 };
 
 pub const Shift_L = .{ .code = 0xffe1 };

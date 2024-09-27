@@ -706,12 +706,6 @@ const Seat = struct {
                 };
                 defer std.posix.munmap(new_keymap_source);
 
-                // std.fs.cwd().writeFile(.{
-                //     .sub_path = "wl_keyboard_keymap.xkb",
-                //     .data = new_keymap,
-                //     .flags = .{},
-                // }) catch {};
-
                 if (this.keymap) |*old_keymap| {
                     old_keymap.deinit();
                     this.keymap = null;
@@ -735,7 +729,33 @@ const Seat = struct {
                 };
             },
             .key => |k| if (this.keymap) |keymap| {
+                const scancode = evdevToSeizer(k.key);
                 const symbol = keymap.getSymbol(@enumFromInt(k.key + 8), this.keymap_state) orelse return;
+                const key = xkbSymbolToSeizerKey(symbol);
+                const xkb_modifiers = this.keymap_state.getModifiers();
+
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        on_event(@ptrCast(window), .{ .input = seizer.input.Event{ .key = .{
+                            .key = key,
+                            .scancode = scancode,
+                            .action = switch (k.state) {
+                                .pressed => .press,
+                                .released => .release,
+                            },
+                            .mods = .{
+                                .shift = xkb_modifiers.shift,
+                                .caps_lock = xkb_modifiers.lock,
+                                .control = xkb_modifiers.control,
+                            },
+                        } } }) catch |err| {
+                            std.debug.print("{s}\n", .{@errorName(err)});
+                            if (@errorReturnTrace()) |trace| {
+                                std.debug.dumpStackTrace(trace.*);
+                            }
+                        };
+                    }
+                }
 
                 if (this.focused_window) |window| {
                     if (window.on_event) |on_event| {
@@ -755,27 +775,6 @@ const Seat = struct {
                                 };
                             }
                         }
-                    }
-                }
-
-                const key: seizer.input.keyboard.Key = if (symbol.code == xkb.Symbol.a.code) .a else return;
-
-                if (this.focused_window) |window| {
-                    if (window.on_event) |on_event| {
-                        on_event(@ptrCast(window), .{ .input = seizer.input.Event{ .key = .{
-                            .key = key,
-                            .scancode = k.key,
-                            .action = switch (k.state) {
-                                .pressed => .press,
-                                .released => .release,
-                            },
-                            .mods = .{},
-                        } } }) catch |err| {
-                            std.debug.print("{s}\n", .{@errorName(err)});
-                            if (@errorReturnTrace()) |trace| {
-                                std.debug.dumpStackTrace(trace.*);
-                            }
-                        };
                     }
                 }
             },
@@ -920,6 +919,9 @@ const Seat = struct {
         try this.wl_pointer.?.set_cursor(this.pointer_serial, this.cursor_wl_surface, 9, 5);
     }
 };
+
+const evdevToSeizer = @import("./Wayland/evdev_to_seizer.zig").evdevToSeizer;
+const xkbSymbolToSeizerKey = @import("./Wayland/xkb_to_seizer.zig").xkbSymbolToSeizerKey;
 
 const fractional_scale_v1 = @import("wayland-protocols").staging.@"fractional-scale-v1";
 const viewporter = @import("wayland-protocols").stable.viewporter;

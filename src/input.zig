@@ -54,7 +54,7 @@ pub const Event = union(enum) {
 
     pub const Key = struct {
         key: keyboard.Key,
-        scancode: keyboard.ScanCode,
+        scancode: keyboard.Scancode,
         action: keyboard.Action,
         mods: keyboard.Modifiers,
     };
