@@ -198,18 +198,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     return this.element();
                 },
                 .backspace => if (key.action == .press or key.action == .repeat) {
-                    const src_pos = @max(this.selection_start, this.cursor_pos);
-                    const overwrite_pos = if (this.selection_start == this.cursor_pos)
-                        nextLeft(this.text.items, this.cursor_pos)
-                    else
-                        @min(this.selection_start, this.cursor_pos);
-
-                    const bytes_removed = src_pos - overwrite_pos;
-                    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-                    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-                    this.cursor_pos = overwrite_pos;
-                    this.selection_start = overwrite_pos;
+                    this.backspace();
                     return this.element();
                 },
                 .delete => if (key.action == .press or key.action == .repeat) {
@@ -241,6 +230,12 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
             return this.element();
         },
         .text => |text| {
+            if (text.text.slice()[0] == 0x08) {
+                this.backspace();
+                return this.element();
+            }
+            if (!std.ascii.isPrint(text.text.slice()[0])) return this.element();
+
             // Delete any text that is currently selected
             const src_pos = @max(this.selection_start, this.cursor_pos);
             const overwrite_pos = @min(this.selection_start, this.cursor_pos);
@@ -363,6 +358,21 @@ fn nextRight(text: []const u8, pos: usize) usize {
         new_pos += 1;
     }
     return new_pos;
+}
+
+fn backspace(this: *@This()) void {
+    const src_pos = @max(this.selection_start, this.cursor_pos);
+    const overwrite_pos = if (this.selection_start == this.cursor_pos)
+        nextLeft(this.text.items, this.cursor_pos)
+    else
+        @min(this.selection_start, this.cursor_pos);
+
+    const bytes_removed = src_pos - overwrite_pos;
+    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+    this.cursor_pos = overwrite_pos;
+    this.selection_start = overwrite_pos;
 }
 
 const seizer = @import("../../seizer.zig");

@@ -3,9 +3,15 @@ source: []const u8,
 tokens: std.MultiArrayList(xkb.Token).Slice,
 pos: TokenIndex,
 
+/// To make parsing symbols easier
+symbol_string_table: std.StringHashMap(xkb.Symbol),
+
 const Parser = @This();
 
 pub fn parse(allocator: std.mem.Allocator, source: []const u8) !xkb.AST {
+    var symbol_string_table = try xkb.initSymbolStringTable(allocator);
+    defer symbol_string_table.deinit();
+
     var tokens = try tokenize(allocator, source);
     defer tokens.deinit(allocator);
 
@@ -17,6 +23,8 @@ pub fn parse(allocator: std.mem.Allocator, source: []const u8) !xkb.AST {
         .source = source,
         .tokens = tokens.slice(),
         .pos = @enumFromInt(0),
+
+        .symbol_string_table = symbol_string_table,
     };
 
     while (true) {
@@ -300,9 +308,9 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
 
     var debug_info = this.addDebugInfo(parent_debug_info, xkb_types_type_name);
 
-    var result = xkb.AST.Types.Type{ .name = xkb_types_type_name };
-    errdefer result.deinit(this.allocator);
     var modifiers_already_parsed = false;
+
+    var modifiers: xkb.AST.Modifiers = .{};
 
     var modifier_mappings = std.ArrayList(xkb.AST.Types.Type.ModifierMapping).init(this.allocator);
     defer modifier_mappings.deinit();
@@ -318,8 +326,12 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
 
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                result.level_names = try level_names.toOwnedSlice();
-                return result;
+                return .{
+                    .name = xkb_types_type_name,
+                    .modifiers = modifiers,
+                    .modifier_mappings = try modifier_mappings.toOwnedSlice(),
+                    .level_names = try level_names.toOwnedSlice(),
+                };
             },
             .modifiers => {
                 _ = this.incrementPos();
@@ -327,11 +339,11 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
                 _ = try this.parseExpectToken(&debug_info, .equals);
 
                 if (modifiers_already_parsed) {
-                    std.log.warn("modifiers for type {s} declared multiple times!", .{try xkb.Token.string(this.source, this.tokenSourceIndex(result.name))});
+                    this.addParseError(&debug_info, "modifiers declared multiple times", this.pos);
                     return error.MultipleModifierDeclarations;
                 }
 
-                result.modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
+                modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
                 modifiers_already_parsed = true;
 
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
@@ -340,14 +352,14 @@ fn parseXkbTypesType(this: *@This(), virtual_modifiers: std.StringHashMapUnmanag
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .open_bracket);
 
-                const modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
+                const map_modifiers = try this.parseModifiers(virtual_modifiers, &debug_info);
 
                 _ = try this.parseExpectToken(&debug_info, .close_bracket);
                 _ = try this.parseExpectToken(&debug_info, .equals);
                 const level_index = try this.parseLevel(&debug_info);
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
 
-                try modifier_mappings.append(.{ .modifiers = modifiers, .level_index = level_index });
+                try modifier_mappings.append(.{ .modifiers = map_modifiers, .level_index = level_index });
             },
             .level_name => {
                 _ = this.incrementPos();
@@ -804,8 +816,13 @@ fn parseActionParams(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
 fn parseXkbSymbols(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Symbols {
     const xkb_symbols_name = try this.parseExpectToken(parent_debug_info, .string);
 
-    var result = xkb.AST.Symbols{ .name = xkb_symbols_name };
-    errdefer result.deinit(this.allocator);
+    var keys = std.ArrayList(xkb.AST.Symbols.Key).init(this.allocator);
+    defer {
+        for (keys.items) |*key| {
+            key.deinit(this.allocator);
+        }
+        keys.deinit();
+    }
 
     _ = try this.parseExpectToken(parent_debug_info, .open_brace);
     while (true) {
@@ -813,7 +830,10 @@ fn parseXkbSymbols(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Symb
             .close_brace => {
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(parent_debug_info, .semicolon);
-                return result;
+                return xkb.AST.Symbols{
+                    .name = xkb_symbols_name,
+                    .keys = try keys.toOwnedSlice(),
+                };
             },
             .identifier => {
                 _ = this.incrementPos();
@@ -829,7 +849,8 @@ fn parseXkbSymbols(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Symb
             },
             .key => {
                 _ = this.incrementPos();
-                _ = try this.parseXkbSymbolsKeyBlock(parent_debug_info);
+                const key = try this.parseXkbSymbolsKeyBlock(parent_debug_info);
+                try keys.append(key);
             },
             .modifier_map => {
                 _ = this.incrementPos();
@@ -843,22 +864,20 @@ fn parseXkbSymbols(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Symb
     }
 }
 
-const XkbSymbolsKeyBlock = struct {
-    keyname: TokenIndex,
-
-    fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-        _ = this;
-        _ = allocator;
-    }
-};
-
-fn parseXkbSymbolsKeyBlock(this: *@This(), parent_debug_info: ?*DebugInfo) !XkbSymbolsKeyBlock {
+fn parseXkbSymbolsKeyBlock(this: *@This(), parent_debug_info: ?*DebugInfo) !xkb.AST.Symbols.Key {
     const keyname_token_index = try this.parseExpectToken(parent_debug_info, .keyname);
 
-    var result = XkbSymbolsKeyBlock{ .keyname = keyname_token_index };
-    errdefer result.deinit(this.allocator);
+    var debug_info = this.addDebugInfo(parent_debug_info, keyname_token_index);
 
-    var debug_info = this.addDebugInfo(parent_debug_info, result.keyname);
+    var type_name: ?TokenIndex = null;
+
+    var groups = std.ArrayList(xkb.AST.Symbols.Group).init(this.allocator);
+    defer {
+        for (groups.items) |*group| {
+            group.deinit(this.allocator);
+        }
+        groups.deinit();
+    }
 
     _ = try this.parseExpectToken(&debug_info, .open_brace);
     while (true) {
@@ -866,30 +885,43 @@ fn parseXkbSymbolsKeyBlock(this: *@This(), parent_debug_info: ?*DebugInfo) !XkbS
             .close_brace => {
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .semicolon);
-                return result;
+                return .{
+                    .keyname = keyname_token_index,
+                    .type_name = type_name,
+                    .groups = try groups.toOwnedSlice(),
+                };
             },
             .open_bracket => {
+                const group = try groups.addOne();
+
                 _ = this.incrementPos();
-                _ = try this.parseSymbolList(&debug_info);
+                const symbol_list = try this.parseSymbolList(&debug_info);
                 _ = try this.parseExpectToken(&debug_info, .close_bracket);
+
+                group.* = .{ .index = @intCast(groups.items.len), .levels = symbol_list };
             },
             .type => {
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .equals);
-                _ = try this.parseExpectToken(&debug_info, .string);
+                if (type_name != null) {
+                    this.addParseError(&debug_info, "key type declared more than once", this.pos);
+                }
+                type_name = try this.parseExpectToken(&debug_info, .string);
                 _ = try this.parseExpectToken(&debug_info, .comma);
             },
             .symbols => {
+                const group = try groups.addOne();
+
                 _ = this.incrementPos();
                 _ = try this.parseExpectToken(&debug_info, .open_bracket);
                 const group_index = try this.parseGroupIndex(parent_debug_info);
                 _ = try this.parseExpectToken(&debug_info, .close_bracket);
                 _ = try this.parseExpectToken(&debug_info, .equals);
                 _ = try this.parseExpectToken(&debug_info, .open_bracket);
-                _ = try this.parseSymbolList(&debug_info);
+                const symbol_list = try this.parseSymbolList(&debug_info);
                 _ = try this.parseExpectToken(&debug_info, .close_bracket);
 
-                _ = group_index;
+                group.* = .{ .index = group_index, .levels = symbol_list };
             },
             else => {
                 this.addParseError(&debug_info, "unexpected token", this.pos);
@@ -941,20 +973,31 @@ fn parseXkbSymbolsModifierMapBlock(this: *@This(), parent_debug_info: ?*DebugInf
     }
 }
 
-fn parseSymbolList(this: *@This(), parent_debug_info: ?*DebugInfo) !void {
+fn parseSymbolList(this: *@This(), parent_debug_info: ?*DebugInfo) ![]xkb.Symbol {
+    var symbols = std.ArrayList(xkb.Symbol).init(this.allocator);
+    defer symbols.deinit();
+
     var next_should_be_symbol = true;
     while (true) {
         switch (this.currentTokenType()) {
             .close_bracket => {
-                return;
+                return try symbols.toOwnedSlice();
             },
             .identifier, .integer => {
                 if (!next_should_be_symbol) {
                     this.addParseError(parent_debug_info, "unexpected token", this.pos);
                     return error.UnexpectedToken;
                 }
-                _ = this.incrementPos();
                 next_should_be_symbol = false;
+
+                const symbol_token_index = this.incrementPos();
+                const symbol_string = try xkb.Token.string(this.source, this.tokenSourceIndex(symbol_token_index));
+                const symbol = this.symbol_string_table.get(symbol_string) orelse {
+                    this.addParseError(parent_debug_info, "unknown symbol", symbol_token_index);
+                    continue;
+                };
+
+                try symbols.append(symbol);
             },
             .comma => {
                 if (next_should_be_symbol) {

@@ -92,10 +92,35 @@ pub const Compatibility = struct {
 
 pub const Symbols = struct {
     name: TokenIndex,
+    keys: []const Key,
+
+    pub const Key = struct {
+        keyname: TokenIndex,
+        type_name: ?TokenIndex,
+        groups: []const Group,
+
+        pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
+            for (this.groups) |*group| {
+                @constCast(group).deinit(allocator);
+            }
+            allocator.free(this.groups);
+        }
+    };
+
+    pub const Group = struct {
+        index: u32,
+        levels: []const xkb.Symbol,
+
+        pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
+            allocator.free(this.levels);
+        }
+    };
 
     pub fn deinit(this: *@This(), allocator: std.mem.Allocator) void {
-        _ = this;
-        _ = allocator;
+        for (this.keys) |*key| {
+            @constCast(key).deinit(allocator);
+        }
+        allocator.free(this.keys);
     }
 };
 

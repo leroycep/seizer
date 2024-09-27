@@ -95,7 +95,7 @@ pub fn _destroy(this: *@This()) void {
     this.windows.deinit(this.allocator);
 
     for (this.seats.items) |seat| {
-        this.allocator.destroy(seat);
+        seat.destroy();
     }
     this.seats.deinit(this.allocator);
 
@@ -622,9 +622,15 @@ const Seat = struct {
     cursor_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1 = null,
     pointer_scale: u32 = 120,
 
-    keymap: ?[]align(std.mem.page_size) const u8 = null,
+    keymap: ?xkb.Keymap = null,
+    keymap_state: xkb.Keymap.State = undefined,
     keyboard_repeat_rate: u32 = 0,
     keyboard_repeat_delay: u32 = 0,
+
+    fn destroy(this: *@This()) void {
+        if (this.keymap) |*keymap| keymap.deinit();
+        this.wayland_manager.allocator.destroy(this);
+    }
 
     fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
         const this: *@This() = @ptrCast(@alignCast(userdata));
@@ -694,32 +700,65 @@ const Seat = struct {
                 defer std.posix.close(@intCast(@intFromEnum(keymap_info.fd)));
                 if (keymap_info.format != .xkb_v1) return;
 
-                const new_keymap = std.posix.mmap(null, keymap_info.size, std.posix.PROT.READ, .{ .TYPE = .PRIVATE }, @intFromEnum(keymap_info.fd), 0) catch |err| {
+                const new_keymap_source = std.posix.mmap(null, keymap_info.size, std.posix.PROT.READ, .{ .TYPE = .PRIVATE }, @intFromEnum(keymap_info.fd), 0) catch |err| {
                     std.log.warn("Failed to mmap keymap from wayland compositor: {}", .{err});
                     return;
                 };
+                defer std.posix.munmap(new_keymap_source);
 
-                if (this.keymap) |old_keymap| {
-                    std.posix.munmap(old_keymap);
+                // std.fs.cwd().writeFile(.{
+                //     .sub_path = "wl_keyboard_keymap.xkb",
+                //     .data = new_keymap,
+                //     .flags = .{},
+                // }) catch {};
+
+                if (this.keymap) |*old_keymap| {
+                    old_keymap.deinit();
                     this.keymap = null;
                 }
-                var parsed = xkb.Parser.parse(this.wayland_manager.allocator, new_keymap) catch |err| {
+                this.keymap = xkb.Keymap.fromString(this.wayland_manager.allocator, new_keymap_source) catch |err| {
                     std.log.warn("failed to parse keymap: {}", .{err});
                     if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
                     return;
                 };
-                defer parsed.deinit();
-                this.keymap = new_keymap;
             },
             .repeat_info => |repeat_info| {
                 this.keyboard_repeat_rate = @intCast(repeat_info.rate);
                 this.keyboard_repeat_delay = @intCast(repeat_info.delay);
             },
             .modifiers => |m| {
-                std.log.debug("modifiers = {}", .{m});
+                this.keymap_state = xkb.Keymap.State{
+                    .base_modifiers = @bitCast(m.mods_depressed),
+                    .latched_modifiers = @bitCast(m.mods_latched),
+                    .locked_modifiers = @bitCast(m.mods_locked),
+                    .group = @intCast(m.group),
+                };
             },
-            .key => |k| {
-                const key: seizer.input.keyboard.Key = @enumFromInt(@as(u16, @intCast(k.key)));
+            .key => |k| if (this.keymap) |keymap| {
+                const symbol = keymap.getSymbol(@enumFromInt(k.key + 8), this.keymap_state) orelse return;
+
+                if (this.focused_window) |window| {
+                    if (window.on_event) |on_event| {
+                        if (symbol.character) |character| {
+                            if (k.state == .pressed) {
+                                var text_utf8 = std.BoundedArray(u8, 16){};
+                                text_utf8.resize(std.unicode.utf8CodepointSequenceLength(character) catch unreachable) catch unreachable;
+                                _ = std.unicode.utf8Encode(character, text_utf8.slice()) catch unreachable;
+
+                                on_event(@ptrCast(window), .{ .input = seizer.input.Event{ .text = .{
+                                    .text = text_utf8,
+                                } } }) catch |err| {
+                                    std.debug.print("{s}\n", .{@errorName(err)});
+                                    if (@errorReturnTrace()) |trace| {
+                                        std.debug.dumpStackTrace(trace.*);
+                                    }
+                                };
+                            }
+                        }
+                    }
+                }
+
+                const key: seizer.input.keyboard.Key = if (symbol.code == xkb.Symbol.a.code) .a else return;
 
                 if (this.focused_window) |window| {
                     if (window.on_event) |on_event| {
