@@ -222,20 +222,9 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                         // TODO: control + y = redo
 
                         // Delete any text that is currently selected
-                        const src_pos = @max(this.selection_start, this.cursor_pos);
-                        const overwrite_pos = @min(this.selection_start, this.cursor_pos);
-
-                        const bytes_removed = src_pos - overwrite_pos;
-                        std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
-                        this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
-
-                        this.cursor_pos = overwrite_pos;
-
-                        // Append new text
-                        const new_slice = this.text.addManyAt(this.stage.gpa, this.cursor_pos, std.unicode.utf8CodepointSequenceLength(character) catch unreachable) catch @panic("OOM");
-                        _ = std.unicode.utf8Encode(character, new_slice) catch unreachable;
-                        this.cursor_pos += new_slice.len;
-                        this.selection_start = this.cursor_pos;
+                        var buf: [4]u8 = undefined;
+                        const encoded_len = std.unicode.utf8Encode(character, &buf) catch unreachable;
+                        this.insertReplacingSelectedText(buf[0..encoded_len]) catch @panic("OOM");
 
                         return this.element();
                     },
@@ -412,6 +401,22 @@ pub fn backspace(this: *@This()) void {
 
     this.cursor_pos = overwrite_pos;
     this.selection_start = overwrite_pos;
+}
+
+pub fn insertReplacingSelectedText(this: *@This(), new_text: []const u8) !void {
+    const src_pos = @max(this.selection_start, this.cursor_pos);
+    const overwrite_pos = @min(this.selection_start, this.cursor_pos);
+
+    const bytes_removed = src_pos - overwrite_pos;
+    std.mem.copyForwards(u8, this.text.items[overwrite_pos..], this.text.items[src_pos..]);
+    this.text.shrinkRetainingCapacity(this.text.items.len - bytes_removed);
+
+    this.cursor_pos = overwrite_pos;
+
+    // Append new text
+    try this.text.insertSlice(this.stage.gpa, this.cursor_pos, new_text);
+    this.cursor_pos += new_text.len;
+    this.selection_start = this.cursor_pos;
 }
 
 const seizer = @import("../../seizer.zig");
