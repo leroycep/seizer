@@ -1,6 +1,7 @@
 // seizer sub libraries
 pub const geometry = @import("./geometry.zig");
 pub const input = @import("./input.zig");
+pub const math = @import("./math.zig");
 pub const mem = @import("./mem.zig");
 pub const ui = @import("./ui.zig");
 
