@@ -324,13 +324,13 @@ pub fn serialize(comptime Union: type, buffer: []u32, object_id: u32, message: U
 }
 
 test "serialize Registry.Event.Global" {
-    const message = wayland.Registry.Event.Global{
+    const message = std.meta.TagPayload(wayland.wl_registry.Event, .global){
         .name = 1,
         .interface = "wl_shm",
         .version = 3,
     };
     var buffer: [5]u32 = undefined;
-    const serialized = try serializeArguments(wayland.Registry.Event.Global, &buffer, message);
+    const serialized = try serializeArguments(std.meta.TagPayload(wayland.wl_registry.Event, .global), &buffer, message);
 
     try std.testing.expectEqualSlices(
         u32,
@@ -844,8 +844,8 @@ test "deserialize Registry.Event.Global" {
         @bitCast(@as([4]u8, "hm\x00\x00".*)),
         3,
     };
-    const parsed = try conn.deserializeArguments(wayland.wl_registry.Event.Global, &words);
-    try std.testing.expectEqualDeep(wayland.wl_registry.Event.Global{
+    const parsed = try conn.deserializeArguments(std.meta.TagPayload(wayland.wl_registry.Event, .global), &words);
+    try std.testing.expectEqualDeep(std.meta.TagPayload(wayland.wl_registry.Event, .global){
         .name = 1,
         .interface = "wl_shm",
         .version = 3,
@@ -859,7 +859,7 @@ test "deserialize Registry.Event" {
         .object_id = 123,
         .size_and_opcode = .{
             .size = 28,
-            .opcode = @intFromEnum(wayland.Registry.Event.Tag.global),
+            .opcode = @intFromEnum(std.meta.Tag(wayland.wl_registry.Event).global),
         },
     };
     const words = [_]u32{
@@ -869,25 +869,16 @@ test "deserialize Registry.Event" {
         @bitCast(@as([4]u8, "hm\x00\x00".*)),
         3,
     };
-    const parsed = try conn.deserialize(wayland.Registry.Event, header, &words);
+    const parsed = try conn.deserialize(wayland.wl_registry.Event, header, &words);
     try std.testing.expectEqualDeep(
-        wayland.Registry.Event{
-            .global = .{
-                .name = 1,
-                .interface = "wl_shm",
-                .version = 3,
-            },
-        },
+        wayland.wl_registry.Event{ .global = .{
+            .name = 1,
+            .interface = "wl_shm",
+            .version = 3,
+        } },
         parsed,
     );
 
-    const header2 = Header{
-        .object_id = 1,
-        .size_and_opcode = .{
-            .size = 14 * @sizeOf(u32),
-            .opcode = @intFromEnum(wayland.Display.Event.Tag.@"error"),
-        },
-    };
     const words2 = [_]u32{
         1,
         15,
@@ -903,15 +894,20 @@ test "deserialize Registry.Event" {
         @bitCast(@as([4]u8, "@2.b".*)),
         @bitCast(@as([4]u8, "ind\x00".*)),
     };
-    const parsed2 = try conn.deserialize(wayland.Display.Event, header2, &words2);
-    try std.testing.expectEqualDeep(
-        wayland.Display.Event{
-            .@"error" = .{
-                .object_id = 1,
-                .code = 15,
-                .message = "invalid arguments to wl_registry@2.bind",
-            },
+    const header2 = Header{
+        .object_id = 1,
+        .size_and_opcode = .{
+            .size = words2.len * @sizeOf(u32) + @sizeOf(Header),
+            .opcode = @intFromEnum(std.meta.Tag(wayland.wl_display.Event).@"error"),
         },
+    };
+    const parsed2 = try conn.deserialize(wayland.wl_display.Event, header2, &words2);
+    try std.testing.expectEqualDeep(
+        wayland.wl_display.Event{ .@"error" = .{
+            .object_id = 1,
+            .code = 15,
+            .message = "invalid arguments to wl_registry@2.bind",
+        } },
         parsed2,
     );
 }

@@ -310,6 +310,16 @@ pub fn build(b: *Builder) !void {
 
     const test_all = b.step("test-all", "run all tests");
 
+    const test_wayland_exe = b.addTest(.{
+        .root_source_file = b.path("dep/wayland/src/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    test_wayland_exe.root_module.addImport("xev", libxev.module("xev"));
+    const test_wayland_run_exe = b.addRunArtifact(test_wayland_exe);
+    const test_wayland = b.step("test-wayland", "Run the wayland library tests");
+    test_wayland.dependOn(&test_wayland_run_exe.step);
+
     const test_xkb_exe = b.addTest(.{
         .root_source_file = b.path("dep/xkb/xkb.zig"),
         .target = target,
@@ -320,4 +330,5 @@ pub fn build(b: *Builder) !void {
     test_xkb.dependOn(&test_xkb_run_exe.step);
 
     test_all.dependOn(test_xkb);
+    test_all.dependOn(test_wayland);
 }

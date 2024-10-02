@@ -1328,7 +1328,7 @@ test "parse empty keymap" {
         .keycodes = .{ .name = @enumFromInt(3) },
         .types = .{ .name = @enumFromInt(8) },
         .compatibility = .{ .name = @enumFromInt(13) },
-        .symbols = .{ .name = @enumFromInt(18) },
+        .symbols = .{ .name = @enumFromInt(18), .keys = &.{} },
     },
         \\xkb_keymap {
         \\    xkb_keycodes "KEYS" {};
