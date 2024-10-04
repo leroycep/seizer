@@ -43,6 +43,11 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
+    const xkb_dep = b.dependency("xkb", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const vkzig_dep = b.dependency("vulkan_zig", .{
         .registry = @as([]const u8, b.pathFromRoot("dep/vk.xml")),
     });
@@ -68,10 +73,6 @@ pub fn build(b: *Builder) !void {
         .imports = &.{
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
         },
-    });
-
-    const xkb_module = b.addModule("xkb", .{
-        .root_source_file = b.path("dep/xkb/xkb.zig"),
     });
 
     const wayland_module = b.addModule("wayland", .{
@@ -246,7 +247,7 @@ pub fn build(b: *Builder) !void {
     if (import_wayland) {
         module.addImport("wayland", wayland_module);
         module.addImport("wayland-protocols", wayland_protocols_module);
-        module.addImport("xkb", xkb_module);
+        module.addImport("xkb", xkb_dep.module("xkb"));
     }
 
     const check_step = b.step("check", "check that everything compiles");
@@ -320,15 +321,5 @@ pub fn build(b: *Builder) !void {
     const test_wayland = b.step("test-wayland", "Run the wayland library tests");
     test_wayland.dependOn(&test_wayland_run_exe.step);
 
-    const test_xkb_exe = b.addTest(.{
-        .root_source_file = b.path("dep/xkb/xkb.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    const test_xkb_run_exe = b.addRunArtifact(test_xkb_exe);
-    const test_xkb = b.step("test-xkb", "Run xkb tests");
-    test_xkb.dependOn(&test_xkb_run_exe.step);
-
-    test_all.dependOn(test_xkb);
     test_all.dependOn(test_wayland);
 }

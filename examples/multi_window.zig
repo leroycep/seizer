@@ -69,24 +69,27 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
         },
         .input => |input_event| switch (input_event) {
             .key => |key| switch (key.key) {
-                .n => if (key.action == .press) {
-                    const n_window_data = try seizer.platform.allocator().create(WindowData);
+                .unicode => |unicode| switch (unicode) {
+                    'n' => if (key.action == .press) {
+                        const n_window_data = try seizer.platform.allocator().create(WindowData);
 
-                    const title = try std.fmt.allocPrintZ(seizer.platform.allocator(), "Window {}", .{next_window_id});
-                    const n_window = try display.createWindow(.{
-                        .title = title,
-                        .size = .{ 640, 480 },
-                        .on_event = onWindowEvent,
-                        .on_render = render,
-                        .on_destroy = onWindowDestroyed,
-                    });
-                    n_window_data.* = .{
-                        .title = title,
-                        .swapchain_opt = null,
-                    };
-                    display.windowSetUserdata(n_window, n_window_data);
-                    next_window_id += 1;
-                    open_window_count += 1;
+                        const title = try std.fmt.allocPrintZ(seizer.platform.allocator(), "Window {}", .{next_window_id});
+                        const n_window = try display.createWindow(.{
+                            .title = title,
+                            .size = .{ 640, 480 },
+                            .on_event = onWindowEvent,
+                            .on_render = render,
+                            .on_destroy = onWindowDestroyed,
+                        });
+                        n_window_data.* = .{
+                            .title = title,
+                            .swapchain_opt = null,
+                        };
+                        display.windowSetUserdata(n_window, n_window_data);
+                        next_window_id += 1;
+                        open_window_count += 1;
+                    },
+                    else => {},
                 },
                 else => {},
             },

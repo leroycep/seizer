@@ -23,5 +23,9 @@
             .url = "https://github.com/Snektron/vulkan-zig/archive/66b7b773bb61e2102025f2d5ff0ae8c5f53e19cc.tar.gz",
             .hash = "12208958f173b8b81bfac797955f0416ab38b21d1f69d4ebf6c7ca460a828a41cd45",
         },
+        .xkb = .{
+            .url = "https://git.sr.ht/~geemili/xkb/archive/581636d48383940d5ab7500a7a15b242ed8ae007.tar.gz",
+            .hash = "12208582ac218c676b37763dd67d25c79ea3808d0c73369663e0e4f9a2b0040ed73e",
+        },
     },
 }
