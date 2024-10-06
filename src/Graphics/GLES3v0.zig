@@ -28,7 +28,7 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     errdefer allocator.destroy(fn_tables);
 
     fn_tables.egl = EGL.loadUsingPrefixes(library_prefixes.paths.items) catch |err| {
-        std.log.warn("Failed to load EGL: {}", .{err});
+        log.warn("Failed to load EGL: {}", .{err});
         switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => return error.LibraryLoadFailed,
@@ -36,7 +36,7 @@ pub fn create(allocator: std.mem.Allocator, options: seizer.Platform.CreateGraph
     };
 
     var egl_display = fn_tables.egl.getDisplay(null) orelse {
-        std.log.warn("Failed to get EGL display", .{});
+        log.warn("Failed to get EGL display", .{});
         return error.InitializationFailed;
     };
     _ = egl_display.initialize() catch return error.InitializationFailed;
@@ -199,9 +199,9 @@ fn _createShader(this: *@This(), options: seizer.Graphics.Shader.CreateOptions) 
         if (this.allocator.alloc(u8, @intCast(shader_log_len))) |shader_log_buf| {
             defer this.allocator.free(shader_log_buf);
             gl.getShaderInfoLog(gl_shader, @intCast(shader_log_buf.len), &shader_log_len, shader_log_buf.ptr);
-            std.log.warn("error compiling shader: {s}", .{shader_log_buf[0..@intCast(shader_log_len)]});
+            log.warn("error compiling shader: {s}", .{shader_log_buf[0..@intCast(shader_log_len)]});
         } else |_| {
-            std.log.warn("error compiling shader", .{});
+            log.warn("error compiling shader", .{});
         }
         return error.ShaderCompilationFailed;
     }
@@ -292,7 +292,7 @@ fn _createTexture(this: *@This(), image: zigimg.Image, options: seizer.Graphics.
 
 fn _destroyTexture(this: *@This(), texture_opaque: *seizer.Graphics.Texture) void {
     this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
-        std.log.warn("unexpected make egl_context current error: {}", .{err});
+        log.warn("unexpected make egl_context current error: {}", .{err});
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
 
     if (builtin.mode == .Debug) checkError(@src());
@@ -351,7 +351,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
         var program_log: [1024:0]u8 = undefined;
         var program_log_len: gl.Sizei = undefined;
         gl.getProgramInfoLog(program, program_log.len, &program_log_len, &program_log);
-        std.log.warn("{s}:{} error linking shader program: {s}\n", .{ @src().file, @src().line, program_log });
+        log.warn("{s}:{} error linking shader program: {s}\n", .{ @src().file, @src().line, program_log });
         return error.ShaderLinkingFailed;
     }
 
@@ -372,7 +372,7 @@ fn _createPipeline(this: *@This(), options: seizer.Graphics.Pipeline.CreateOptio
 
 fn _destroyPipeline(this: *@This(), pipeline_opaque: *seizer.Graphics.Pipeline) void {
     this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
-        std.log.warn("unexpected make egl_context current error: {}", .{err});
+        log.warn("unexpected make egl_context current error: {}", .{err});
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
 
     if (builtin.mode == .Debug) checkError(@src());
@@ -398,7 +398,7 @@ fn _createBuffer(this: *@This(), options: seizer.Graphics.Buffer.CreateOptions) 
     _ = options;
 
     this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
-        std.log.warn("unexpected make egl_context current error: {}", .{err});
+        log.warn("unexpected make egl_context current error: {}", .{err});
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
 
     if (builtin.mode == .Debug) checkError(@src());
@@ -416,7 +416,7 @@ fn _createBuffer(this: *@This(), options: seizer.Graphics.Buffer.CreateOptions) 
 
 fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Graphics.Buffer) void {
     this.egl_display.makeCurrent(null, null, this.egl_context) catch |err|
-        std.log.warn("unexpected make egl_context current error: {}", .{err});
+        log.warn("unexpected make egl_context current error: {}", .{err});
     gl.makeBindingCurrent(&this.fn_tables.gl_binding);
 
     if (builtin.mode == .Debug) checkError(@src());
@@ -776,7 +776,7 @@ pub fn compileShader(allocator: std.mem.Allocator, vertex_source: [:0]const u8, 
 
         gl.getProgramInfoLog(program, @as(c_int, @intCast(info_log.len)), null, info_log.ptr);
 
-        std.log.info("failed to compile shader:\n{s}", .{info_log});
+        log.info("failed to compile shader:\n{s}", .{info_log});
 
         return error.InvalidShader;
     }
@@ -809,7 +809,7 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, so
 
         gl.getShaderInfoLog(shader, @as(c_int, @intCast(info_log.len)), null, info_log.ptr);
 
-        std.log.info("failed to compile shader:\n{s}", .{info_log});
+        log.info("failed to compile shader:\n{s}", .{info_log});
 
         return error.InvalidShader;
     }
@@ -820,15 +820,17 @@ pub fn compilerShaderPart(allocator: std.mem.Allocator, shader_type: gl.Enum, so
 pub fn checkError(src: std.builtin.SourceLocation) void {
     switch (gl.getError()) {
         gl.NO_ERROR => return,
-        gl.INVALID_ENUM => std.log.warn("{s}:{} gl.INVALID_ENUM", .{ src.file, src.line }),
-        gl.INVALID_VALUE => std.log.warn("{s}:{} gl.INVALID_VALUE", .{ src.file, src.line }),
-        gl.INVALID_OPERATION => std.log.warn("{s}:{} gl.INVALID_OPERATION", .{ src.file, src.line }),
-        gl.OUT_OF_MEMORY => std.log.warn("{s}:{} gl.OUT_OF_MEMORY", .{ src.file, src.line }),
-        gl.INVALID_FRAMEBUFFER_OPERATION => std.log.warn("{s}:{} gl.INVALID_FRAMEBUFFER_OPERATION", .{ src.file, src.line }),
-        else => |code| std.log.warn("{s}:{} {}", .{ src.file, src.line, code }),
+        gl.INVALID_ENUM => log.warn("{s}:{} gl.INVALID_ENUM", .{ src.file, src.line }),
+        gl.INVALID_VALUE => log.warn("{s}:{} gl.INVALID_VALUE", .{ src.file, src.line }),
+        gl.INVALID_OPERATION => log.warn("{s}:{} gl.INVALID_OPERATION", .{ src.file, src.line }),
+        gl.OUT_OF_MEMORY => log.warn("{s}:{} gl.OUT_OF_MEMORY", .{ src.file, src.line }),
+        gl.INVALID_FRAMEBUFFER_OPERATION => log.warn("{s}:{} gl.INVALID_FRAMEBUFFER_OPERATION", .{ src.file, src.line }),
+        else => |code| log.warn("{s}:{} {}", .{ src.file, src.line, code }),
     }
     std.debug.dumpCurrentStackTrace(@returnAddress());
 }
+
+const log = std.log.scoped(.seizer);
 
 const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const zigimg = @import("zigimg");

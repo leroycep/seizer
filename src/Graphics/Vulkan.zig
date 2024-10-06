@@ -89,7 +89,7 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
             if (std.mem.eql(u8, name, "VK_LAYER_KHRONOS_validation")) {
                 if (builtin.mode == .Debug) {
                     try vk_enabled_layers.append("VK_LAYER_KHRONOS_validation");
-                    std.log.debug("khronos validation layers enabled", .{});
+                    log.debug("khronos validation layers enabled", .{});
                 }
             }
         }
@@ -277,7 +277,7 @@ fn pickVkDevice(allocator: std.mem.Allocator, vk_instance: VulkanInstance) !stru
         const device_properties = vk_instance.getPhysicalDeviceProperties(device);
         const end_of_name = std.mem.indexOfScalar(u8, &device_properties.device_name, 0) orelse device_properties.device_name.len;
         const name = device_properties.device_name[0..end_of_name];
-        std.log.debug("selected gpu = {s}", .{name});
+        log.debug("selected gpu = {s}", .{name});
     }
 
     var descriptor_indexing_features = vk.PhysicalDeviceDescriptorIndexingFeatures{
@@ -363,7 +363,7 @@ fn _createTexture(this: *@This(), image: zigimg.ImageUnmanaged, options: seizer.
             .grayscale16 => .r16_unorm,
             .float32 => .r32g32b32a32_sfloat,
             else => |f| {
-                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                log.warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
             },
         },
@@ -515,7 +515,7 @@ fn _createTexture(this: *@This(), image: zigimg.ImageUnmanaged, options: seizer.
             .grayscale16 => .r16_unorm,
             .float32 => .r32g32b32a32_sfloat,
             else => |f| {
-                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                log.warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
             },
         },
@@ -524,7 +524,7 @@ fn _createTexture(this: *@This(), image: zigimg.ImageUnmanaged, options: seizer.
             .grayscale16 => .{ .r = .identity, .g = .r, .b = .r, .a = .identity },
             .float32 => .{ .r = .identity, .g = .identity, .b = .identity, .a = .identity },
             else => |f| {
-                std.log.scoped(.seizer).warn("Unsupported image format {}", .{f});
+                log.warn("Unsupported image format {}", .{f});
                 return error.UnsupportedFormat;
             },
         },
@@ -923,7 +923,7 @@ const Swapchain = struct {
         const swapchain: *Swapchain = @ptrCast(@alignCast(userdata));
 
         const element_index = std.mem.indexOfScalar(*seizer.Display.Buffer, swapchain.elements.items(.display_buffer), display_buffer) orelse {
-            std.log.scoped(.seizer).warn("DisplayBuffer unknown to Vulkan swapchain: {*}", .{display_buffer});
+            log.warn("DisplayBuffer unknown to Vulkan swapchain: {*}", .{display_buffer});
             return;
         };
 
@@ -1232,17 +1232,17 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
 
         this.vk_device.resetFences(1, &.{element.vk_fence_finished}) catch |err| switch (err) {
             error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
-            error.Unknown => |e| std.log.scoped(.seizer).warn("Unknown error: {}", .{e}),
+            error.Unknown => |e| log.warn("Unknown error: {}", .{e}),
         };
 
         this.vk_device.resetDescriptorPool(element.vk_descriptor_pool, .{}) catch |err| switch (err) {
-            error.Unknown => |e| std.log.scoped(.seizer).warn("Unknown error: {}", .{e}),
+            error.Unknown => |e| log.warn("Unknown error: {}", .{e}),
         };
 
         this.vk_device.beginCommandBuffer(element.vk_command_buffer, &vk.CommandBufferBeginInfo{}) catch |err| switch (err) {
             error.OutOfHostMemory => return error.OutOfMemory,
             error.OutOfDeviceMemory => return error.OutOfDeviceMemory,
-            error.Unknown => |e| std.log.scoped(.seizer).warn("Unknown error: {}", .{e}),
+            error.Unknown => |e| log.warn("Unknown error: {}", .{e}),
         };
 
         render_buffer.* = .{
@@ -1568,6 +1568,8 @@ const VulkanInstanceDispatch = vk.InstanceWrapper(vulkan_apis);
 const VulkanInstance = vk.InstanceProxy(vulkan_apis);
 const VulkanDeviceDispatch = vk.DeviceWrapper(vulkan_apis);
 const VulkanDevice = vk.DeviceProxy(vulkan_apis);
+
+const log = std.log.scoped(.seizer);
 
 const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const zigimg = @import("zigimg");

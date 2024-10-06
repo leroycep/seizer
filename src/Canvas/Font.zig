@@ -74,7 +74,7 @@ pub fn parse(allocator: std.mem.Allocator, font_contents: []const u8) !@This() {
                 } else if (std.mem.eql(u8, "chnl", key)) {
                     // TODO
                 } else {
-                    std.log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
+                    log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
                 }
             }
 
@@ -108,7 +108,7 @@ pub fn parse(allocator: std.mem.Allocator, font_contents: []const u8) !@This() {
                 } else if (std.mem.eql(u8, "pages", key)) {
                     expected_num_pages = try std.fmt.parseInt(usize, value, 10);
                 } else {
-                    std.log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
+                    log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
                 }
             }
         } else if (std.mem.eql(u8, "page", kind)) {
@@ -125,7 +125,7 @@ pub fn parse(allocator: std.mem.Allocator, font_contents: []const u8) !@This() {
                 } else if (std.mem.eql(u8, "file", key)) {
                     page_filename = std.mem.trim(u8, value, "\"");
                 } else {
-                    std.log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
+                    log.warn("unknown pair for {s} kind: {s}", .{ kind, pair });
                 }
             }
 
@@ -139,7 +139,7 @@ pub fn parse(allocator: std.mem.Allocator, font_contents: []const u8) !@This() {
     }
 
     if (pages.count() != expected_num_pages) {
-        std.log.warn("Font pages expected {} != font pages found {}", .{ expected_num_pages, pages.count() });
+        log.warn("Font pages expected {} != font pages found {}", .{ expected_num_pages, pages.count() });
     }
 
     return @This(){
@@ -308,6 +308,8 @@ pub fn layoutText(this: @This(), allocator: std.mem.Allocator, text: []const u8,
 }
 
 const MAX_FILESIZE = 50000;
+
+const log = std.log.scoped(.seizer);
 
 const std = @import("std");
 const utils = @import("utils");

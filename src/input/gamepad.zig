@@ -292,7 +292,7 @@ pub const DB = struct {
                 const sdl_controller_config_filepath = std.process.getEnvVarOwned(allocator, "SDL_GAMECONTROLLERCONFIG_FILE") catch break :update_gamepad_mappings_file;
                 defer allocator.free(sdl_controller_config_filepath);
 
-                std.log.debug("Loading gamepad mappings from file: \"{}\"", .{std.zig.fmtEscapes(sdl_controller_config_filepath)});
+                log.debug("Loading gamepad mappings from file: \"{}\"", .{std.zig.fmtEscapes(sdl_controller_config_filepath)});
 
                 const controller_config_data = std.fs.cwd().readFileAllocOptions(
                     allocator,
@@ -315,7 +315,7 @@ pub const DB = struct {
                 const sdl_controller_config = std.process.getEnvVarOwned(allocator, "SDL_GAMECONTROLLERCONFIG") catch break :update_gamepad_mappings;
                 defer allocator.free(sdl_controller_config);
 
-                std.log.debug("Loading gamepad mappings from environment variable", .{});
+                log.debug("Loading gamepad mappings from environment variable", .{});
 
                 if (try this.loadGameControllerConfig(sdl_controller_config, &parse_diagnostics)) {
                     defer parse_diagnostics.errors.deinit();
@@ -381,5 +381,6 @@ test "parse gamecontrollerdb.txt" {
     }
 }
 
-const log = std.log.scoped(.seizer_gamepad);
+const log = std.log.scoped(.seizer);
+
 const std = @import("std");

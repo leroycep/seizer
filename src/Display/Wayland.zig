@@ -75,16 +75,16 @@ pub fn _create(allocator: std.mem.Allocator, loop: *xev.Loop) seizer.Display.Cre
         }
     }
     if (this.globals.wl_compositor == null) {
-        std.log.scoped(.seizer).warn("wayland: wl_compositor extension missing", .{});
+        log.warn("wayland: wl_compositor extension missing", .{});
         return error.ExtensionMissing;
     }
     if (this.globals.xdg_wm_base == null) {
-        std.log.scoped(.seizer).warn("wayland: xdg_wm_base extension missing", .{});
+        log.warn("wayland: xdg_wm_base extension missing", .{});
         return error.ExtensionMissing;
     }
     if (this.globals.zwp_linux_dmabuf_v1 == null and this.globals.wl_shm == null) {
-        std.log.scoped(.seizer).warn("wayland: zwp_linux_dmabuf_v1 extension missing", .{});
-        std.log.scoped(.seizer).warn("wayland: wl_shm extension missing", .{});
+        log.warn("wayland: zwp_linux_dmabuf_v1 extension missing", .{});
+        log.warn("wayland: wl_shm extension missing", .{});
         return error.ExtensionMissing;
     }
 
@@ -128,12 +128,12 @@ fn onConnectionRecvMessage(userdata: ?*anyopaque, loop: *xev.Loop, completion: *
     const this: *@This() = @fieldParentPtr("connection_recv_completion", completion);
     if (result.recvmsg) |num_bytes_read| {
         this.connection.processRecvMsgReturn(num_bytes_read) catch |err| {
-            std.log.warn("error processing messages from wayland: {}", .{err});
+            log.warn("error processing messages from wayland: {}", .{err});
         };
         this.connection_recv_completion.op.recvmsg.msghdr = this.connection.getRecvMsgHdr();
         return .rearm;
     } else |err| {
-        std.log.err("error receiving messages from wayland compositor: {}", .{err});
+        log.err("error receiving messages from wayland compositor: {}", .{err});
         return .disarm;
     }
 }
@@ -190,7 +190,7 @@ fn onRegistryEvent(listener: *shimizu.Listener, registry: shimizu.Proxy(wayland.
                     @field(this.globals, field.name) = object.id;
                 }
             } else {
-                std.log.debug("unknown wayland global object: {}@{?s} version {}", .{ global.name, global.interface, global.version });
+                log.debug("unknown wayland global object: {}@{?s} version {}", .{ global.name, global.interface, global.version });
             }
         },
         .global_remove => {},
@@ -463,7 +463,7 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
 }
 
 fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.CreateOptionsOpaqueFd) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
-    std.log.debug("creating opaque fd display buffer", .{});
+    log.debug("creating opaque fd display buffer", .{});
     const size: i32 = @intCast(options.pool_size);
     const wl_shm_pool = this.connection.sendRequest(wayland.wl_shm, this.globals.wl_shm.?, .create_pool, .{ .fd = @enumFromInt(options.fd), .size = size }) catch return error.ConnectionLost;
 
@@ -758,7 +758,7 @@ const Seat = struct {
                 if (keymap_info.format != .xkb_v1) return;
 
                 const new_keymap_source = std.posix.mmap(null, keymap_info.size, std.posix.PROT.READ, .{ .TYPE = .PRIVATE }, @intFromEnum(keymap_info.fd), 0) catch |err| {
-                    std.log.warn("Failed to mmap keymap from wayland compositor: {}", .{err});
+                    log.warn("Failed to mmap keymap from wayland compositor: {}", .{err});
                     return;
                 };
                 defer std.posix.munmap(new_keymap_source);
@@ -768,7 +768,7 @@ const Seat = struct {
                     this.keymap = null;
                 }
                 this.keymap = xkb.Keymap.fromString(this.wayland_manager.allocator, new_keymap_source) catch |err| {
-                    std.log.warn("failed to parse keymap: {}", .{err});
+                    log.warn("failed to parse keymap: {}", .{err});
                     if (@errorReturnTrace()) |trace| std.debug.dumpStackTrace(trace.*);
                     return;
                 };
@@ -1006,6 +1006,8 @@ const xdg_shell = @import("wayland-protocols").xdg_shell;
 // unstable protocols
 const xdg_decoration = @import("wayland-unstable").xdg_decoration_unstable_v1;
 const fractional_scale_v1 = @import("wayland-unstable").fractional_scale_v1;
+
+const log = std.log.scoped(.seizer);
 
 const shimizu = @import("shimizu");
 const builtin = @import("builtin");

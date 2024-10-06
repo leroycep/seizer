@@ -29,7 +29,7 @@ pub fn main() anyerror!void {
 
     // Call root module's `init()` function
     root.init() catch |err| {
-        std.log.warn("{s}\n", .{@errorName(err)});
+        log.warn("{s}\n", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -97,7 +97,7 @@ pub const Surface = opaque {
 
 pub export fn _render() void {
     loop.run(.no_wait) catch |err| {
-        std.log.warn("{s}", .{@errorName(err)});
+        log.warn("{s}", .{@errorName(err)});
         if (@errorReturnTrace()) |trace| {
             std.debug.dumpStackTrace(trace.*);
         }
@@ -106,7 +106,7 @@ pub export fn _render() void {
         if (window.on_render) |render| {
             window.surface.surface_make_gl_context_current();
             render(window.window()) catch |err| {
-                std.log.warn("{s}", .{@errorName(err)});
+                log.warn("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -123,7 +123,7 @@ pub export fn _key_event(surface: *Surface, key_code: u32, pressed: bool) void {
     if (button_bindings.get(binding)) |actions| {
         for (actions.items) |action| {
             action.on_event(pressed) catch |err| {
-                std.log.warn("{s}", .{@errorName(err)});
+                log.warn("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
                     std.debug.dumpStackTrace(trace.*);
                 }
@@ -301,6 +301,8 @@ pub export fn _dispatch_read_file_completion(callback_opaque_fn: *const anyopaqu
         .NotFound => callback(userdata, error.NotFound),
     }
 }
+
+const log = std.log.scoped(.seizer);
 
 const xev = @import("xev");
 const seizer = @import("../seizer.zig");

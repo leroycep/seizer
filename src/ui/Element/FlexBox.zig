@@ -88,7 +88,6 @@ fn element_getChildRect(this: *@This(), child: Element) ?Element.TransformedRect
 
     if (this.parent) |parent| {
         if (parent.getChildRect(this.element())) |rect_transform| {
-            // std.log.debug("{s}:{} parent transform = {any}", .{ @src().file, @src().line, rect_transform.transform });
             return .{
                 .rect = .{
                     .pos = .{

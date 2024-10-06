@@ -50,7 +50,7 @@ pub fn scanForDevices(this: *@This()) !void {
 
         try this.devices.append(this.gpa, device);
     }
-    std.log.debug("Found {} evdev input devices", .{this.devices.len});
+    log.debug("Found {} evdev input devices", .{this.devices.len});
 }
 
 const Device = struct {
@@ -533,7 +533,7 @@ fn onInputEvent(device: *Device, input_event: InputEvent) !void {
                         else if (!is_y and input_event.value <= 0)
                             3
                         else blk: {
-                            std.log.warn("this shouldn't be called ever", .{});
+                            log.warn("this shouldn't be called ever", .{});
                             break :blk 0;
                         };
                         const hat_anti_index: u2 = hat_subindex +% 2;

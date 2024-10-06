@@ -57,9 +57,9 @@ pub fn loadFromPrefixes(prefixes: []const []const u8, library_name: []const u8) 
         };
         break :load_lib lib;
     } else {
-        std.log.warn("could not load \"{s}\", searched paths:", .{library_name});
+        log.warn("could not load \"{s}\", searched paths:", .{library_name});
         for (prefixes) |prefix| {
-            std.log.warn("\t{s}", .{prefix});
+            log.warn("\t{s}", .{prefix});
         }
         return error.NotFound;
     };
@@ -73,12 +73,14 @@ pub fn populateFunctionTable(dyn_lib: *std.DynLib, FnTable: type) !FnTable {
     const fields = std.meta.fields(FnTable);
     inline for (fields) |field| {
         @field(fn_table, field.name) = dyn_lib.lookup(field.type, field.name) orelse {
-            std.log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
+            log.warn("function not found: \"{}\"", .{std.zig.fmtEscapes(field.name)});
             return error.FunctionNotFound;
         };
     }
 
     return fn_table;
 }
+
+const log = std.log.scoped(.@"dynamic-library-utils");
 
 const std = @import("std");
