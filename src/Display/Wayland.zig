@@ -2,12 +2,16 @@ const Wayland = @This();
 
 allocator: std.mem.Allocator,
 
-connection: wayland.Conn,
-registry: *wayland.wayland.wl_registry,
+connection: shimizu.Connection,
+connection_recv_completion: xev.Completion = undefined,
+
+registry: shimizu.Object.WithInterface(wayland.wl_registry),
 globals: Globals = .{},
 
+xdg_wm_base_listener: shimizu.Listener = undefined,
+
 // (wl_surface id, window)
-windows: std.AutoArrayHashMapUnmanaged(u32, *Window) = .{},
+windows: std.AutoArrayHashMapUnmanaged(shimizu.Object.WithInterface(wayland.wl_surface), *Window) = .{},
 seats: std.ArrayListUnmanaged(*Seat) = .{},
 
 pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Display.Interface, @This(), .{
@@ -33,13 +37,6 @@ pub const DISPLAY_INTERFACE = seizer.meta.interfaceFromConcreteTypeFns(seizer.Di
 });
 
 pub fn _create(allocator: std.mem.Allocator, loop: *xev.Loop) seizer.Display.CreateError!seizer.Display {
-    // initialize wayland connection
-    const connection_path = wayland.getDisplayPath(allocator) catch |err| switch (err) {
-        error.EnvironmentVariableNotFound => return error.DisplayNotFound,
-        else => |e| return e,
-    };
-    defer allocator.free(connection_path);
-
     // allocate this
     const this = try allocator.create(@This());
     errdefer allocator.destroy(this);
@@ -51,21 +48,32 @@ pub fn _create(allocator: std.mem.Allocator, loop: *xev.Loop) seizer.Display.Cre
     };
 
     // open connection to wayland server
-    this.connection.connect(loop, allocator, connection_path) catch |err| switch (err) {
+    this.connection = shimizu.openConnection(allocator, .{}) catch |err| switch (err) {
         error.FileNotFound => return error.DisplayNotFound,
         else => |e| std.debug.panic("Unexpected error: {}", .{e}),
     };
-    errdefer this.connection.deinit();
+    errdefer this.connection.close();
 
-    this.registry = this.connection.getRegistry() catch |err| switch (err) {
+    const display = this.connection.getDisplayProxy();
+    const registry = display.sendRequest(.get_registry, .{}) catch |err| switch (err) {
         else => |e| std.debug.panic("Unexpected error: {}", .{e}),
     };
-    this.registry.on_event = onRegistryEvent;
-    this.registry.userdata = this;
+    this.registry = registry.id;
+    registry.setEventListener(&this.globals.listener, onRegistryEvent, this);
 
-    this.connection.dispatchUntilSync(loop) catch |err| switch (err) {
-        else => |e| std.debug.panic("Unexpected error: {}", .{e}),
-    };
+    {
+        var sync_is_done: bool = false;
+        var wl_callback_listener: shimizu.Listener = undefined;
+        const wl_callback = display.sendRequest(.sync, .{}) catch |err| switch (err) {
+            else => |e| std.debug.panic("Unexpected error: {}", .{e}),
+        };
+        wl_callback.setEventListener(&wl_callback_listener, onWlCallbackSetTrue, &sync_is_done);
+        while (!sync_is_done) {
+            this.connection.recv() catch |err| switch (err) {
+                else => |e| std.debug.panic("Unexpected error: {}", .{e}),
+            };
+        }
+    }
     if (this.globals.wl_compositor == null) {
         std.log.scoped(.seizer).warn("wayland: wl_compositor extension missing", .{});
         return error.ExtensionMissing;
@@ -80,7 +88,17 @@ pub fn _create(allocator: std.mem.Allocator, loop: *xev.Loop) seizer.Display.Cre
         return error.ExtensionMissing;
     }
 
-    this.globals.xdg_wm_base.?.on_event = onXdgWmBaseEvent;
+    const xdg_wm_base = shimizu.Proxy(xdg_shell.xdg_wm_base){ .connection = &this.connection, .id = this.globals.xdg_wm_base.? };
+    xdg_wm_base.setEventListener(&this.xdg_wm_base_listener, onXdgWmBaseEvent, null);
+
+    this.connection_recv_completion = .{
+        .op = .{ .recvmsg = .{
+            .fd = this.connection.socket,
+            .msghdr = this.connection.getRecvMsgHdr(),
+        } },
+        .callback = onConnectionRecvMessage,
+    };
+    loop.add(&this.connection_recv_completion);
 
     return seizer.Display{
         .pointer = this,
@@ -99,57 +117,78 @@ pub fn _destroy(this: *@This()) void {
     }
     this.seats.deinit(this.allocator);
 
-    this.connection.deinit();
+    this.connection.close();
 
     this.allocator.destroy(this);
 }
 
-const Globals = struct {
-    wl_compositor: ?*wayland.wayland.wl_compositor = null,
-    xdg_wm_base: ?*xdg_shell.xdg_wm_base = null,
-    zwp_linux_dmabuf_v1: ?*linux_dmabuf_v1.zwp_linux_dmabuf_v1 = null,
-    wl_shm: ?*wayland.wayland.wl_shm = null,
-    xdg_decoration_manager: ?*xdg_decoration.zxdg_decoration_manager_v1 = null,
+fn onConnectionRecvMessage(userdata: ?*anyopaque, loop: *xev.Loop, completion: *xev.Completion, result: xev.Result) xev.CallbackAction {
+    _ = userdata;
+    _ = loop;
+    const this: *@This() = @fieldParentPtr("connection_recv_completion", completion);
+    if (result.recvmsg) |num_bytes_read| {
+        this.connection.processRecvMsgReturn(num_bytes_read) catch |err| {
+            std.log.warn("error processing messages from wayland: {}", .{err});
+        };
+        this.connection_recv_completion.op.recvmsg.msghdr = this.connection.getRecvMsgHdr();
+        return .rearm;
+    } else |err| {
+        std.log.err("error receiving messages from wayland compositor: {}", .{err});
+        return .disarm;
+    }
+}
 
-    wp_viewporter: ?*viewporter.wp_viewporter = null,
-    wp_fractional_scale_manager_v1: ?*fractional_scale_v1.wp_fractional_scale_manager_v1 = null,
+fn onWlCallbackSetTrue(listener: *shimizu.Listener, wl_callback: shimizu.Proxy(wayland.wl_callback), event: wayland.wl_callback.Event) !void {
+    _ = wl_callback;
+    _ = event;
+
+    const bool_ptr: *bool = @ptrCast(listener.userdata);
+    bool_ptr.* = true;
+}
+
+const Globals = struct {
+    listener: shimizu.Listener = undefined,
+
+    wl_compositor: ?shimizu.Object.WithInterface(wayland.wl_compositor) = null,
+    xdg_wm_base: ?shimizu.Object.WithInterface(xdg_shell.xdg_wm_base) = null,
+    zwp_linux_dmabuf_v1: ?shimizu.Object.WithInterface(linux_dmabuf_v1.zwp_linux_dmabuf_v1) = null,
+    wl_shm: ?shimizu.Object.WithInterface(wayland.wl_shm) = null,
+    xdg_decoration_manager: ?shimizu.Object.WithInterface(xdg_decoration.zxdg_decoration_manager_v1) = null,
+
+    wp_viewporter: ?shimizu.Object.WithInterface(viewporter.wp_viewporter) = null,
+    wp_fractional_scale_manager_v1: ?shimizu.Object.WithInterface(fractional_scale_v1.wp_fractional_scale_manager_v1) = null,
 };
 
-fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque, event: wayland.wayland.wl_registry.Event) void {
-    const this: *@This() = @ptrCast(@alignCast(userdata));
+fn onRegistryEvent(listener: *shimizu.Listener, registry: shimizu.Proxy(wayland.wl_registry), event: wayland.wl_registry.Event) !void {
+    const globals: *Globals = @fieldParentPtr("listener", listener);
+    const this: *@This() = @fieldParentPtr("globals", globals);
+
     switch (event) {
         .global => |global| {
-            const global_interface = global.interface orelse return;
-            if (std.mem.eql(u8, global_interface, wayland.wayland.wl_compositor.INTERFACE.name) and global.version >= wayland.wayland.wl_compositor.INTERFACE.version) {
-                this.globals.wl_compositor = registry.bind(wayland.wayland.wl_compositor, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, xdg_shell.xdg_wm_base.INTERFACE.name) and global.version >= xdg_shell.xdg_wm_base.INTERFACE.version) {
-                this.globals.xdg_wm_base = registry.bind(xdg_shell.xdg_wm_base, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.name) and global.version >= linux_dmabuf_v1.zwp_linux_dmabuf_v1.INTERFACE.version) {
-                this.globals.zwp_linux_dmabuf_v1 = registry.bind(linux_dmabuf_v1.zwp_linux_dmabuf_v1, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_shm.INTERFACE.name) and global.version >= wayland.wayland.wl_shm.INTERFACE.version) {
-                this.globals.wl_shm = registry.bind(wayland.wayland.wl_shm, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.name) and global.version >= xdg_decoration.zxdg_decoration_manager_v1.INTERFACE.version) {
-                this.globals.xdg_decoration_manager = registry.bind(xdg_decoration.zxdg_decoration_manager_v1, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, viewporter.wp_viewporter.INTERFACE.name) and global.version >= viewporter.wp_viewporter.INTERFACE.version) {
-                this.globals.wp_viewporter = registry.bind(viewporter.wp_viewporter, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, fractional_scale_v1.wp_fractional_scale_manager_v1.INTERFACE.name) and global.version >= fractional_scale_v1.wp_fractional_scale_manager_v1.INTERFACE.version) {
-                this.globals.wp_fractional_scale_manager_v1 = registry.bind(fractional_scale_v1.wp_fractional_scale_manager_v1, global.name) catch return;
-            } else if (std.mem.eql(u8, global_interface, wayland.wayland.wl_seat.INTERFACE.name) and global.version >= wayland.wayland.wl_seat.INTERFACE.version) {
+            if (std.mem.eql(u8, global.interface, wayland.wl_seat.NAME) and global.version >= wayland.wl_seat.VERSION) {
                 this.seats.ensureUnusedCapacity(this.allocator, 1) catch return;
 
                 const seat = this.allocator.create(Seat) catch return;
-                const wl_seat = registry.bind(wayland.wayland.wl_seat, global.name) catch {
-                    this.allocator.destroy(seat);
-                    return;
-                };
+                const wl_seat = try registry.connection.createObject(wayland.wl_seat);
+                try registry.sendRequest(.bind, .{ .name = global.name, .id = wl_seat.id.asGenericNewId() });
+
                 seat.* = .{
                     .wayland_manager = this,
                     .wl_seat = wl_seat,
                     .focused_window = null,
                 };
-                seat.wl_seat.userdata = seat;
-                seat.wl_seat.on_event = Seat.onSeatCallback;
+                wl_seat.setEventListener(&seat.listener, Seat.onSeatCallback, seat);
+
                 this.seats.appendAssumeCapacity(seat);
+            } else inline for (@typeInfo(Globals).Struct.fields) |field| {
+                if (@typeInfo(field.type) != .Optional) continue;
+                const INTERFACE = @typeInfo(field.type).Optional.child._SPECIFIED_INTERFACE;
+
+                if (std.mem.eql(u8, global.interface, INTERFACE.NAME) and global.version >= INTERFACE.VERSION) {
+                    const object = try registry.connection.createObject(INTERFACE);
+                    try registry.sendRequest(.bind, .{ .name = global.name, .id = object.id.asGenericNewId() });
+                    @field(this.globals, field.name) = object.id;
+                }
             } else {
                 std.log.debug("unknown wayland global object: {}@{?s} version {}", .{ global.name, global.interface, global.version });
             }
@@ -158,13 +197,11 @@ fn onRegistryEvent(registry: *wayland.wayland.wl_registry, userdata: ?*anyopaque
     }
 }
 
-fn onXdgWmBaseEvent(xdg_wm_base: *xdg_shell.xdg_wm_base, userdata: ?*anyopaque, event: xdg_shell.xdg_wm_base.Event) void {
-    _ = userdata;
+fn onXdgWmBaseEvent(listener: *shimizu.Listener, xdg_wm_base: shimizu.Proxy(xdg_shell.xdg_wm_base), event: xdg_shell.xdg_wm_base.Event) !void {
+    _ = listener;
     switch (event) {
         .ping => |conf| {
-            xdg_wm_base.pong(conf.serial) catch |e| {
-                std.log.warn("Failed to ack ping: {}", .{e});
-            };
+            try xdg_wm_base.sendRequest(.pong, .{ .serial = conf.serial });
         },
     }
 }
@@ -174,25 +211,26 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
 
     const size = [2]c_int{ @intCast(options.size[0]), @intCast(options.size[1]) };
 
-    const wl_surface = try this.globals.wl_compositor.?.create_surface();
-    const xdg_surface = try this.globals.xdg_wm_base.?.get_xdg_surface(wl_surface);
-    const xdg_toplevel = try xdg_surface.get_toplevel();
-    const xdg_toplevel_decoration: ?*xdg_decoration.zxdg_toplevel_decoration_v1 = if (this.globals.xdg_decoration_manager) |deco_man|
-        try deco_man.get_toplevel_decoration(xdg_toplevel)
+    const wl_surface = this.connection.sendRequest(wayland.wl_compositor, this.globals.wl_compositor.?, .create_surface, .{}) catch return error.ConnectionLost;
+    const xdg_surface = this.connection.sendRequest(xdg_shell.xdg_wm_base, this.globals.xdg_wm_base.?, .get_xdg_surface, .{ .surface = wl_surface.id }) catch return error.ConnectionLost;
+    const xdg_toplevel = xdg_surface.sendRequest(.get_toplevel, .{}) catch return error.ConnectionLost;
+
+    const xdg_toplevel_decoration: ?shimizu.Proxy(xdg_decoration.zxdg_toplevel_decoration_v1) = if (this.globals.xdg_decoration_manager) |deco_man|
+        this.connection.sendRequest(xdg_decoration.zxdg_decoration_manager_v1, deco_man, .get_toplevel_decoration, .{ .toplevel = xdg_toplevel.id }) catch return error.ConnectionLost
     else
         null;
 
-    const wp_viewport: ?*viewporter.wp_viewport = if (this.globals.wp_viewporter) |wp_viewporter|
-        try wp_viewporter.get_viewport(wl_surface)
+    const wp_viewport: ?shimizu.Proxy(viewporter.wp_viewport) = if (this.globals.wp_viewporter) |wp_viewporter|
+        this.connection.sendRequest(viewporter.wp_viewporter, wp_viewporter, .get_viewport, .{ .surface = wl_surface.id }) catch return error.ConnectionLost
     else
         null;
 
-    const wp_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1 = if (this.globals.wp_fractional_scale_manager_v1) |scale_man|
-        try scale_man.get_fractional_scale(wl_surface)
+    const wp_fractional_scale: ?shimizu.Proxy(fractional_scale_v1.wp_fractional_scale_v1) = if (this.globals.wp_fractional_scale_manager_v1) |scale_man|
+        this.connection.sendRequest(fractional_scale_v1.wp_fractional_scale_manager_v1, scale_man, .get_fractional_scale, .{ .surface = wl_surface.id }) catch return error.ConnectionLost
     else
         null;
 
-    try wl_surface.commit();
+    wl_surface.sendRequest(.commit, .{}) catch return error.ConnectionLost;
 
     const window = try this.allocator.create(Window);
     errdefer this.allocator.destroy(window);
@@ -221,23 +259,19 @@ fn _createWindow(this: *@This(), options: seizer.Display.Window.CreateOptions) s
         },
     };
 
-    window.xdg_surface.userdata = window;
-    window.xdg_toplevel.userdata = window;
-    window.xdg_surface.on_event = Window.onXdgSurfaceEvent;
-    window.xdg_toplevel.on_event = Window.onXdgToplevelEvent;
+    window.xdg_surface.setEventListener(&window.xdg_surface_listener, Window.onXdgSurfaceEvent, null);
+    window.xdg_toplevel.setEventListener(&window.xdg_toplevel_listener, Window.onXdgToplevelEvent, null);
 
     if (window.xdg_toplevel_decoration) |decoration| {
-        decoration.userdata = window;
-        decoration.on_event = Window.onXdgToplevelDecorationEvent;
+        decoration.setEventListener(&window.xdg_toplevel_decoration_listener, Window.onXdgToplevelDecorationEvent, null);
     }
     if (window.wp_fractional_scale) |frac_scale| {
-        frac_scale.userdata = window;
-        frac_scale.on_event = Window.onWpFractionalScale;
+        frac_scale.setEventListener(&window.wp_fractional_scale_listener, Window.onWpFractionalScale, null);
     }
 
-    try window.xdg_toplevel.set_title(options.title);
+    window.xdg_toplevel.sendRequest(.set_title, .{ .title = options.title }) catch return error.ConnectionLost;
     if (options.app_name) |app_name| {
-        try window.xdg_toplevel.set_app_id(app_name);
+        window.xdg_toplevel.sendRequest(.set_app_id, .{ .app_id = app_name }) catch return error.ConnectionLost;
     }
 
     this.windows.putAssumeCapacity(window.wl_surface.id, window);
@@ -253,27 +287,28 @@ fn _destroyWindow(this: *@This(), window_opaque: *seizer.Display.Window) void {
     }
 
     // hide window
-    window.wl_surface.attach(null, 0, 0) catch {};
-    window.wl_surface.commit() catch {};
+    window.wl_surface.sendRequest(.attach, .{ .buffer = @enumFromInt(0), .x = 0, .y = 0 }) catch {};
+    window.wl_surface.sendRequest(.commit, .{}) catch {};
 
     // destroy surfaces
-    if (window.xdg_toplevel_decoration) |decoration| decoration.destroy() catch {};
-    window.xdg_toplevel.destroy() catch {};
-    window.xdg_surface.destroy() catch {};
-    window.wl_surface.destroy() catch {};
+    if (window.xdg_toplevel_decoration) |decoration| decoration.sendRequest(.destroy, .{}) catch {};
+    window.xdg_toplevel.sendRequest(.destroy, .{}) catch {};
+    window.xdg_surface.sendRequest(.destroy, .{}) catch {};
+    window.wl_surface.sendRequest(.destroy, .{}) catch {};
 
-    window.xdg_toplevel.userdata = null;
-    window.xdg_surface.userdata = null;
-    window.wl_surface.userdata = null;
+    // TODO: remove window listeners from types
+    // window.xdg_toplevel.userdata = null;
+    // window.xdg_surface.userdata = null;
+    // window.wl_surface.userdata = null;
 
-    window.xdg_toplevel.on_event = null;
-    window.xdg_surface.on_event = null;
-    window.wl_surface.on_event = null;
+    // window.xdg_toplevel.on_event = null;
+    // window.xdg_surface.on_event = null;
+    // window.wl_surface.on_event = null;
 
-    if (window.frame_callback) |frame_callback| {
-        frame_callback.userdata = null;
-        frame_callback.on_event = null;
-    }
+    // if (window.frame_callback) |frame_callback| {
+    //     frame_callback.userdata = null;
+    //     frame_callback.on_event = null;
+    // }
 
     for (this.seats.items) |seat| {
         if (seat.focused_window) |focused_window| {
@@ -318,47 +353,55 @@ fn _windowGetUserdata(this: *@This(), window_opaque: *seizer.Display.Window) ?*a
     return window.userdata;
 }
 
-fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, buffer_opaque: *seizer.Display.Buffer) !void {
+fn _windowPresentBuffer(this: *@This(), window_opaque: *seizer.Display.Window, buffer_opaque: *seizer.Display.Buffer) seizer.Display.Window.PresentError!void {
     _ = this;
     const window: *Window = @ptrCast(@alignCast(window_opaque));
     const buffer: *Buffer = @ptrCast(@alignCast(buffer_opaque));
 
-    try window.setupFrameCallback();
+    window.setupFrameCallback() catch return error.ConnectionLost;
 
-    try window.wl_surface.attach(buffer.wl_buffer, 0, 0);
-    try window.wl_surface.damage_buffer(0, 0, @intCast(buffer.size[0]), @intCast(buffer.size[1]));
+    window.wl_surface.sendRequest(.attach, .{ .buffer = buffer.wl_buffer.id, .x = 0, .y = 0 }) catch return error.ConnectionLost;
+    window.wl_surface.sendRequest(.damage_buffer, .{
+        .x = 0,
+        .y = 0,
+        .width = @intCast(buffer.size[0]),
+        .height = @intCast(buffer.size[1]),
+    }) catch return error.ConnectionLost;
     if (window.wp_viewport) |viewport| {
-        try viewport.set_source(
-            wayland.fixed.fromFloat(f32, 0),
-            wayland.fixed.fromFloat(f32, 0),
-            wayland.fixed.fromInt(@intCast(buffer.size[0]), 0),
-            wayland.fixed.fromInt(@intCast(buffer.size[1]), 0),
-        );
-        try viewport.set_destination(
-            @intFromFloat(@as(f32, @floatFromInt(buffer.size[0])) * buffer.scale),
-            @intFromFloat(@as(f32, @floatFromInt(buffer.size[1])) * buffer.scale),
-        );
+        viewport.sendRequest(.set_source, .{
+            .x = shimizu.Fixed.fromFloat(f32, 0),
+            .y = shimizu.Fixed.fromFloat(f32, 0),
+            .width = shimizu.Fixed.fromInt(@intCast(buffer.size[0]), 0),
+            .height = shimizu.Fixed.fromInt(@intCast(buffer.size[1]), 0),
+        }) catch return error.ConnectionLost;
+        viewport.sendRequest(.set_destination, .{
+            .width = @intFromFloat(@as(f32, @floatFromInt(buffer.size[0])) * buffer.scale),
+            .height = @intFromFloat(@as(f32, @floatFromInt(buffer.size[1])) * buffer.scale),
+        }) catch return error.ConnectionLost;
     }
-    try window.wl_surface.commit();
+    window.wl_surface.sendRequest(.commit, .{}) catch return error.ConnectionLost;
 }
 
 const Buffer = struct {
     allocator: std.mem.Allocator,
     size: [2]u32,
     scale: f32,
-    wl_buffer: *wayland.wayland.wl_buffer,
+    wl_buffer: shimizu.Proxy(wayland.wl_buffer),
+    listener: shimizu.Listener,
+    delete_listener: shimizu.DeleteListener,
     userdata: ?*anyopaque,
     on_release: ?*const fn (?*anyopaque, *seizer.Display.Buffer) void,
 
-    fn onWlBufferDelete(wl_buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque) void {
-        _ = wl_buffer;
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onWlBufferDelete(connection: *shimizu.Connection, object: shimizu.Object, object_info: shimizu.ObjectInfo) void {
+        _ = connection;
+        _ = object;
+        const this: *@This() = @fieldParentPtr("delete_listener", object_info.delete_listener.?);
         this.allocator.destroy(this);
     }
 
-    fn onWlBufferEvent(wl_buffer: *wayland.wayland.wl_buffer, userdata: ?*anyopaque, event: wayland.wayland.wl_buffer.Event) void {
+    fn onWlBufferEvent(listener: *shimizu.Listener, wl_buffer: shimizu.Proxy(wayland.wl_buffer), event: wayland.wl_buffer.Event) !void {
+        const this: *@This() = @fieldParentPtr("listener", listener);
         _ = wl_buffer;
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
         switch (event) {
             .release => if (this.on_release) |on_release| {
                 on_release(this.userdata, @ptrCast(this));
@@ -375,39 +418,46 @@ fn _isCreateBufferFromOpaqueFdSupported(this: *@This()) bool {
 }
 
 fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.CreateOptionsDMA_BUF) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
-    const wl_dmabuf_buffer_params = try this.globals.zwp_linux_dmabuf_v1.?.create_params();
-    defer wl_dmabuf_buffer_params.destroy() catch {};
+    const wl_dmabuf_buffer_params = this.connection.sendRequest(
+        linux_dmabuf_v1.zwp_linux_dmabuf_v1,
+        this.globals.zwp_linux_dmabuf_v1.?,
+        .create_params,
+        .{},
+    ) catch return error.ConnectionLost;
+    defer wl_dmabuf_buffer_params.sendRequest(.destroy, .{}) catch {};
 
     for (options.planes) |plane| {
-        try wl_dmabuf_buffer_params.add(
-            @enumFromInt(plane.fd),
-            @intCast(plane.index),
-            @intCast(plane.offset),
-            @intCast(plane.stride),
-            @intCast((options.format.modifiers >> 32) & 0xFFFF_FFFF),
-            @intCast((options.format.modifiers) & 0xFFFF_FFFF),
-        );
+        wl_dmabuf_buffer_params.sendRequest(.add, .{
+            .fd = @enumFromInt(plane.fd),
+            .plane_idx = @intCast(plane.index),
+            .offset = @intCast(plane.offset),
+            .stride = @intCast(plane.stride),
+            .modifier_hi = @intCast((options.format.modifiers >> 32) & 0xFFFF_FFFF),
+            .modifier_lo = @intCast((options.format.modifiers) & 0xFFFF_FFFF),
+        }) catch return error.ConnectionLost;
     }
 
-    const wl_buffer = try wl_dmabuf_buffer_params.create_immed(
-        @intCast(options.size[0]),
-        @intCast(options.size[1]),
-        @intFromEnum(options.format.fourcc),
-        .{ .y_invert = false, .interlaced = false, .bottom_first = false },
-    );
+    const wl_buffer = wl_dmabuf_buffer_params.sendRequest(.create_immed, .{
+        .width = @intCast(options.size[0]),
+        .height = @intCast(options.size[1]),
+        .format = @intFromEnum(options.format.fourcc),
+        .flags = .{ .y_invert = false, .interlaced = false, .bottom_first = false },
+    }) catch return error.ConnectionLost;
     const buffer = try this.allocator.create(Buffer);
     buffer.* = .{
         .allocator = this.allocator,
         .size = options.size,
         .scale = options.scale,
         .wl_buffer = wl_buffer,
+        .listener = undefined,
+        .delete_listener = .{ .callback = Buffer.onWlBufferDelete },
         .userdata = options.userdata,
         .on_release = options.on_release,
     };
 
-    wl_buffer.userdata = buffer;
-    wl_buffer.on_delete = Buffer.onWlBufferDelete;
-    wl_buffer.on_event = Buffer.onWlBufferEvent;
+    wl_buffer.setEventListener(&buffer.listener, Buffer.onWlBufferEvent, null);
+    const wl_buffer_info = wl_buffer.connection.objects.getPtr(wl_buffer.id.asObject()).?;
+    wl_buffer_info.delete_listener = &buffer.delete_listener;
 
     return @ptrCast(buffer);
 }
@@ -415,18 +465,18 @@ fn _createBufferFromDMA_BUF(this: *@This(), options: seizer.Display.Buffer.Creat
 fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.CreateOptionsOpaqueFd) seizer.Display.Buffer.CreateError!*seizer.Display.Buffer {
     std.log.debug("creating opaque fd display buffer", .{});
     const size: i32 = @intCast(options.pool_size);
-    const wl_shm_pool = try this.globals.wl_shm.?.create_pool(@enumFromInt(options.fd), size);
+    const wl_shm_pool = this.connection.sendRequest(wayland.wl_shm, this.globals.wl_shm.?, .create_pool, .{ .fd = @enumFromInt(options.fd), .size = size }) catch return error.ConnectionLost;
 
-    const wl_buffer = try wl_shm_pool.create_buffer(
-        @intCast(options.offset),
-        @intCast(options.size[0]),
-        @intCast(options.size[1]),
-        @intCast(options.stride),
-        switch (options.format) {
+    const wl_buffer = wl_shm_pool.sendRequest(.create_buffer, .{
+        .offset = @intCast(options.offset),
+        .width = @intCast(options.size[0]),
+        .height = @intCast(options.size[1]),
+        .stride = @intCast(options.stride),
+        .format = switch (options.format) {
             .ARGB8888 => .argb8888,
             else => @enumFromInt(@intFromEnum(options.format)),
         },
-    );
+    }) catch return error.ConnectionLost;
 
     const buffer = try this.allocator.create(Buffer);
     buffer.* = .{
@@ -434,13 +484,15 @@ fn _createBufferFromOpaqueFd(this: *@This(), options: seizer.Display.Buffer.Crea
         .size = options.size,
         .scale = options.scale,
         .wl_buffer = wl_buffer,
+        .listener = undefined,
+        .delete_listener = .{ .callback = Buffer.onWlBufferDelete },
         .userdata = options.userdata,
         .on_release = options.on_release,
     };
 
-    wl_buffer.userdata = buffer;
-    wl_buffer.on_delete = Buffer.onWlBufferDelete;
-    wl_buffer.on_event = Buffer.onWlBufferEvent;
+    wl_buffer.setEventListener(&buffer.listener, Buffer.onWlBufferEvent, null);
+    const wl_buffer_info = wl_buffer.connection.objects.getPtr(wl_buffer.id.asObject()).?;
+    wl_buffer_info.delete_listener = &buffer.delete_listener;
 
     return @ptrCast(buffer);
 }
@@ -452,7 +504,7 @@ fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Display.Buffer) void {
     // tell the wayland server to destroy this buffer.
     // We wait until the server tells us it is deleted to destroy the memory on our side.
     // (See Buffer.onWlDelete)
-    buffer.wl_buffer.destroy() catch unreachable;
+    buffer.wl_buffer.sendRequest(.destroy, .{}) catch unreachable;
     buffer.userdata = null;
     buffer.on_release = null;
 }
@@ -460,18 +512,24 @@ fn _destroyBuffer(this: *@This(), buffer_opaque: *seizer.Display.Buffer) void {
 const Window = struct {
     wayland: *Wayland,
 
-    wl_surface: *wayland.wayland.wl_surface,
-    xdg_surface: *xdg_shell.xdg_surface,
-    xdg_toplevel: *xdg_shell.xdg_toplevel,
-    xdg_toplevel_decoration: ?*xdg_decoration.zxdg_toplevel_decoration_v1,
-    wp_viewport: ?*viewporter.wp_viewport,
-    wp_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1,
+    wl_surface: shimizu.Proxy(wayland.wl_surface),
+    xdg_surface: shimizu.Proxy(xdg_shell.xdg_surface),
+    xdg_toplevel: shimizu.Proxy(xdg_shell.xdg_toplevel),
+    xdg_toplevel_decoration: ?shimizu.Proxy(xdg_decoration.zxdg_toplevel_decoration_v1),
+    wp_viewport: ?shimizu.Proxy(viewporter.wp_viewport),
+    wp_fractional_scale: ?shimizu.Proxy(fractional_scale_v1.wp_fractional_scale_v1),
+
+    xdg_surface_listener: shimizu.Listener = undefined,
+    xdg_toplevel_listener: shimizu.Listener = undefined,
+    xdg_toplevel_decoration_listener: shimizu.Listener = undefined,
+    wp_fractional_scale_listener: shimizu.Listener = undefined,
 
     on_event: ?*const fn (*seizer.Display.Window, seizer.Display.Window.Event) anyerror!void,
     on_render: *const fn (*seizer.Display.Window) anyerror!void,
     on_destroy: ?*const fn (*seizer.Display.Window) void,
 
-    frame_callback: ?*wayland.wayland.wl_callback = null,
+    frame_callback: ?shimizu.Proxy(wayland.wl_callback) = null,
+    frame_callback_listener: shimizu.Listener = undefined,
 
     new_configuration: Configuration,
     current_configuration: Configuration,
@@ -490,13 +548,13 @@ const Window = struct {
         this.should_close = should_close;
     }
 
-    fn onXdgSurfaceEvent(xdg_surface: *xdg_shell.xdg_surface, userdata: ?*anyopaque, event: xdg_shell.xdg_surface.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onXdgSurfaceEvent(listener: *shimizu.Listener, xdg_surface: shimizu.Proxy(xdg_shell.xdg_surface), event: xdg_shell.xdg_surface.Event) !void {
+        const this: *@This() = @fieldParentPtr("xdg_surface_listener", listener);
         switch (event) {
             .configure => |conf| {
                 if (this.xdg_toplevel_decoration) |decoration| {
                     if (this.current_configuration.decoration_mode != this.new_configuration.decoration_mode) {
-                        decoration.set_mode(this.new_configuration.decoration_mode) catch {};
+                        try decoration.sendRequest(.set_mode, .{ .mode = this.new_configuration.decoration_mode });
                         this.current_configuration.decoration_mode = this.new_configuration.decoration_mode;
                     }
                 }
@@ -516,22 +574,18 @@ const Window = struct {
                     }
                 }
 
-                xdg_surface.ack_configure(conf.serial) catch |e| {
-                    std.log.warn("Failed to ack configure: {}", .{e});
-                    return;
-                };
+                try xdg_surface.sendRequest(.ack_configure, .{ .serial = conf.serial });
 
                 if (this.frame_callback == null) {
-                    const sync_callback = this.wayland.connection.sync() catch unreachable;
-                    sync_callback.on_event = Window.onFrameCallback;
-                    sync_callback.userdata = this;
+                    this.frame_callback = try this.wayland.connection.getDisplayProxy().sendRequest(.sync, .{});
+                    this.frame_callback.?.setEventListener(&this.frame_callback_listener, Window.onFrameCallback, null);
                 }
             },
         }
     }
 
-    fn onXdgToplevelEvent(xdg_toplevel: *xdg_shell.xdg_toplevel, userdata: ?*anyopaque, event: xdg_shell.xdg_toplevel.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onXdgToplevelEvent(listener: *shimizu.Listener, xdg_toplevel: shimizu.Proxy(xdg_shell.xdg_toplevel), event: xdg_shell.xdg_toplevel.Event) !void {
+        const this: *@This() = @fieldParentPtr("xdg_toplevel_listener", listener);
         _ = xdg_toplevel;
         switch (event) {
             .close => if (this.on_event) |on_event| {
@@ -548,11 +602,12 @@ const Window = struct {
                     this.new_configuration.window_size[1] = cfg.height;
                 }
             },
+            else => {},
         }
     }
 
-    fn onXdgToplevelDecorationEvent(xdg_toplevel_decoration: *xdg_decoration.zxdg_toplevel_decoration_v1, userdata: ?*anyopaque, event: xdg_decoration.zxdg_toplevel_decoration_v1.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onXdgToplevelDecorationEvent(listener: *shimizu.Listener, xdg_toplevel_decoration: shimizu.Proxy(xdg_decoration.zxdg_toplevel_decoration_v1), event: xdg_decoration.zxdg_toplevel_decoration_v1.Event) !void {
+        const this: *@This() = @fieldParentPtr("xdg_toplevel_decoration_listener", listener);
         _ = xdg_toplevel_decoration;
         switch (event) {
             .configure => |cfg| {
@@ -563,8 +618,8 @@ const Window = struct {
         }
     }
 
-    fn onWpFractionalScale(wp_fractional_scale: *fractional_scale_v1.wp_fractional_scale_v1, userdata: ?*anyopaque, event: fractional_scale_v1.wp_fractional_scale_v1.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onWpFractionalScale(listener: *shimizu.Listener, wp_fractional_scale: shimizu.Proxy(fractional_scale_v1.wp_fractional_scale_v1), event: fractional_scale_v1.wp_fractional_scale_v1.Event) !void {
+        const this: *@This() = @fieldParentPtr("wp_fractional_scale_listener", listener);
         _ = wp_fractional_scale;
         switch (event) {
             .preferred_scale => |preferred| {
@@ -583,13 +638,12 @@ const Window = struct {
 
     fn setupFrameCallback(this: *@This()) !void {
         if (this.frame_callback != null) return;
-        this.frame_callback = try this.wl_surface.frame();
-        this.frame_callback.?.on_event = onFrameCallback;
-        this.frame_callback.?.userdata = this;
+        this.frame_callback = try this.wl_surface.sendRequest(.frame, .{});
+        this.frame_callback.?.setEventListener(&this.frame_callback_listener, onFrameCallback, this);
     }
 
-    fn onFrameCallback(callback: *wayland.wayland.wl_callback, userdata: ?*anyopaque, event: wayland.wayland.wl_callback.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata.?));
+    fn onFrameCallback(listener: *shimizu.Listener, callback: shimizu.Proxy(wayland.wl_callback), event: wayland.wl_callback.Event) !void {
+        const this: *@This() = @fieldParentPtr("frame_callback_listener", listener);
         _ = callback;
         switch (event) {
             .done => {
@@ -608,20 +662,25 @@ const Window = struct {
 
 const Seat = struct {
     wayland_manager: *Wayland,
-    wl_seat: *wayland.wayland.wl_seat,
-    wl_pointer: ?*wayland.wayland.wl_pointer = null,
-    wl_keyboard: ?*wayland.wayland.wl_keyboard = null,
+    wl_seat: shimizu.Proxy(wayland.wl_seat),
+    wl_pointer: ?shimizu.Proxy(wayland.wl_pointer) = null,
+    wl_keyboard: ?shimizu.Proxy(wayland.wl_keyboard) = null,
+
+    listener: shimizu.Listener = undefined,
 
     focused_window: ?*Window,
     pointer_pos: [2]f32 = .{ 0, 0 },
     scroll_vector: [2]f32 = .{ 0, 0 },
-    cursor_wl_surface: ?*wayland.wayland.wl_surface = null,
-    wp_viewport: ?*viewporter.wp_viewport = null,
+    cursor_wl_surface: ?shimizu.Proxy(wayland.wl_surface) = null,
+    wp_viewport: ?shimizu.Proxy(viewporter.wp_viewport) = null,
 
+    pointer_listener: shimizu.Listener = undefined,
     pointer_serial: u32 = 0,
-    cursor_fractional_scale: ?*fractional_scale_v1.wp_fractional_scale_v1 = null,
+    cursor_fractional_scale: ?shimizu.Proxy(fractional_scale_v1.wp_fractional_scale_v1) = null,
+    cursor_fractional_scale_listener: shimizu.Listener = undefined,
     pointer_scale: u32 = 120,
 
+    keyboard_listener: shimizu.Listener = undefined,
     keymap: ?xkb.Keymap = null,
     keymap_state: xkb.Keymap.State = undefined,
     keyboard_repeat_rate: u32 = 0,
@@ -632,58 +691,56 @@ const Seat = struct {
         this.wayland_manager.allocator.destroy(this);
     }
 
-    fn onSeatCallback(seat: *wayland.wayland.wl_seat, userdata: ?*anyopaque, event: wayland.wayland.wl_seat.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata));
-        _ = seat;
+    fn onSeatCallback(listener: *shimizu.Listener, wl_seat: shimizu.Proxy(wayland.wl_seat), event: wayland.wl_seat.Event) !void {
+        const this: *Seat = @fieldParentPtr("listener", listener);
+        _ = wl_seat;
         switch (event) {
             .capabilities => |capabilities| {
                 if (capabilities.capabilities.keyboard) {
                     if (this.wl_keyboard == null) {
-                        this.wl_keyboard = this.wl_seat.get_keyboard() catch return;
-                        this.wl_keyboard.?.userdata = this;
-                        this.wl_keyboard.?.on_event = onKeyboardCallback;
+                        this.wl_keyboard = try this.wl_seat.sendRequest(.get_keyboard, .{});
+                        this.wl_keyboard.?.setEventListener(&this.keyboard_listener, Seat.onKeyboardCallback, this);
                     }
                 } else {
                     if (this.wl_keyboard) |keyboard| {
-                        keyboard.release() catch return;
+                        try keyboard.sendRequest(.release, .{});
                         this.wl_keyboard = null;
                     }
                 }
 
                 if (capabilities.capabilities.pointer) {
                     if (this.wl_pointer == null) {
-                        this.wl_pointer = this.wl_seat.get_pointer() catch return;
-                        this.wl_pointer.?.userdata = this;
-                        this.wl_pointer.?.on_event = onPointerCallback;
+                        this.wl_pointer = try this.wl_seat.sendRequest(.get_pointer, .{});
+                        this.wl_pointer.?.setEventListener(&this.pointer_listener, Seat.onPointerCallback, null);
                     }
                     if (this.cursor_wl_surface == null) {
-                        this.cursor_wl_surface = this.wayland_manager.globals.wl_compositor.?.create_surface() catch return;
+                        this.cursor_wl_surface = try this.wayland_manager.connection.sendRequest(wayland.wl_compositor, this.wayland_manager.globals.wl_compositor.?, .create_surface, .{});
 
                         if (this.wayland_manager.globals.wp_viewporter) |wp_viewporter| {
-                            this.wp_viewport = wp_viewporter.get_viewport(this.cursor_wl_surface.?) catch return;
+                            this.wp_viewport = try this.wayland_manager.connection.sendRequest(viewporter.wp_viewporter, wp_viewporter, .get_viewport, .{ .surface = this.cursor_wl_surface.?.id });
                         }
 
                         if (this.wayland_manager.globals.wp_fractional_scale_manager_v1) |scale_man| {
-                            this.cursor_fractional_scale = scale_man.get_fractional_scale(this.cursor_wl_surface.?) catch return;
-                            this.cursor_fractional_scale.?.userdata = this;
-                            this.cursor_fractional_scale.?.on_event = onCursorFractionalScaleEvent;
+                            this.cursor_fractional_scale = try this.wayland_manager.connection.sendRequest(fractional_scale_v1.wp_fractional_scale_manager_v1, scale_man, .get_fractional_scale, .{ .surface = this.cursor_wl_surface.?.id });
+                            // this.cursor_fractional_scale.?.userdata = this;
+                            // this.cursor_fractional_scale.?.on_event = onCursorFractionalScaleEvent;
                         }
                     }
                 } else {
                     if (this.wl_pointer) |pointer| {
-                        pointer.release() catch {};
+                        pointer.sendRequest(.release, .{}) catch {};
                         this.wl_pointer = null;
                     }
                     if (this.wp_viewport) |wp_viewport| {
-                        wp_viewport.destroy() catch {};
+                        wp_viewport.sendRequest(.destroy, .{}) catch {};
                         this.wp_viewport = null;
                     }
                     if (this.cursor_fractional_scale) |frac_scale| {
-                        frac_scale.destroy() catch {};
+                        frac_scale.sendRequest(.destroy, .{}) catch {};
                         this.cursor_fractional_scale = null;
                     }
                     if (this.cursor_wl_surface) |surface| {
-                        surface.destroy() catch {};
+                        surface.sendRequest(.destroy, .{}) catch {};
                         this.cursor_wl_surface = null;
                     }
                 }
@@ -692,9 +749,9 @@ const Seat = struct {
         }
     }
 
-    fn onKeyboardCallback(seat: *wayland.wayland.wl_keyboard, userdata: ?*anyopaque, event: wayland.wayland.wl_keyboard.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata));
-        _ = seat;
+    fn onKeyboardCallback(listener: *shimizu.Listener, wl_keyboard: shimizu.Proxy(wayland.wl_keyboard), event: wayland.wl_keyboard.Event) !void {
+        const this: *@This() = @fieldParentPtr("keyboard_listener", listener);
+        _ = wl_keyboard;
         switch (event) {
             .keymap => |keymap_info| {
                 defer std.posix.close(@intCast(@intFromEnum(keymap_info.fd)));
@@ -782,8 +839,8 @@ const Seat = struct {
         }
     }
 
-    fn onPointerCallback(pointer: *wayland.wayland.wl_pointer, userdata: ?*anyopaque, event: wayland.wayland.wl_pointer.Event) void {
-        const this: *@This() = @ptrCast(@alignCast(userdata));
+    fn onPointerCallback(listener: *shimizu.Listener, pointer: shimizu.Proxy(wayland.wl_pointer), event: wayland.wl_pointer.Event) !void {
+        const this: *@This() = @fieldParentPtr("pointer_listener", listener);
         _ = pointer;
         switch (event) {
             .enter => |enter| {
@@ -850,7 +907,7 @@ const Seat = struct {
                 }
                 this.scroll_vector = .{ 0, 0 };
             },
-            // else => {},
+            else => {},
         }
     }
 
@@ -891,45 +948,66 @@ const Seat = struct {
 
         @memcpy(fd_bytes, pixel_bytes);
 
-        const wl_shm_pool = try this.wayland_manager.globals.wl_shm.?.create_pool(@enumFromInt(default_cursor_image_fd), @intCast(pixel_bytes.len));
-        defer wl_shm_pool.destroy() catch {};
+        const wl_shm_pool = this.wayland_manager.connection.sendRequest(
+            wayland.wl_shm,
+            this.wayland_manager.globals.wl_shm.?,
+            .create_pool,
+            .{
+                .fd = @enumFromInt(default_cursor_image_fd),
+                .size = @intCast(pixel_bytes.len),
+            },
+        ) catch return error.ConnectionLost;
+        defer wl_shm_pool.sendRequest(.destroy, .{}) catch {};
 
-        const cursor_buffer = try wl_shm_pool.create_buffer(
-            0,
-            @intCast(default_cursor_image.width),
-            @intCast(default_cursor_image.height),
-            @intCast(default_cursor_image.width * @sizeOf(seizer.tvg.rendering.Color8)),
-            .argb8888,
-        );
+        const cursor_buffer = try wl_shm_pool.sendRequest(.create_buffer, .{
+            .offset = 0,
+            .width = @intCast(default_cursor_image.width),
+            .height = @intCast(default_cursor_image.height),
+            .stride = @intCast(default_cursor_image.width * @sizeOf(seizer.tvg.rendering.Color8)),
+            .format = .argb8888,
+        });
 
         const surface = this.cursor_wl_surface orelse return;
 
-        try surface.attach(cursor_buffer, 0, 0);
-        try surface.damage_buffer(0, 0, std.math.maxInt(i32), std.math.maxInt(i32));
+        try surface.sendRequest(.attach, .{ .buffer = cursor_buffer.id, .x = 0, .y = 0 });
+        try surface.sendRequest(.damage_buffer, .{ .x = 0, .y = 0, .width = std.math.maxInt(i32), .height = std.math.maxInt(i32) });
         if (this.wp_viewport) |viewport| {
-            try viewport.set_source(
-                wayland.fixed.fromInt(0, 0),
-                wayland.fixed.fromInt(0, 0),
-                wayland.fixed.fromInt(@intCast(default_cursor_image.width), 0),
-                wayland.fixed.fromInt(@intCast(default_cursor_image.height), 0),
-            );
-            try viewport.set_destination(32, 32);
+            try viewport.sendRequest(.set_source, .{
+                .x = shimizu.Fixed.fromInt(0, 0),
+                .y = shimizu.Fixed.fromInt(0, 0),
+                .width = shimizu.Fixed.fromInt(@intCast(default_cursor_image.width), 0),
+                .height = shimizu.Fixed.fromInt(@intCast(default_cursor_image.height), 0),
+            });
+            try viewport.sendRequest(.set_destination, .{
+                .width = 32,
+                .height = 32,
+            });
         }
-        try surface.commit();
-        try this.wl_pointer.?.set_cursor(this.pointer_serial, this.cursor_wl_surface, 9, 5);
+        try surface.sendRequest(.commit, .{});
+        try this.wl_pointer.?.sendRequest(.set_cursor, .{
+            .serial = this.pointer_serial,
+            .surface = this.cursor_wl_surface.?.id,
+            .hotspot_x = 9,
+            .hotspot_y = 5,
+        });
     }
 };
 
 const evdevToSeizer = @import("./Wayland/evdev_to_seizer.zig").evdevToSeizer;
 const xkbSymbolToSeizerKey = @import("./Wayland/xkb_to_seizer.zig").xkbSymbolToSeizerKey;
 
-const fractional_scale_v1 = @import("wayland-protocols").staging.@"fractional-scale-v1";
-const viewporter = @import("wayland-protocols").stable.viewporter;
-const linux_dmabuf_v1 = @import("wayland-protocols").stable.@"linux-dmabuf-v1";
-const xdg_shell = @import("wayland-protocols").stable.@"xdg-shell";
-const xdg_decoration = @import("wayland-protocols").unstable.@"xdg-decoration-unstable-v1";
-const wayland = @import("wayland");
+const wayland = shimizu.core;
 
+// stable protocols
+const viewporter = @import("wayland-protocols").viewporter;
+const linux_dmabuf_v1 = @import("wayland-protocols").linux_dmabuf_v1;
+const xdg_shell = @import("wayland-protocols").xdg_shell;
+
+// unstable protocols
+const xdg_decoration = @import("wayland-unstable").xdg_decoration_unstable_v1;
+const fractional_scale_v1 = @import("wayland-unstable").fractional_scale_v1;
+
+const shimizu = @import("shimizu");
 const builtin = @import("builtin");
 const xkb = @import("xkb");
 const xev = @import("xev");

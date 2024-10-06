@@ -75,123 +75,41 @@ pub fn build(b: *Builder) !void {
         },
     });
 
-    const wayland_module = b.addModule("wayland", .{
-        .root_source_file = b.path("dep/wayland/src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "xev", .module = libxev.module("xev") },
-        },
-    });
-
-    const wayland_protocols_module = b.addModule("wayland-protocols", .{
-        .root_source_file = b.path("dep/wayland-protocols/protocols.zig"),
-        .target = target,
-        .optimize = optimize,
-        .imports = &.{
-            .{ .name = "wayland", .module = wayland_module },
-        },
-    });
-
     const generate_wayland_step = b.step("generate-wayland-protocols", "Generate wayland-protocols and copy files to source repository. Does nothing if `generate-wayland-protocols` option is false.");
 
-    const should_generate_wayland_protocols = b.option(bool, "generate-wayland-protocols", "should the wayland protocols be generated from xml? (default: false)") orelse false;
-    if (should_generate_wayland_protocols) {
-        if (b.lazyDependency("zig-xml", .{
-            .target = target,
-            .optimize = optimize,
-        })) |xml| {
-            const generate_wayland_exe = b.addExecutable(.{
-                .name = "generate-wayland",
-                .root_source_file = b.path("tools/generate-wayland.zig"),
-                .target = target,
-                .optimize = optimize,
-            });
-            generate_wayland_exe.root_module.addImport("xml", xml.module("xml"));
+    const shimizu_dep = b.dependency("shimizu", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
-            const write_wayland_protocols = b.addNamedWriteFiles("wayland-protocols");
+    // generate additional wayland protocol definitions with shimizu-scanner
+    const generate_wayland_unstable_zig_cmd = b.addRunArtifact(shimizu_dep.artifact("shimizu-scanner"));
+    generate_wayland_unstable_zig_cmd.addFileArg(b.path("dep/wayland-protocols/xdg-decoration-unstable-v1.xml"));
+    generate_wayland_unstable_zig_cmd.addFileArg(b.path("dep/wayland-protocols/fractional-scale-v1.xml"));
+    generate_wayland_unstable_zig_cmd.addArgs(&.{ "--interface-version", "zxdg_decoration_manager_v1", "1" });
+    generate_wayland_unstable_zig_cmd.addArgs(&.{ "--interface-version", "wp_fractional_scale_manager_v1", "1" });
 
-            write_wayland_protocols.addBytesToSource(
-                \\pub const stable = @import("./stable/protocols.zig");
-                \\pub const unstable = @import("./unstable/protocols.zig");
-                \\pub const staging = @import("./staging/protocols.zig");
-                \\
-            ,
-                "dep/wayland-protocols/protocols.zig",
-            );
+    generate_wayland_unstable_zig_cmd.addArg("--import");
+    generate_wayland_unstable_zig_cmd.addFileArg(shimizu_dep.path("src/wayland.xml"));
+    generate_wayland_unstable_zig_cmd.addArg("@import(\"core\")");
 
-            write_wayland_protocols.addBytesToSource(
-                \\pub const @"xdg-shell" = @import("./xdg-shell.zig");
-                \\pub const @"linux-dmabuf-v1" = @import("./linux-dmabuf-v1.zig");
-                \\pub const @"viewporter" = @import("./viewporter.zig");
-                \\
-            ,
-                "dep/wayland-protocols/stable/protocols.zig",
-            );
+    generate_wayland_unstable_zig_cmd.addArg("--import");
+    generate_wayland_unstable_zig_cmd.addFileArg(shimizu_dep.path("wayland-protocols/stable/xdg-shell.xml"));
+    generate_wayland_unstable_zig_cmd.addArg("@import(\"wayland-protocols\").xdg_shell");
 
-            write_wayland_protocols.addBytesToSource(
-                \\pub const @"xdg-decoration-unstable-v1" = @import("./xdg-decoration-unstable-v1.zig");
-                \\
-            ,
-                "dep/wayland-protocols/unstable/protocols.zig",
-            );
+    generate_wayland_unstable_zig_cmd.addArg("--output");
+    const wayland_unstable_dir = generate_wayland_unstable_zig_cmd.addOutputDirectoryArg("wayland-unstable");
 
-            write_wayland_protocols.addBytesToSource(
-                \\pub const @"fractional-scale-v1" = @import("./fractional-scale-v1.zig");
-                \\
-            ,
-                "dep/wayland-protocols/staging/protocols.zig",
-            );
-
-            // generate wayland core protocol
-            const generate_protocol_wayland = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_wayland.addFileArg(b.path("dep/wayland/src/wayland.xml"));
-            generate_protocol_wayland.addArg("4");
-            generate_protocol_wayland.addArg("wl_shm@1");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_wayland.captureStdOut(), "dep/wayland/src/wayland.zig");
-
-            // generate xdg-shell protocol
-            const generate_protocol_xdg_shell = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_xdg_shell.addFileArg(b.path("dep/wayland-protocols/stable/xdg-shell.xml"));
-            generate_protocol_xdg_shell.addArg("1");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_shell.captureStdOut(), "dep/wayland-protocols/stable/xdg-shell.zig");
-
-            // generate linux dmabuf protocol
-            const generate_protocol_linux_dmabuf_v1 = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_linux_dmabuf_v1.addFileArg(b.path("dep/wayland-protocols/stable/linux-dmabuf-v1.xml"));
-            generate_protocol_linux_dmabuf_v1.addArg("4");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_linux_dmabuf_v1.captureStdOut(), "dep/wayland-protocols/stable/linux-dmabuf-v1.zig");
-
-            // generate viewporter protocol
-            const generate_protocol_viewporter = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_viewporter.addFileArg(b.path("dep/wayland-protocols/stable/viewporter.xml"));
-            generate_protocol_viewporter.addArg("4");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_viewporter.captureStdOut(), "dep/wayland-protocols/stable/viewporter.zig");
-
-            // generate xdg-decoration protocol
-            const generate_protocol_xdg_decoration = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_xdg_decoration.addFileArg(b.path("dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.xml"));
-            generate_protocol_xdg_decoration.addArg("1");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_xdg_decoration.captureStdOut(), "dep/wayland-protocols/unstable/xdg-decoration-unstable-v1.zig");
-
-            const generate_protocol_fractional_scale_v1 = b.addRunArtifact(generate_wayland_exe);
-            generate_protocol_fractional_scale_v1.addFileArg(b.path("dep/wayland-protocols/staging/fractional-scale-v1.xml"));
-            generate_protocol_fractional_scale_v1.addArg("1");
-            write_wayland_protocols.addCopyFileToSource(generate_protocol_fractional_scale_v1.captureStdOut(), "dep/wayland-protocols/staging/fractional-scale-v1.zig");
-
-            const fmt_protocol_files = b.addFmt(.{ .paths = &.{
-                "dep/wayland/src/wayland.zig",
-                "dep/wayland-protocols/stable/xdg-shell.zig",
-                "dep/wayland-protocols/stable/linux-dmabuf-v1.zig",
-                "dep/wayland-protocols/stable/viewporter.zig",
-                "dep/wayland-protocols/unstable/xdg-decoration.zig",
-                "dep/wayland-protocols/staging/viewporter.zig",
-            } });
-            fmt_protocol_files.step.dependOn(&write_wayland_protocols.step);
-
-            generate_wayland_step.dependOn(&fmt_protocol_files.step);
-        }
-    }
+    const wayland_unstable_module = b.addModule("wayland-unstable", .{
+        .root_source_file = wayland_unstable_dir.path(b, "root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .imports = &.{
+            .{ .name = "wire", .module = shimizu_dep.module("wire") },
+            .{ .name = "core", .module = shimizu_dep.module("core") },
+            .{ .name = "wayland-protocols", .module = shimizu_dep.module("wayland-protocols") },
+        },
+    });
 
     // a tool that bundles a wasm binary into an html file
     const bundle_webpage_exe = b.addExecutable(.{
@@ -245,8 +163,9 @@ pub fn build(b: *Builder) !void {
     }
 
     if (import_wayland) {
-        module.addImport("wayland", wayland_module);
-        module.addImport("wayland-protocols", wayland_protocols_module);
+        module.addImport("shimizu", shimizu_dep.module("shimizu"));
+        module.addImport("wayland-protocols", shimizu_dep.module("wayland-protocols"));
+        module.addImport("wayland-unstable", wayland_unstable_module);
         module.addImport("xkb", xkb_dep.module("xkb"));
     }
 
@@ -308,18 +227,4 @@ pub fn build(b: *Builder) !void {
 
         check_step.dependOn(&exe_check.step);
     }
-
-    const test_all = b.step("test-all", "run all tests");
-
-    const test_wayland_exe = b.addTest(.{
-        .root_source_file = b.path("dep/wayland/src/main.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    test_wayland_exe.root_module.addImport("xev", libxev.module("xev"));
-    const test_wayland_run_exe = b.addRunArtifact(test_wayland_exe);
-    const test_wayland = b.step("test-wayland", "Run the wayland library tests");
-    test_wayland.dependOn(&test_wayland_run_exe.step);
-
-    test_all.dependOn(test_wayland);
 }

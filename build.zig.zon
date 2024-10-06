@@ -27,5 +27,9 @@
             .url = "https://git.sr.ht/~geemili/xkb/archive/581636d48383940d5ab7500a7a15b242ed8ae007.tar.gz",
             .hash = "12208582ac218c676b37763dd67d25c79ea3808d0c73369663e0e4f9a2b0040ed73e",
         },
+        .shimizu = .{
+            .url = "https://git.sr.ht/~geemili/shimizu/archive/1b8aa12dc7239b7bc39b09d1e8c400d5032709fe.tar.gz",
+            .hash = "1220159405d52cdf18f6a1c3ab9bb510d5f4dc7b9c2637a04a2c9b2c4f05e681592f",
+        },
     },
 }
