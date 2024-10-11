@@ -48,6 +48,11 @@ pub fn build(b: *Builder) !void {
         .optimize = optimize,
     });
 
+    const opentelemetry_dep = b.dependency("opentelemetry-zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     const vkzig_dep = b.dependency("vulkan_zig", .{
         .registry = @as([]const u8, b.pathFromRoot("dep/vk.xml")),
     });
@@ -129,6 +134,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "gl", .module = gl_module },
             .{ .name = "xev", .module = libxev.module("xev") },
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
+            .{ .name = "opentelemetry", .module = opentelemetry_dep.module("api") },
         },
     });
     module.link_libc = true;
@@ -181,6 +187,7 @@ pub fn build(b: *Builder) !void {
             .optimize = optimize,
         });
         exe.root_module.addImport("seizer", module);
+        exe.root_module.addImport("opentelemetry", opentelemetry_dep.module("sdk"));
         exe.step.dependOn(generate_wayland_step);
         if (vulkan_compile_shaders) {
             exe.step.dependOn(vulkan_compile_shaders_step);
@@ -223,6 +230,7 @@ pub fn build(b: *Builder) !void {
             .optimize = optimize,
         });
         exe_check.root_module.addImport("seizer", module);
+        exe_check.root_module.addImport("opentelemetry", opentelemetry_dep.module("sdk"));
         exe_check.step.dependOn(generate_wayland_step);
 
         check_step.dependOn(&exe_check.step);

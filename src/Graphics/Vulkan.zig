@@ -16,6 +16,7 @@ vk_memory_properties: vk.PhysicalDeviceMemoryProperties,
 // drm_format_modifier_list: std.ArrayListUnmanaged(u64),
 
 renderdoc: @import("renderdoc"),
+tracer: otel.trace.Tracer,
 
 const VulkanImpl = @This();
 
@@ -63,6 +64,8 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.LibraryLoadFailed,
     };
+
+    const tracer = otel.trace.getTracer(.{ .name = "xyz.geemili.seizer.Vulkan" });
 
     const vk_get_instance_proc_addr_fn = libvulkan.lookup(*const fn (vk.Instance, [*:0]const u8) callconv(.C) vk.PfnVoidFunction, "vkGetInstanceProcAddr") orelse return error.LibraryLoadFailed;
 
@@ -178,6 +181,7 @@ pub fn _create(allocator: std.mem.Allocator, options: seizer.Graphics.CreateOpti
         .vk_memory_properties = this.vk_instance.getPhysicalDeviceMemoryProperties(device_result.physical_device),
 
         .renderdoc = renderdoc,
+        .tracer = tracer,
     };
 
     return .{
@@ -934,6 +938,12 @@ const Swapchain = struct {
 fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Display.Window, options: seizer.Graphics.Swapchain.CreateOptions) seizer.Graphics.Swapchain.CreateError!*seizer.Graphics.Swapchain {
     _ = window;
 
+    const present_span = this.tracer.createSpan("swapchain get render buffer", null, .{});
+    defer present_span.end(null);
+    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
+    const attach_token = render_context.attach();
+    defer _ = render_context.detach(attach_token);
+
     const display_buffer_type = if (display.isCreateBufferFromDMA_BUF_Supported())
         seizer.Display.Buffer.Type.dma_buf
     else
@@ -1204,6 +1214,13 @@ fn _destroySwapchain(this: *@This(), swapchain_opaque: *seizer.Graphics.Swapchai
 fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.Swapchain, options: seizer.Graphics.Swapchain.GetRenderBufferOptions) seizer.Graphics.Swapchain.GetRenderBufferError!*seizer.Graphics.RenderBuffer {
     const swapchain: *Swapchain = @ptrCast(@alignCast(swapchain_opaque));
     _ = options;
+
+    const present_span = this.tracer.createSpan("swapchain get render buffer", null, .{});
+    defer present_span.end(null);
+    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
+    const attach_token = render_context.attach();
+    defer _ = render_context.detach(attach_token);
+
     const render_buffer = try swapchain.render_buffers.create();
     errdefer swapchain.render_buffers.destroy(render_buffer);
 
@@ -1268,6 +1285,12 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
 fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window: *seizer.Display.Window, swapchain_opaque: *seizer.Graphics.Swapchain, render_buffer_opaque: *seizer.Graphics.RenderBuffer) seizer.Graphics.Swapchain.PresentRenderBufferError!void {
     const swapchain: *Swapchain = @ptrCast(@alignCast(swapchain_opaque));
     const render_buffer: *RenderBuffer = @ptrCast(@alignCast(render_buffer_opaque));
+
+    const present_span = this.tracer.createSpan("swapchain: present render buffer", null, .{});
+    defer present_span.end(null);
+    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
+    const attach_token = render_context.attach();
+    defer _ = render_context.detach(attach_token);
 
     this.vk_device.endCommandBuffer(render_buffer.vk_command_buffer) catch unreachable;
 
@@ -1571,6 +1594,7 @@ const VulkanDevice = vk.DeviceProxy(vulkan_apis);
 
 const log = std.log.scoped(.seizer);
 
+const otel = @import("opentelemetry");
 const @"dynamic-library-utils" = @import("dynamic-library-utils");
 const zigimg = @import("zigimg");
 const seizer = @import("../seizer.zig");

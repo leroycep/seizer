@@ -8,6 +8,7 @@ pub const PLATFORM = seizer.Platform{
     .readFile = readFile,
     .setDeinitCallback = setDeinitFn,
     .setEventCallback = setEventCallback,
+    .getTracer = getTracer,
 };
 
 var gpa = std.heap.GeneralPurposeAllocator(.{ .retain_metadata = builtin.mode == .Debug }){};
@@ -79,10 +80,17 @@ fn setDeinitFn(new_deinit_fn: ?seizer.Platform.DeinitFn) void {
     deinit_fn = new_deinit_fn;
 }
 
+var tracer: ?otel.trace.Tracer = null;
+fn getTracer() otel.trace.Tracer {
+    if (tracer == null) tracer = otel.api.trace.getTracer(.{ .name = "seizer", .version = "0.1.0" });
+    return tracer;
+}
+
 pub const EvDev = @import("./linuxbsd/evdev.zig");
 
 const linuxbsd_fs = @import("./linuxbsd/fs.zig");
 
+const otel = @import("opentelemetry");
 const xev = @import("xev");
 const seizer = @import("../seizer.zig");
 const builtin = @import("builtin");

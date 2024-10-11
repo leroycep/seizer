@@ -15,6 +15,8 @@ readFile: fn (options: ReadFileOptions) void,
 setDeinitCallback: fn (?DeinitFn) void,
 setEventCallback: fn (?*const fn (event: seizer.input.Event) anyerror!void) void,
 
+getTracer: fn () otel.trace.Tracer,
+
 pub const DeinitFn = *const fn () void;
 
 pub const FileError = error{NotFound};
@@ -38,6 +40,7 @@ pub const ReadFileOptions = struct {
 };
 
 const input = @import("./input.zig");
+const otel = @import("opentelemetry");
 const seizer = @import("./seizer.zig");
 const std = @import("std");
 const xev = @import("xev");
