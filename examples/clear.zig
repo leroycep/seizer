@@ -5,8 +5,13 @@ var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
 var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 var tracer: ?otel.api.trace.Tracer = null;
+var root_context: ?*const otel.api.Context = null;
+var root_context_attach_token: ?otel.api.Context.AttachToken = null;
 
 pub fn init() !void {
+    root_context = otel.api.Context.create(seizer.platform.allocator());
+    root_context_attach_token = otel.api.Context.attach(root_context);
+
     tracer = otel.api.trace.getTracer(.{ .name = "xyz.geemili.seizer.examples.clear" });
 
     display = try seizer.Display.create(seizer.platform.allocator(), seizer.platform.loop(), .{});
@@ -33,6 +38,8 @@ fn deinit() void {
     display.destroy();
 
     tracer_provider.?.shutdown();
+    otel.api.Context.detach(root_context, root_context_attach_token.?);
+    otel.api.Context.destroy(root_context);
 }
 
 fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Event) !void {
@@ -48,11 +55,8 @@ fn onWindowEvent(window: *seizer.Display.Window, event: seizer.Display.Window.Ev
 }
 
 fn render(window: *seizer.Display.Window) !void {
-    const render_span = tracer.?.createSpan("render", null, .{});
-    defer render_span.end(null);
-    const render_context = otel.api.trace.contextWithSpan(otel.api.Context.current(), render_span);
-    const attach_token = render_context.attach();
-    defer _ = render_context.detach(attach_token);
+    const render_zone = tracer.?.zone("render", .{});
+    defer render_zone.end();
 
     const window_size = display.windowGetSize(window);
     const window_scale = display.windowGetScale(window);

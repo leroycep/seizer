@@ -938,11 +938,8 @@ const Swapchain = struct {
 fn _createSwapchain(this: *@This(), display: seizer.Display, window: *seizer.Display.Window, options: seizer.Graphics.Swapchain.CreateOptions) seizer.Graphics.Swapchain.CreateError!*seizer.Graphics.Swapchain {
     _ = window;
 
-    const present_span = this.tracer.createSpan("swapchain get render buffer", null, .{});
-    defer present_span.end(null);
-    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
-    const attach_token = render_context.attach();
-    defer _ = render_context.detach(attach_token);
+    const render_zone = this.tracer.zone("create swapchain", .{});
+    defer render_zone.end();
 
     const display_buffer_type = if (display.isCreateBufferFromDMA_BUF_Supported())
         seizer.Display.Buffer.Type.dma_buf
@@ -1215,11 +1212,8 @@ fn _swapchainGetRenderBuffer(this: *@This(), swapchain_opaque: *seizer.Graphics.
     const swapchain: *Swapchain = @ptrCast(@alignCast(swapchain_opaque));
     _ = options;
 
-    const present_span = this.tracer.createSpan("swapchain get render buffer", null, .{});
-    defer present_span.end(null);
-    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
-    const attach_token = render_context.attach();
-    defer _ = render_context.detach(attach_token);
+    const render_zone = this.tracer.zone("swapchain get render buffer", .{});
+    defer render_zone.end();
 
     const render_buffer = try swapchain.render_buffers.create();
     errdefer swapchain.render_buffers.destroy(render_buffer);
@@ -1286,11 +1280,8 @@ fn _swapchainPresentRenderBuffer(this: *@This(), display: seizer.Display, window
     const swapchain: *Swapchain = @ptrCast(@alignCast(swapchain_opaque));
     const render_buffer: *RenderBuffer = @ptrCast(@alignCast(render_buffer_opaque));
 
-    const present_span = this.tracer.createSpan("swapchain: present render buffer", null, .{});
-    defer present_span.end(null);
-    const render_context = otel.trace.contextWithSpan(otel.Context.current(), present_span);
-    const attach_token = render_context.attach();
-    defer _ = render_context.detach(attach_token);
+    const render_zone = this.tracer.zone("swapchain: present render buffer", .{});
+    defer render_zone.end();
 
     this.vk_device.endCommandBuffer(render_buffer.vk_command_buffer) catch unreachable;
 

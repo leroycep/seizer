@@ -32,8 +32,8 @@
             .hash = "1220159405d52cdf18f6a1c3ab9bb510d5f4dc7b9c2637a04a2c9b2c4f05e681592f",
         },
         .@"opentelemetry-zig" = .{
-            .url = "https://git.sr.ht/~geemili/opentelemetry-zig/archive/99c88e4b2090c6c17af1d14d1c80c375d2f16b2e.tar.gz",
-            .hash = "122096b48e4ad29485d3f33d3dbb12241a2b56a1dfa1772a98de60e62f0da1027f9e",
+            .url = "https://git.sr.ht/~geemili/opentelemetry-zig/archive/5e61224076448478014b17adadf0ce7a7f5ad985.tar.gz",
+            .hash = "1220830d711afdf98473e83cdaf2ab3211cce09a5b3f31fdf7dbd28947390e5076b8",
         },
     },
 }
