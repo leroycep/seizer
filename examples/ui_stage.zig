@@ -6,6 +6,7 @@ var gfx: seizer.Graphics = undefined;
 var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 var canvas: seizer.Canvas = undefined;
 
+var font: seizer.Canvas.Font = undefined;
 var ui_texture: *seizer.Graphics.Texture = undefined;
 var stage: *seizer.ui.Stage = undefined;
 
@@ -23,6 +24,16 @@ pub fn init() !void {
         .on_render = render,
     });
 
+    font = try seizer.Canvas.Font.fromFileContents(
+        seizer.platform.allocator(),
+        gfx,
+        @embedFile("./assets/PressStart2P_8.fnt"),
+        &.{
+            .{ .name = "PressStart2P_8.png", .contents = @embedFile("./assets/PressStart2P_8.png") },
+        },
+    );
+    errdefer font.deinit();
+
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
@@ -37,7 +48,7 @@ pub fn init() !void {
             .min = .{ 16, 16 },
             .max = .{ 16, 16 },
         },
-        .text_font = &canvas.font,
+        .text_font = &font,
         .text_scale = 1,
         .text_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
         .background_image = seizer.NinePatch.initv(ui_texture, [2]u32{ @intCast(ui_image.width), @intCast(ui_image.height) }, .{ .pos = .{ 0, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 }),
@@ -102,6 +113,7 @@ pub fn init() !void {
 }
 
 pub fn deinit() void {
+    font.deinit();
     display.destroyWindow(window_global);
     if (swapchain_opt) |swapchain| gfx.destroySwapchain(swapchain);
     stage.destroy();

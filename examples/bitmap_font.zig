@@ -5,6 +5,7 @@ var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
 var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 
+var font: seizer.Canvas.Font = undefined;
 var canvas: seizer.Canvas = undefined;
 
 pub fn init() !void {
@@ -21,6 +22,16 @@ pub fn init() !void {
         .on_render = render,
     });
 
+    font = try seizer.Canvas.Font.fromFileContents(
+        seizer.platform.allocator(),
+        gfx,
+        @embedFile("./assets/PressStart2P_8.fnt"),
+        &.{
+            .{ .name = "PressStart2P_8.png", .contents = @embedFile("./assets/PressStart2P_8.png") },
+        },
+    );
+    errdefer font.deinit();
+
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
@@ -29,6 +40,7 @@ pub fn init() !void {
 
 /// This is a global deinit, not window specific. This is important because windows can hold onto Graphics resources.
 fn deinit() void {
+    font.deinit();
     canvas.deinit();
     if (swapchain_opt) |swapchain| {
         gfx.destroySwapchain(swapchain);
@@ -72,9 +84,10 @@ fn render(window: *seizer.Display.Window) !void {
     });
 
     var pos = [2]f32{ 50, 50 };
-    pos[1] += c.writeText(pos, "Hello, world!", .{})[1];
-    pos[1] += c.writeText(pos, "Hello, world!", .{ .color = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
-    pos[1] += c.writeText(pos, "Hello, world!", .{ .background = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
+    pos[1] += c.writeText(&font, pos, "Hello, world!", .{})[1];
+    pos[1] += c.writeText(&font, pos, "Hello, world!", .{ .color = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
+    pos[1] += c.writeText(&font, pos, "Hello, world!", .{ .background = .{ 0x00, 0x00, 0x00, 0xFF } })[1];
+    pos[1] += c.printText(&font, pos, "pos = <{}, {}>", .{ pos[0], pos[1] }, .{})[1];
 
     canvas.end(render_buffer);
 

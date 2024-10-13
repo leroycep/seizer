@@ -61,6 +61,10 @@ pub fn build(b: *Builder) !void {
         .root_source_file = b.path("dep/dynamic-library-utils.zig"),
     });
 
+    const angelcode_font_module = b.addModule("AngelCodeFont", .{
+        .root_source_file = b.path("dep/AngelCodeFont.zig"),
+    });
+
     const renderdoc_app_module = b.addModule("renderdoc_app", .{
         .root_source_file = b.path("dep/renderdoc_app.zig"),
         .imports = &.{
@@ -129,6 +133,7 @@ pub fn build(b: *Builder) !void {
             .{ .name = "gl", .module = gl_module },
             .{ .name = "xev", .module = libxev.module("xev") },
             .{ .name = "dynamic-library-utils", .module = dynamic_library_utils_module },
+            .{ .name = "AngelCodeFont", .module = angelcode_font_module },
         },
     });
     module.link_libc = true;

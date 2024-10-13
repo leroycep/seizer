@@ -6,6 +6,7 @@ var gfx: seizer.Graphics = undefined;
 var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
 var _canvas: seizer.Canvas = undefined;
 
+var _font: seizer.Canvas.Font = undefined;
 var ui_texture: *seizer.Graphics.Texture = undefined;
 var _stage: *seizer.ui.Stage = undefined;
 
@@ -23,6 +24,16 @@ pub fn init() !void {
         .on_render = render,
     });
 
+    _font = try seizer.Canvas.Font.fromFileContents(
+        seizer.platform.allocator(),
+        gfx,
+        @embedFile("./assets/PressStart2P_8.fnt"),
+        &.{
+            .{ .name = "PressStart2P_8.png", .contents = @embedFile("./assets/PressStart2P_8.png") },
+        },
+    );
+    errdefer _font.deinit();
+
     _canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer _canvas.deinit();
 
@@ -37,7 +48,7 @@ pub fn init() !void {
             .min = .{ 16, 16 },
             .max = .{ 16, 16 },
         },
-        .text_font = &_canvas.font,
+        .text_font = &_font,
         .text_scale = 1,
         .text_color = [4]u8{ 0xFF, 0xFF, 0xFF, 0xFF },
         .background_image = seizer.NinePatch.initv(ui_texture, [2]u32{ @intCast(ui_image.width), @intCast(ui_image.height) }, .{ .pos = .{ 0, 0 }, .size = .{ 48, 48 } }, .{ 16, 16 }),
@@ -53,6 +64,7 @@ pub fn init() !void {
 }
 
 pub fn deinit() void {
+    _font.deinit();
     if (swapchain_opt) |swapchain| {
         gfx.destroySwapchain(swapchain);
         swapchain_opt = null;
@@ -320,7 +332,7 @@ const FileBrowserElement = struct {
                 var pos: [2]f32 = this.entries_rect.pos;
                 if (this.entries) |entries| {
                     for (entries.items, 0..) |entry, i| {
-                        pos[1] += @floor((this.spacing - 1) * font.lineHeight);
+                        pos[1] += @floor((this.spacing - 1) * font.line_height);
                         const rect = seizer.geometry.Rect(f32){
                             .pos = pos,
                             .size = .{ this.entries_rect.size[0], font.textSize(entry.name, scale)[1] },
@@ -358,7 +370,7 @@ const FileBrowserElement = struct {
                 var pos: [2]f32 = this.entries_rect.pos;
                 if (this.entries) |entries| {
                     for (entries.items) |*entry| {
-                        pos[1] += @floor((this.spacing - 1) * font.lineHeight);
+                        pos[1] += @floor((this.spacing - 1) * font.line_height);
                         const rect = seizer.geometry.Rect(f32){
                             .pos = pos,
                             .size = .{ this.entries_rect.size[0], font.textSize(entry.name, scale)[1] },
@@ -395,7 +407,7 @@ const FileBrowserElement = struct {
         if (this.entries) |entries| {
             for (entries.items) |entry| {
                 // add some extra spacing between text
-                entries_min_size[1] += (this.spacing - 1) * this.stage.default_style.text_font.lineHeight;
+                entries_min_size[1] += (this.spacing - 1) * this.stage.default_style.text_font.line_height;
                 const entry_size = this.stage.default_style.text_font.textSize(entry.name, this.stage.default_style.text_scale);
                 entries_min_size[0] = @max(entries_min_size[0], entry_size[0]);
                 entries_min_size[1] += entry_size[1];
@@ -449,7 +461,7 @@ const FileBrowserElement = struct {
         if (this.entries) |entries| {
             for (entries.items) |entry| {
                 // add some extra spacing between text
-                this.entries_rect.size[1] += (this.spacing - 1) * this.stage.default_style.text_font.lineHeight;
+                this.entries_rect.size[1] += (this.spacing - 1) * this.stage.default_style.text_font.line_height;
                 const entry_size = this.stage.default_style.text_font.textSize(entry.name, this.stage.default_style.text_scale);
                 this.entries_rect.size[0] = @max(this.entries_rect.size[0], entry_size[0]);
                 this.entries_rect.size[1] += entry_size[1];
@@ -476,20 +488,20 @@ const FileBrowserElement = struct {
 
         var pos = this.entries_rect.pos;
         for (entries.items, 0..) |entry, i| {
-            pos[1] += @floor((this.spacing - 1) * this.stage.default_style.text_font.lineHeight);
+            pos[1] += @floor((this.spacing - 1) * this.stage.default_style.text_font.line_height);
 
             const entry_hovered = this.hovered != null and this.hovered.? == i;
             if (element_hovered and entry_hovered) {
                 canvas.rect(
                     pos,
-                    .{ rect.size[0], this.stage.default_style.text_font.lineHeight },
+                    .{ rect.size[0], this.stage.default_style.text_font.line_height },
                     .{ .color = HOVERED_BG_COLOR },
                 );
             }
 
             const bg_color: ?[4]u8 = if (entry.marked) MARKED_BG_COLOR else null;
 
-            pos[1] += canvas.writeText(pos, entry.name, .{ .background = bg_color })[1];
+            pos[1] += canvas.writeText(this.stage.default_style.text_font, pos, entry.name, .{ .background = bg_color })[1];
         }
     }
 

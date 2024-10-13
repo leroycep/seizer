@@ -2,6 +2,7 @@ pub const main = seizer.main;
 
 var display: seizer.Display = undefined;
 var gfx: seizer.Graphics = undefined;
+var font: seizer.Canvas.Font = undefined;
 var canvas: seizer.Canvas = undefined;
 
 var next_window_id: usize = 1;
@@ -33,6 +34,16 @@ pub fn init() !void {
     display.windowSetUserdata(first_window, window_data);
     open_window_count += 1;
 
+    font = try seizer.Canvas.Font.fromFileContents(
+        seizer.platform.allocator(),
+        gfx,
+        @embedFile("./assets/PressStart2P_8.fnt"),
+        &.{
+            .{ .name = "PressStart2P_8.png", .contents = @embedFile("./assets/PressStart2P_8.png") },
+        },
+    );
+    errdefer font.deinit();
+
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
@@ -40,6 +51,7 @@ pub fn init() !void {
 }
 
 pub fn deinit() void {
+    font.deinit();
     canvas.deinit();
     gfx.destroy();
     display.destroy();
@@ -119,13 +131,13 @@ fn render(window: *seizer.Display.Window) !void {
     });
 
     if (window_data.title) |title| {
-        _ = c.writeText(.{ window_size[0] / 2, window_size[1] / 2 }, title, .{
+        _ = c.writeText(&font, .{ window_size[0] / 2, window_size[1] / 2 }, title, .{
             .scale = 3,
             .@"align" = .center,
             .baseline = .middle,
         });
     } else {
-        _ = c.writeText(.{ window_size[0] / 2, window_size[1] / 2 }, "Press N to spawn new window", .{
+        _ = c.writeText(&font, .{ window_size[0] / 2, window_size[1] / 2 }, "Press N to spawn new window", .{
             .scale = 3,
             .@"align" = .center,
             .baseline = .middle,

@@ -16,8 +16,6 @@ next_texture_id: u32 = 0,
 window_size: [2]f32 = .{ 1, 1 },
 
 blank_texture: *seizer.Graphics.Texture,
-font: Font,
-font_pages: std.AutoHashMapUnmanaged(u32, FontPage),
 
 // TODO: dynamically allocate more when necessary
 vertex_buffers: [10]*seizer.Graphics.Buffer,
@@ -44,7 +42,6 @@ pub const TextOptions = struct {
     scale: f32 = 1,
     @"align": Align = .left,
     baseline: Baseline = .top,
-    font: ?*const Font = null,
     background: ?[4]u8 = null,
 
     const Align = enum {
@@ -174,35 +171,6 @@ pub fn init(
     }, .{});
     errdefer graphics.destroyTexture(blank_texture);
 
-    var font = try Font.parse(allocator, @embedFile("./Canvas/PressStart2P_8.fnt"));
-    errdefer font.deinit();
-
-    var font_pages = std.AutoHashMapUnmanaged(u32, FontPage){};
-    errdefer font_pages.deinit(allocator);
-
-    var page_name_iter = font.pages.iterator();
-    while (page_name_iter.next()) |font_page| {
-        const page_id = font_page.key_ptr.*;
-        const page_name = font_page.value_ptr.*;
-
-        try font_pages.ensureUnusedCapacity(allocator, 1);
-
-        const image_bytes = if (std.mem.eql(u8, page_name, "PressStart2P_8.png")) @embedFile("./Canvas/PressStart2P_8.png") else return error.FontPageImageNotFound;
-
-        var font_image = try zigimg.Image.fromMemory(allocator, image_bytes);
-        defer font_image.deinit();
-
-        const page_texture = try graphics.createTexture(font_image.toUnmanaged(), .{});
-
-        font_pages.putAssumeCapacity(page_id, .{
-            .texture = page_texture,
-            .size = .{
-                @as(f32, @floatFromInt(font_image.width)),
-                @as(f32, @floatFromInt(font_image.height)),
-            },
-        });
-    }
-
     var vertex_buffers: [10]*seizer.Graphics.Buffer = undefined;
     for (vertex_buffers[0..]) |*vertex_buffer| {
         vertex_buffer.* = try graphics.createBuffer(.{ .size = @intCast(options.vertex_buffer_size * @sizeOf(Vertex)) });
@@ -222,8 +190,6 @@ pub fn init(
         .texture_ids = texture_ids,
 
         .blank_texture = blank_texture,
-        .font = font,
-        .font_pages = font_pages,
 
         .vertex_buffers = vertex_buffers,
         .begin_rendering_options = undefined,
@@ -241,14 +207,8 @@ pub fn deinit(this: *@This()) void {
     this.texture_ids.deinit(this.allocator);
     this.batches.deinit(this.allocator);
     this.vertices.deinit(this.allocator);
-    this.font.deinit();
 
     this.graphics.destroyTexture(this.blank_texture);
-    var page_name_iter = this.font_pages.iterator();
-    while (page_name_iter.next()) |entry| {
-        this.graphics.destroyTexture(entry.value_ptr.texture);
-    }
-    this.font_pages.deinit(this.allocator);
 
     for (this.vertex_buffers) |vertex_buffer| {
         this.graphics.destroyBuffer(vertex_buffer);
@@ -457,114 +417,6 @@ pub fn createPipelineVariation(this: *@This(), options: PipelineVariationOptions
     return pipeline;
 }
 
-pub const TextWriter = struct {
-    transformed: Transformed,
-    options: Options,
-    direction: f32,
-    current_pos: [2]f32,
-    size: [2]f32 = .{ 0, 0 },
-    bg_rect_start: ?[2]f32 = null,
-
-    pub const Options = struct {
-        pos: [2]f32 = .{ 0, 0 },
-        depth: f32 = 1,
-        color: [4]u8 = .{ 0xFF, 0xFF, 0xFF, 0xFF },
-        scale: f32 = 1,
-        background: ?[4]u8 = null,
-    };
-
-    pub fn addCharacter(this: *@This(), character: u21) void {
-        if (character == '\n') {
-            this.current_pos[1] += this.transformed.canvas.font.lineHeight * this.options.scale;
-            this.current_pos[0] = this.options.pos[0];
-
-            this.size = .{
-                @max(this.current_pos[0] - this.options.pos[0], this.size[0]),
-                @max(this.current_pos[1] - this.options.pos[1] + this.transformed.canvas.font.lineHeight * this.options.scale, this.size[1]),
-            };
-            return;
-        }
-        const glyph = this.transformed.canvas.font.glyphs.get(character) orelse {
-            log.warn("No glyph found for character \"{}\"", .{std.fmt.fmtSliceHexLower(std.mem.asBytes(&character))});
-            return;
-        };
-
-        const xadvance = (glyph.xadvance * this.options.scale);
-        const offset = [2]f32{
-            glyph.offset[0] * this.options.scale,
-            glyph.offset[1] * this.options.scale,
-        };
-
-        if (this.options.background) |bg| {
-            this.transformed.rect(
-                this.current_pos,
-                .{
-                    xadvance,
-                    this.transformed.canvas.font.lineHeight * this.options.scale,
-                },
-                .{
-                    .color = bg,
-                },
-            );
-        }
-
-        const font_page = this.transformed.canvas.font_pages.get(glyph.page) orelse {
-            log.warn("Unknown font page {} for glyph \"{}\"", .{ glyph.page, std.fmt.fmtSliceHexLower(std.mem.asBytes(&character)) });
-            return;
-        };
-
-        this.transformed.rect(
-            .{
-                this.current_pos[0] + offset[0],
-                this.current_pos[1] + offset[1],
-            },
-            .{
-                glyph.size[0] * this.options.scale,
-                glyph.size[1] * this.options.scale,
-            },
-            .{
-                .texture = font_page.texture,
-                .uv = .{
-                    .min = .{
-                        glyph.pos[0] / font_page.size[0],
-                        glyph.pos[1] / font_page.size[1],
-                    },
-                    .max = .{
-                        (glyph.pos[0] + glyph.size[0]) / font_page.size[0],
-                        (glyph.pos[1] + glyph.size[1]) / font_page.size[1],
-                    },
-                },
-                .color = this.options.color,
-            },
-        );
-
-        this.current_pos[0] += this.direction * xadvance;
-        this.size = .{
-            @max(this.current_pos[0] - this.options.pos[0], this.size[0]),
-            @max(this.current_pos[1] - this.options.pos[1] + this.transformed.canvas.font.lineHeight * this.options.scale, this.size[1]),
-        };
-    }
-
-    pub fn addText(this: *@This(), text: []const u8) void {
-        for (text) |char| {
-            this.addCharacter(char);
-        }
-    }
-
-    pub fn writer(this: *@This()) Writer {
-        return Writer{
-            .context = this,
-        };
-    }
-
-    pub const Writer = std.io.Writer(*@This(), error{}, write);
-
-    pub fn write(this: *@This(), bytes: []const u8) error{}!usize {
-        this.addText(bytes);
-        return bytes.len;
-    }
-};
-
 /// Low-level function used to implement higher-level draw operations. Handles applying the transform.
 pub fn addVertices(this: *@This(), pipeline: *seizer.Graphics.Pipeline, extra_uniform_buffers: ?[]const ExtraUniformBuffer, transform: [4][4]f32, texture: *seizer.Graphics.Texture, scissor: Scissor, vertices: []const Vertex) void {
     if (vertices.len == 0) return;
@@ -684,8 +536,7 @@ pub const Transformed = struct {
         });
     }
 
-    pub fn writeText(this: @This(), pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
-        const font = options.font orelse &this.canvas.font;
+    pub fn writeText(this: @This(), font: *const Font, pos: [2]f32, text: []const u8, options: TextOptions) [2]f32 {
         const text_size = font.textSize(text, options.scale);
 
         const x: f32 = switch (options.@"align") {
@@ -698,19 +549,16 @@ pub const Transformed = struct {
             .middle => pos[1] - text_size[1] / 2,
             .bottom => pos[1] - text_size[1],
         };
-        var text_writer = this.textWriter(.{
+        var text_writer = this.textLayoutWriter(font, .{
             .pos = .{ x, y },
-            .depth = options.depth,
             .scale = options.scale,
             .color = options.color,
-            .background = options.background,
         });
         text_writer.writer().writeAll(text) catch {};
-        return text_writer.size;
+        return text_writer.text_layout.size;
     }
 
-    pub fn printText(this: @This(), pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
-        const font = options.font orelse &this.canvas.font;
+    pub fn printText(this: @This(), font: *const Font, pos: [2]f32, comptime fmt: []const u8, args: anytype, options: TextOptions) [2]f32 {
         const text_size = font.fmtTextSize(fmt, args, options.scale);
 
         const x: f32 = switch (options.@"align") {
@@ -724,24 +572,67 @@ pub const Transformed = struct {
             .bottom => pos[1] - text_size[1],
         };
 
-        var text_writer = this.textWriter(.{
+        var text_writer = this.textLayoutWriter(font, .{
             .pos = .{ x, y },
-            .depth = options.depth,
             .scale = options.scale,
             .color = options.color,
         });
         text_writer.writer().print(fmt, args) catch {};
 
-        return text_writer.size;
+        return text_writer.text_layout.size;
     }
 
-    pub fn textWriter(this: @This(), options: TextWriter.Options) TextWriter {
-        return TextWriter{
-            .transformed = this,
-            .options = options,
-            .direction = 1,
-            .current_pos = options.pos,
+    pub const TextLayoutWriter = Font.TextLayoutWriter(WriteGlyphContext, writeGlyph);
+    pub const TextLayoutOptions = struct {
+        pos: [2]f32 = .{ 0, 0 },
+        scale: f32 = 1,
+        color: [4]u8,
+    };
+    pub fn textLayoutWriter(this: @This(), font: *const Font, options: TextLayoutOptions) TextLayoutWriter {
+        return TextLayoutWriter{
+            .context = .{
+                .transformed = this,
+                .font = font,
+                .options = options,
+            },
+            .text_layout = .{
+                .glyphs = &font.glyphs,
+                .text = "",
+                .line_height = font.line_height,
+                .current_offset = options.pos,
+                .options = .{ .pos = options.pos, .scale = options.scale },
+            },
         };
+    }
+
+    const WriteGlyphContext = struct {
+        transformed: Transformed,
+        font: *const Font,
+        options: TextLayoutOptions,
+    };
+
+    fn writeGlyph(ctx: WriteGlyphContext, item: Font.TextLayout.Item) void {
+        const font_page = ctx.font.pages.get(item.glyph.page);
+        const texture = if (font_page) |page| page.texture else ctx.transformed.canvas.blank_texture;
+        const texture_sizef: [2]f32 = if (font_page) |page| .{ @floatFromInt(page.size[0]), @floatFromInt(page.size[1]) } else .{ 1, 1 };
+        ctx.transformed.rect(
+            item.pos,
+            item.size,
+            .{
+                .texture = texture,
+                .uv = .{
+                    .min = .{
+                        item.glyph.pos[0] / texture_sizef[0],
+                        item.glyph.pos[1] / texture_sizef[1],
+                    },
+                    .max = .{
+                        (item.glyph.pos[0] + item.glyph.size[0]) / texture_sizef[0],
+                        (item.glyph.pos[1] + item.glyph.size[1]) / texture_sizef[1],
+                    },
+                },
+                .color = ctx.options.color,
+            },
+        );
     }
 
     pub fn line(this: @This(), pos1: [2]f32, pos2: [2]f32, options: LineOptions) void {
@@ -894,11 +785,6 @@ pub const Transformed = struct {
             };
         }
     }
-};
-
-const FontPage = struct {
-    texture: *seizer.Graphics.Texture,
-    size: [2]f32,
 };
 
 pub const Vertex = struct {

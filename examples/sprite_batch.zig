@@ -4,6 +4,8 @@ var display: seizer.Display = undefined;
 var window_global: *seizer.Display.Window = undefined;
 var gfx: seizer.Graphics = undefined;
 var swapchain_opt: ?*seizer.Graphics.Swapchain = null;
+
+var font: seizer.Canvas.Font = undefined;
 var canvas: seizer.Canvas = undefined;
 
 var player_image_size: [2]f32 = .{ 1, 1 };
@@ -58,6 +60,16 @@ pub fn init() !void {
         .on_render = render,
     });
 
+    font = try seizer.Canvas.Font.fromFileContents(
+        seizer.platform.allocator(),
+        gfx,
+        @embedFile("./assets/PressStart2P_8.fnt"),
+        &.{
+            .{ .name = "PressStart2P_8.png", .contents = @embedFile("./assets/PressStart2P_8.png") },
+        },
+    );
+    errdefer font.deinit();
+
     canvas = try seizer.Canvas.init(seizer.platform.allocator(), gfx, .{});
     errdefer canvas.deinit();
 
@@ -78,6 +90,7 @@ pub fn init() !void {
 }
 
 pub fn deinit() void {
+    font.deinit();
     sprites.deinit(seizer.platform.allocator());
     gfx.destroyTexture(player_texture);
     canvas.deinit();
@@ -182,19 +195,19 @@ fn render(window: *seizer.Display.Window) !void {
     }
 
     var text_pos = [2]f32{ 50, 50 };
-    text_pos[1] += c.printText(text_pos, "sprite count = {}", .{sprites.len}, .{})[1];
+    text_pos[1] += c.printText(&font, text_pos, "sprite count = {}", .{sprites.len}, .{})[1];
 
     var frametime_total: f32 = 0;
     for (frametimes) |f| {
         frametime_total += @floatFromInt(f);
     }
-    text_pos[1] += c.printText(text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
+    text_pos[1] += c.printText(&font, text_pos, "avg. frametime = {d:0.2} ms", .{frametime_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
 
     var between_frame_total: f32 = 0;
     for (time_between_frames) |f| {
         between_frame_total += @floatFromInt(f);
     }
-    text_pos[1] += c.printText(text_pos, "avg. time between frames = {d:0.2} ms", .{between_frame_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
+    text_pos[1] += c.printText(&font, text_pos, "avg. time between frames = {d:0.2} ms", .{between_frame_total / @as(f32, @floatFromInt(frametimes.len)) / std.time.ns_per_ms}, .{})[1];
 
     canvas.end(render_buffer);
 

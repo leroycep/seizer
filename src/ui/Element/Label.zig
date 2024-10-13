@@ -81,7 +81,7 @@ fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
         .color = this.style.background_color,
     });
 
-    _ = canvas.writeText(.{
+    _ = canvas.writeText(this.style.text_font, .{
         rect.pos[0] + this.style.padding.min[0],
         rect.pos[1] + this.style.padding.min[1],
     }, this.text.items, .{

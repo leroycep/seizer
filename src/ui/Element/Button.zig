@@ -20,7 +20,7 @@ const TEXT_COLOR_CLICKED = [4]u8{ 0xFF, 0xFF, 0x00, 0xFF };
 
 pub const Style = struct {
     padding: seizer.geometry.Inset(f32),
-    font: *const seizer.Canvas.Font,
+    text_font: *const seizer.Canvas.Font,
     text_scale: f32,
     text_color: [4]u8,
     background_ninepatch: ?seizer.NinePatch = null,
@@ -30,13 +30,13 @@ pub const Style = struct {
 pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
     const this = try stage.gpa.create(@This());
 
-    const pad = stage.default_style.text_font.lineHeight / 2;
+    const pad = stage.default_style.text_font.line_height / 2;
     const default_style = Style{
         .padding = .{
             .min = .{ pad, pad },
             .max = .{ pad, pad },
         },
-        .font = stage.default_style.text_font,
+        .text_font = stage.default_style.text_font,
         .text_scale = stage.default_style.text_scale,
         .text_color = TEXT_COLOR_DEFAULT,
         .background_ninepatch = null,
@@ -48,7 +48,7 @@ pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
             .min = .{ pad, pad },
             .max = .{ pad, pad },
         },
-        .font = stage.default_style.text_font,
+        .text_font = stage.default_style.text_font,
         .text_scale = stage.default_style.text_scale,
         .text_color = TEXT_COLOR_HOVERED,
         .background_ninepatch = null,
@@ -60,7 +60,7 @@ pub fn create(stage: *ui.Stage, text: []const u8) !*@This() {
             .min = .{ pad, pad },
             .max = .{ pad, pad },
         },
-        .font = stage.default_style.text_font,
+        .text_font = stage.default_style.text_font,
         .text_scale = stage.default_style.text_scale,
         .text_color = TEXT_COLOR_CLICKED,
         .background_ninepatch = null,
@@ -161,7 +161,7 @@ pub fn getMinSize(this: *@This()) [2]f32 {
     const is_hovered = if (this.stage.hovered_element) |hovered| hovered.ptr == this.element().ptr else false;
     const style = if (is_pressed) this.clicked_style else if (is_hovered) this.hovered_style else this.default_style;
 
-    const text_size = style.font.textSize(this.text.items, style.text_scale);
+    const text_size = style.text_font.textSize(this.text.items, style.text_scale);
     return .{
         text_size[0] + style.padding.size()[0],
         text_size[1] + style.padding.size()[1],
@@ -184,7 +184,7 @@ fn render(this: *@This(), canvas: Canvas.Transformed, rect: Rect) void {
         });
     }
 
-    _ = canvas.writeText(.{
+    _ = canvas.writeText(style.text_font, .{
         rect.pos[0] + style.padding.min[0],
         rect.pos[1] + style.padding.min[1],
     }, this.text.items, .{

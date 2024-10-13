@@ -101,13 +101,13 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     return this.element();
                 }
 
-                var layouter = style.text_font.textLayouter(style.text_scale);
+                var text_layout = style.text_font.textLayout(this.text.items, .{ .pos = .{ 0, 0 }, .scale = style.text_scale });
                 var prev_x: f32 = 0;
-                for (this.text.items, 0..) |character, index| {
-                    layouter.addCharacter(character);
-                    if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
+                var index: usize = 0;
+                while (text_layout.next()) |_| : (index += 1) {
+                    if (click_pos[0] >= prev_x and click_pos[0] <= text_layout.current_offset[0]) {
                         const dist_prev = click_pos[0] - prev_x;
-                        const dist_this = layouter.pos[0] - click_pos[0];
+                        const dist_this = text_layout.current_offset[0] - click_pos[0];
                         if (dist_prev < dist_this) {
                             this.cursor_pos = index;
                         } else {
@@ -115,7 +115,7 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                         }
                         break;
                     }
-                    prev_x = layouter.pos[0];
+                    prev_x = text_layout.current_offset[0];
                 } else {
                     this.cursor_pos = this.text.items.len;
                 }
@@ -140,13 +140,13 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                 click.pos[1] - MARGIN[1] - style.padding.min[1],
             };
 
-            var layouter = style.text_font.textLayouter(style.text_scale);
+            var text_layout = style.text_font.textLayout(this.text.items, .{ .pos = .{ 0, 0 }, .scale = style.text_scale });
             var prev_x: f32 = 0;
-            for (this.text.items, 0..) |character, index| {
-                layouter.addCharacter(character);
-                if (click_pos[0] >= prev_x and click_pos[0] <= layouter.pos[0]) {
+            var index: usize = 0;
+            while (text_layout.next()) |_| : (index += 1) {
+                if (click_pos[0] >= prev_x and click_pos[0] <= text_layout.current_offset[0]) {
                     const dist_prev = click_pos[0] - prev_x;
-                    const dist_this = layouter.pos[0] - click_pos[0];
+                    const dist_this = text_layout.current_offset[0] - click_pos[0];
                     if (dist_prev < dist_this) {
                         this.selection_start = index;
                         this.cursor_pos = index;
@@ -156,9 +156,8 @@ fn processEvent(this: *@This(), event: seizer.input.Event) ?Element {
                     }
                     break;
                 }
-                prev_x = layouter.pos[0];
+                prev_x = text_layout.current_offset[0];
             } else {
-                this.selection_start = this.text.items.len;
                 this.cursor_pos = this.text.items.len;
             }
 
@@ -299,8 +298,8 @@ pub fn getMinSize(this: *@This()) [2]f32 {
         this.default_style;
 
     return .{
-        this.width * style.text_font.lineHeight * style.text_scale + style.padding.size()[0] + 2 * MARGIN[0],
-        style.text_font.lineHeight * style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
+        this.width * style.text_font.line_height * style.text_scale + style.padding.size()[0] + 2 * MARGIN[0],
+        style.text_font.line_height * style.text_scale + style.padding.size()[1] + 2 * MARGIN[1],
     };
 }
 
@@ -319,7 +318,7 @@ fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
         },
         .size = [2]f32{
             rect.size[0] - 2 * MARGIN[0],
-            parent_canvas.canvas.font.lineHeight * style.text_scale + style.padding.size()[1],
+            style.text_font.line_height * style.text_scale + style.padding.size()[1],
         },
     }, .{
         .scale = 1,
@@ -347,15 +346,14 @@ fn render(this: *@This(), parent_canvas: Canvas.Transformed, rect: Rect) void {
 
     const canvas = parent_canvas.scissored(text_rect);
 
-    _ = canvas.writeText(text_rect.pos, this.text.items, .{
-        .font = style.text_font,
+    _ = canvas.writeText(style.text_font, text_rect.pos, this.text.items, .{
         .scale = style.text_scale,
         .color = style.text_color,
     });
     if (this.stage.isFocused(this.element())) {
         canvas.rect(
             .{ rect.pos[0] + MARGIN[0] + style.padding.min[0] + pre_cursor_size[0], rect.pos[1] + MARGIN[1] + style.padding.min[1] },
-            .{ style.text_scale, canvas.canvas.font.lineHeight * style.text_scale },
+            .{ style.text_scale, style.text_font.line_height * style.text_scale },
             .{
                 .color = style.text_color,
             },
